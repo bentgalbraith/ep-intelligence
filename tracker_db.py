@@ -28,6 +28,8 @@ DEFAULT_STEPS = [
 
 @contextmanager
 def get_conn():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is not set")
     conn = psycopg2.connect(DATABASE_URL)
     try:
         yield conn
@@ -104,22 +106,22 @@ def init_db():
         with conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS _schema_version (
-                    version INT NOT NULL DEFAULT 0
+                    version INT NOT NULL DEFAULT -1
                 )
             """)
             cur.execute("SELECT version FROM _schema_version LIMIT 1")
             row = cur.fetchone()
-            current = row[0] if row else -1
+            if row is None:
+                cur.execute("INSERT INTO _schema_version (version) VALUES (-1)")
+                current = -1
+            else:
+                current = row[0]
 
             for i, statements in enumerate(MIGRATIONS):
                 if i > current:
                     for sql in statements:
                         cur.execute(sql)
-
-            if row is None:
-                cur.execute("INSERT INTO _schema_version (version) VALUES (%s)", (len(MIGRATIONS) - 1,))
-            else:
-                cur.execute("UPDATE _schema_version SET version = %s", (len(MIGRATIONS) - 1,))
+                    cur.execute("UPDATE _schema_version SET version = %s", (i,))
 
 
 def seed_firm_if_empty():
