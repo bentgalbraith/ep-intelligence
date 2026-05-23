@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+
+{% block title %}Client Detail — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <div class="navbar-left">
+        <a href="{{ url_for('client_progress') }}" class="navbar-brand">
+            <svg class="navbar-brand-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m15 18-6-6 6-6"/>
+            </svg>
+            Client Progress Tracker
+        </a>
+        <span class="navbar-sep">/</span>
+        <span class="navbar-page" id="page-title">Loading…</span>
+    </div>
+    <a href="{{ url_for('logout') }}" class="btn-pill btn-sm">Log Out</a>
+</nav>
+
+<main class="detail-main">
+    <div class="detail-info" id="client-info">
+        <div class="detail-info-item detail-info-item--wide">
+            <label class="detail-info-label" for="ci-name">Client Name</label>
+            <input class="detail-info-input" id="ci-name" type="text" autocomplete="off">
+        </div>
+        <div class="detail-info-item">
+            <label class="detail-info-label" for="ci-code">Client ID <span class="modal-hint">(case-sensitive)</span></label>
+            <input class="detail-info-input" id="ci-code" type="text" autocomplete="off">
+        </div>
+        <div class="detail-info-item">
+            <label class="detail-info-label" for="ci-pw">Access Code <span class="modal-hint">(case-sensitive)</span></label>
+            <input class="detail-info-input" id="ci-pw" type="text" autocomplete="off">
+        </div>
+        <div class="detail-info-item">
+            <span class="detail-info-label">Created</span>
+            <div class="detail-info-row">
+                <span class="detail-info-value" id="ci-created"></span>
+                <button class="btn-pill btn-sm btn-copy" id="btn-copy-login" type="button">COPY INFO</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="detail-steps" id="steps-container">
+        <div class="detail-steps-header">
+            <h3 class="detail-steps-title">Steps</h3>
+            <button class="btn-pill btn-sm" id="btn-add-step" type="button">Add Step</button>
+        </div>
+        <div class="step-list" id="step-list"></div>
+    </div>
+
+    <div class="save-bar is-hidden" id="save-bar">
+        <span class="save-bar-text">You have unsaved changes.</span>
+        <button class="btn-pill btn-sm btn-generate save-bar-btn" id="btn-save" type="button" style="width:auto;margin:0;border-radius:100px;">Save Changes</button>
+    </div>
+
+    <div class="modal-overlay" id="del-step-overlay" style="display:none">
+        <div class="modal-box">
+            <h3 class="modal-title">Delete Step</h3>
+            <p style="color: rgba(222,228,196,0.6); font-size: 0.88rem; line-height:1.6; margin: 0.2rem 0 1.2rem;">
+                Are you sure you want to delete this step?
+            </p>
+            <div class="modal-actions">
+                <button type="button" class="btn-pill btn-sm modal-cancel" id="del-step-cancel">Cancel</button>
+                <button type="button" class="btn-pill btn-sm" id="del-step-confirm"
+                    style="border-color:#c45c5c; color:#c45c5c;">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="step-overlay" style="display:none">
+        <div class="modal-box">
+            <h3 class="modal-title" id="step-modal-title">Add Step</h3>
+            <form id="step-form" class="modal-form">
+                <input type="hidden" id="step-edit-id">
+                <label class="field-label">Step Name</label>
+                <input class="modal-input" id="sf-name" type="text" required autocomplete="off">
+                <label class="field-label">Description</label>
+                <textarea class="modal-input modal-textarea" id="sf-desc" rows="3"></textarea>
+                <div class="modal-actions">
+                    <button type="button" class="btn-pill btn-sm modal-cancel" id="step-cancel">Cancel</button>
+                    <button type="submit" class="btn-pill btn-sm btn-generate" id="step-save" style="width:auto;margin:0;border-radius:100px;">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const CLIENT_ID = '{{ client_id }}';
+    const pageTitle = document.getElementById('page-title');
+    const listEl = document.getElementById('step-list');
+    const stepOverlay = document.getElementById('step-overlay');
+    const stepForm = document.getElementById('step-form');
+    const saveBar = document.getElementById('save-bar');
+    const saveBtn = document.getElementById('btn-save');
+    const ciName = document.getElementById('ci-name');
+    const ciCode = document.getElementById('ci-code');
+    const ciPw = document.getElementById('ci-pw');
+    const ciCreated = document.getElementById('ci-created');
+
+    let serverSteps = [];
+    let localSteps = [];
+    let dirty = false;
+    let dragSrcId = null;
+    let deleteStepIdx = null;
+    const delStepOverlay = document.getElementById('del-step-overlay');
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+    function markDirty() { dirty = true; saveBar.style.display = ''; requestAnimationFrame(() => saveBar.classList.remove('is-hidden')); }
+    function markClean() { dirty = false; saveBar.classList.add('is-hidden'); }
+
+    async function load() {
+        const res = await fetch(`/api/tracker/clients/${CLIENT_ID}`);
+        if (!res.ok) { pageTitle.textContent = 'Not found'; return; }
+        const data = await res.json();
+        pageTitle.textContent = data.client_name;
+        ciName.value = data.client_name;
+        ciCode.value = data.client_id_code;
+        ciPw.value = data.access_code_plain || '';
+        ciCreated.textContent = new Date(data.created_at).toLocaleDateString();
+        serverSteps = data.steps;
+        localSteps = JSON.parse(JSON.stringify(serverSteps));
+        markClean();
+        render();
+    }
+
+    function render() {
+        listEl.innerHTML = '';
+        localSteps.forEach((s, i) => {
+            const card = document.createElement('div');
+            card.className = `step-card step-card--${s.status}`;
+            card.draggable = true;
+            card.dataset.idx = i;
+            card.dataset.id = s.id || '';
+            const isComplete = s.status === 'complete';
+            const dotContent = isComplete
+                ? `<svg class="step-check" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`
+                : '';
+            card.innerHTML = `
+                <div class="step-card-drag" title="Drag to reorder">⠿</div>
+                <div class="step-card-indicator">
+                    ${i > 0 ? '<div class="step-line step-line--above"></div>' : '<div class="step-line-spacer"></div>'}
+                    <div class="step-dot" data-set-current="${i}" title="Set as current step">${dotContent}</div>
+                    ${i < localSteps.length - 1 ? '<div class="step-line step-line--below"></div>' : '<div class="step-line-spacer"></div>'}
+                </div>
+                <div class="step-card-body">
+                    <div class="step-card-top">
+                        <span class="step-card-name">${esc(s.name)}</span>
+                        <div class="step-card-controls">
+                            <button class="tracker-action-btn" data-edit-step="${i}" title="Edit">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                            </button>
+                            <button class="tracker-action-btn tracker-action-btn--danger" data-del-step="${i}" title="Delete">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    ${s.description ? `<p class="step-card-desc">${esc(s.description)}</p>` : ''}
+                    <div class="step-card-notes-wrap">
+                        <textarea class="step-card-notes" data-notes-idx="${i}" placeholder="Notes…" rows="2">${esc(s.notes)}</textarea>
+                    </div>
+                </div>`;
+            listEl.appendChild(card);
+        });
+        bindDrag();
+    }
+
+    ciName.addEventListener('input', markDirty);
+    ciCode.addEventListener('input', markDirty);
+    ciPw.addEventListener('input', markDirty);
+
+    listEl.addEventListener('click', e => {
+        const dot = e.target.closest('[data-set-current]');
+        if (dot) {
+            const idx = parseInt(dot.dataset.setCurrent);
+            localSteps.forEach((s, i) => { s.status = i < idx ? 'complete' : i === idx ? 'active' : 'pending'; });
+            markDirty(); render(); return;
+        }
+        const editBtn = e.target.closest('[data-edit-step]');
+        const delBtn = e.target.closest('[data-del-step]');
+        if (editBtn) { const idx = parseInt(editBtn.dataset.editStep); const s = localSteps[idx]; openStepModal('Edit Step', idx, s.name, s.description); }
+        if (delBtn) { deleteStepIdx = parseInt(delBtn.dataset.delStep); delStepOverlay.style.display = ''; }
+    });
+
+    document.getElementById('del-step-cancel').addEventListener('click', () => { delStepOverlay.style.display = 'none'; });
+    delStepOverlay.addEventListener('click', e => { if (e.target === delStepOverlay) delStepOverlay.style.display = 'none'; });
+    document.getElementById('del-step-confirm').addEventListener('click', () => {
+        const s = localSteps[deleteStepIdx];
+        if (s.id) fetch(`/api/tracker/steps/${s.id}`, {method: 'DELETE'});
+        localSteps.splice(deleteStepIdx, 1);
+        delStepOverlay.style.display = 'none';
+        markDirty(); render();
+    });
+
+    listEl.addEventListener('input', e => {
+        const ta = e.target.closest('.step-card-notes');
+        if (!ta) return;
+        localSteps[parseInt(ta.dataset.notesIdx)].notes = ta.value;
+        markDirty();
+    });
+
+    document.getElementById('btn-add-step').addEventListener('click', () => openStepModal('Add Step', -1, '', ''));
+
+    function openStepModal(title, idx, name, desc) {
+        document.getElementById('step-modal-title').textContent = title;
+        document.getElementById('step-edit-id').value = idx;
+        document.getElementById('sf-name').value = name;
+        document.getElementById('sf-desc').value = desc;
+        stepOverlay.style.display = '';
+        document.getElementById('sf-name').focus();
+    }
+
+    document.getElementById('step-cancel').addEventListener('click', () => { stepOverlay.style.display = 'none'; });
+    stepOverlay.addEventListener('click', e => { if (e.target === stepOverlay) stepOverlay.style.display = 'none'; });
+
+    stepForm.addEventListener('submit', e => {
+        e.preventDefault();
+        const idx = parseInt(document.getElementById('step-edit-id').value);
+        const name = document.getElementById('sf-name').value;
+        const desc = document.getElementById('sf-desc').value;
+        if (idx >= 0) { localSteps[idx].name = name; localSteps[idx].description = desc; }
+        else { localSteps.push({ id: null, name, description: desc, notes: '', sort_order: localSteps.length, status: 'pending' }); }
+        stepOverlay.style.display = 'none';
+        markDirty(); render();
+    });
+
+    saveBtn.addEventListener('click', async () => {
+        saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+        const clientUpdate = { client_name: ciName.value.trim(), client_id_code: ciCode.value.trim() };
+        if (ciPw.value.trim()) clientUpdate.access_code = ciPw.value.trim();
+        await fetch(`/api/tracker/clients/${CLIENT_ID}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(clientUpdate) });
+        const existingIds = [];
+        for (let i = 0; i < localSteps.length; i++) {
+            const s = localSteps[i];
+            if (s.id) {
+                existingIds.push(s.id);
+                await fetch(`/api/tracker/steps/${s.id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name: s.name, description: s.description, notes: s.notes, status: s.status }) });
+            } else {
+                const res = await fetch(`/api/tracker/clients/${CLIENT_ID}/steps`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name: s.name, description: s.description, sort_order: i }) });
+                const data = await res.json(); s.id = data.id; existingIds.push(data.id);
+            }
+        }
+        if (existingIds.length) {
+            await fetch(`/api/tracker/clients/${CLIENT_ID}/reorder`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({step_ids: existingIds}) });
+        }
+        markClean(); saveBtn.disabled = false; saveBtn.textContent = 'Save Changes'; await load();
+    });
+
+    document.getElementById('btn-copy-login').addEventListener('click', () => {
+        const name = ciName.value.trim() || 'Client';
+        const id = ciCode.value.trim();
+        const pw = ciPw.value.trim();
+        const text = `Progress Tracker Login Instructions for ${name}\n\nWebsite: https://ep-intelligence.com/track\nClient ID: ${id}\nAccess Code: ${pw}\n\nPlease note that the ID and Access Code are case sensitive.`;
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = document.getElementById('btn-copy-login');
+            btn.innerHTML = '✓ COPIED'; btn.classList.add('btn-copy--done');
+            setTimeout(() => { btn.textContent = 'COPY INFO'; btn.classList.remove('btn-copy--done'); }, 3000);
+        });
+    });
+
+    function bindDrag() {
+        listEl.querySelectorAll('.step-card').forEach(card => {
+            card.addEventListener('dragstart', e => { dragSrcId = card.dataset.idx; card.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+            card.addEventListener('dragend', () => card.classList.remove('dragging'));
+            card.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; const rect = card.getBoundingClientRect(); const mid = rect.top + rect.height / 2; card.classList.toggle('drag-above', e.clientY < mid); card.classList.toggle('drag-below', e.clientY >= mid); });
+            card.addEventListener('dragleave', () => card.classList.remove('drag-above', 'drag-below'));
+            card.addEventListener('drop', e => {
+                e.preventDefault(); card.classList.remove('drag-above', 'drag-below');
+                const fromIdx = parseInt(dragSrcId); const toCard = parseInt(card.dataset.idx);
+                if (fromIdx === toCard) return;
+                const [moved] = localSteps.splice(fromIdx, 1);
+                const rect = card.getBoundingClientRect();
+                const insertIdx = e.clientY < rect.top + rect.height / 2 ? toCard : toCard + 1;
+                const adjustedIdx = fromIdx < toCard ? insertIdx - 1 : insertIdx;
+                localSteps.splice(adjustedIdx < 0 ? 0 : adjustedIdx, 0, moved);
+                markDirty(); render();
+            });
+        });
+    }
+
+    load();
+})();
+</script>
+{% endblock %}

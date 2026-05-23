@@ -1,0 +1,122 @@
+{
+  "schema_id": "prospect_ep_extraction_schema_v1",
+  "schema_name": "Prospect EP Document Extraction Schema",
+  "schema_description": "Structured field schema for extracting key estate planning details from a prospect's existing trust documents. Designed so an attorney can quickly understand the prospect's current plan before a meeting.",
+  "sections": [
+    {
+      "id": "trust_overview",
+      "name": "Trust Overview",
+      "description": "High-level identification of the trust instrument, its type, and governing details.",
+      "fields": [
+        {
+          "id": "grantor",
+          "name": "Grantor",
+          "type": "text",
+          "description": "The grantor(s) / settlor(s) / trustor(s) who created the trust."
+        },
+        {
+          "id": "trust_type",
+          "name": "Trust Type",
+          "type": "choice",
+          "options": ["Revocable", "Irrevocable"],
+          "description": "Whether the trust is revocable or irrevocable."
+        },
+        {
+          "id": "date_signed",
+          "name": "Date Signed",
+          "type": "text",
+          "description": "The date(s) the trust documents were signed or last restated/amended."
+        },
+        {
+          "id": "governing_law",
+          "name": "Governing Law",
+          "type": "text",
+          "description": "The state or jurisdiction whose law governs the trust."
+        }
+      ]
+    },
+    {
+      "id": "beneficiaries_and_distributions",
+      "name": "Beneficiaries and Distributions",
+      "description": "Who benefits from the trust, how assets are distributed, and any GST provisions.",
+      "fields": [
+        {
+          "id": "current_beneficiaries",
+          "name": "Current Beneficiaries",
+          "type": "text",
+          "description": "The current beneficiaries of the trust (e.g. Grantor, Grantor and Spouse, children, etc.)."
+        },
+        {
+          "id": "funding_formula",
+          "name": "Formula for Funding Upon First Death",
+          "type": "text",
+          "description": "How trust assets are allocated or divided upon the first spouse's death (e.g. credit shelter, marital deduction, disclaimer, fractional, pecuniary)."
+        },
+        {
+          "id": "specific_distributions",
+          "name": "Specific Distributions",
+          "type": "text",
+          "description": "Any specific gifts, bequests, or tangible personal property distributions specified in the documents."
+        },
+        {
+          "id": "gst_status",
+          "name": "GST Status",
+          "type": "choice",
+          "options": ["GST-Exempt", "Non-Exempt", "Partially Exempt", "Unclear/Not Stated"],
+          "description": "Whether the trust is GST-exempt, non-exempt, or partially exempt based on the allocation of GST exemption described in the documents."
+        },
+        {
+          "id": "gst_provisions",
+          "name": "GST Provisions",
+          "type": "text",
+          "description": "Generation-skipping transfer tax provisions, allocations, or exemption planning described in the documents."
+        }
+      ]
+    },
+    {
+      "id": "trust_structure",
+      "name": "Trust Structure",
+      "description": "How separate trusts are structured after the triggering event and what powers beneficiaries hold.",
+      "fields": [
+        {
+          "id": "separate_trust_structure",
+          "name": "Structure of Separate Trusts",
+          "type": "text",
+          "description": "How separate/successor trusts are structured: whether distributions are outright or held in further trust, withdrawal powers (e.g. 5-and-5), powers of appointment (limited or general), and trust termination provisions."
+        }
+      ]
+    },
+    {
+      "id": "fiduciaries",
+      "name": "Fiduciaries",
+      "description": "Trustees, agents, and protectors named in the documents.",
+      "fields": [
+        {
+          "id": "trustees_and_agents",
+          "name": "Trustees / Agents",
+          "type": "text",
+          "description": "The trustees (initial, successor, disability) and any agents (POA, healthcare surrogate, personal representative) named in the documents."
+        },
+        {
+          "id": "trust_protector",
+          "name": "Trust Protector",
+          "type": "text",
+          "description": "The trust protector, if any, and a brief description of their powers if stated."
+        }
+      ]
+    },
+    {
+      "id": "other_notes",
+      "name": "Other Notes",
+      "description": "Any other notable provisions or details an attorney should be aware of.",
+      "fields": [
+        {
+          "id": "other_notes",
+          "name": "Other Notes",
+          "type": "text",
+          "description": "Any other key details, notable provisions, unusual clauses, or important context not captured in the fields above that an attorney should know before a meeting."
+        }
+      ]
+    }
+  ]
+}

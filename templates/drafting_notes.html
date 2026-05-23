@@ -1,0 +1,357 @@
+{% extends "tool_base.html" %}
+{% set page_title = "Generate Drafting Notes From Transcript" %}
+
+{% block form_panel %}
+<form class="ep-form" id="ep-form">
+    <label class="field-label" for="transcript">Intro Meeting PLAUD Transcript</label>
+    <textarea
+        id="transcript"
+        name="transcript"
+        class="field-textarea"
+        placeholder="Copy and paste here..."
+        rows="10"
+    ></textarea>
+
+    <label class="field-label" for="notes">Additional Notes to Consider</label>
+    <textarea
+        id="notes"
+        name="notes"
+        class="field-textarea field-textarea--short"
+        placeholder="Anything important not mentioned in the transcript..."
+        rows="4"
+    ></textarea>
+
+    <button type="submit" class="btn-pill btn-generate" id="btn-generate">
+        <span class="btn-label">Generate</span>
+        <span class="spinner" hidden></span>
+    </button>
+</form>
+{% endblock %}
+
+{% block result_header %}
+<div class="result-header" id="result-header" style="display:none">
+    <button type="button" class="btn-download btn-download--secondary" id="btn-csv">DOWNLOAD RAW DATA CSV</button>
+    <button type="button" class="btn-download btn-download--primary" id="btn-docx">DOWNLOAD DRAFTING NOTES</button>
+</div>
+{% endblock %}
+
+{% block tool_scripts %}
+<script>
+    const transcript = document.getElementById('transcript');
+    const notes = document.getElementById('notes');
+    const btnCsv = document.getElementById('btn-csv');
+    const btnDocx = document.getElementById('btn-docx');
+
+    let lastData = null;
+
+    const tool = initToolForm({
+        formId: 'ep-form',
+        btnId: 'btn-generate',
+        async onSubmit({ setLoading, showResult, showError, btnLabel, hasRun }) {
+            if (!transcript.value.trim()) return;
+
+            const state = setLoading(true);
+            document.getElementById('result-header').style.display = 'none';
+            transcript.disabled = true;
+            notes.disabled = true;
+            state.btnLabel.textContent = 'Generating...';
+
+            try {
+                const res = await fetchWithTimeout('{{ url_for("api_ep_extract") }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        transcript: transcript.value,
+                        notes: notes.value,
+                    }),
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Something went wrong');
+
+                lastData = data;
+                document.getElementById('result-header').style.display = 'flex';
+                showResult(renderExtraction(data));
+            } catch (err) {
+                document.getElementById('result-header').style.display = 'none';
+                lastData = null;
+                showError(err.message);
+            } finally {
+                const s = setLoading(false);
+                transcript.disabled = false;
+                notes.disabled = false;
+                s.btnLabel.textContent = hasRun() ? 'Re-Generate' : 'Generate';
+            }
+        }
+    });
+
+    function renderExtraction(data) {
+        const sections = data.sections;
+        const schemaSections = data.schema;
+        const repeatableSet = new Set(data.repeatable_sections);
+        let html = '';
+
+        for (const schemaSec of schemaSections) {
+            const secData = sections[schemaSec.id];
+            const isRepeatable = repeatableSet.has(schemaSec.id);
+            let sectionHtml = '';
+
+            if (isRepeatable && secData && secData.entries) {
+                for (let i = 0; i < secData.entries.length; i++) {
+                    const entry = secData.entries[i];
+                    const entryHtml = renderFields(schemaSec.fields, entry.fields, schemaSec.id, i);
+                    if (entryHtml) {
+                        sectionHtml += `<div class="extract-entry">
+                            <div class="extract-entry-label">Entry ${i + 1}</div>
+                            ${entryHtml}
+                        </div>`;
+                    }
+                }
+            } else {
+                const fieldData = secData ? secData.fields : null;
+                sectionHtml = renderFields(schemaSec.fields, fieldData, schemaSec.id, null);
+            }
+
+            if (!sectionHtml) continue;
+
+            html += `<details class="extract-section" open>
+                <summary class="extract-section-header">${schemaSec.name}</summary>
+                <div class="extract-section-body">${sectionHtml}</div>
+            </details>`;
+        }
+
+        return html || '<p class="result-empty-text">No data could be extracted from this transcript.</p>';
+    }
+
+    function renderFieldIcons(sf, fd, hasValue) {
+        const quoteIcon = (hasValue && fd.quote)
+            ? `<span class="tip-icon" data-tip="${escapeAttrQuoted(fd.quote)}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V21z"/>
+                    <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3z"/>
+                </svg>
+            </span>`
+            : '';
+        const descIcon = `<span class="tip-icon" data-tip="${escapeAttr(sf.description)}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+            </svg>
+        </span>`;
+        return descIcon + quoteIcon;
+    }
+
+    function renderChoiceField(sf, dataKey, value, options) {
+        let optionsHtml = '';
+        for (const opt of options) {
+            const checked = value === opt ? ' checked' : '';
+            const id = `${dataKey}__${opt.replace(/\s+/g, '_')}`;
+            optionsHtml += `<label class="radio-option" for="${escapeAttr(id)}">
+                <input type="radio" id="${escapeAttr(id)}" name="${escapeAttr(dataKey)}" value="${escapeAttr(opt)}"${checked}>
+                <span class="radio-label">${escapeHtml(opt)}</span>
+            </label>`;
+        }
+        return `<div class="extract-field-options" data-key="${escapeAttr(dataKey)}" data-field-type="choice">${optionsHtml}</div>`;
+    }
+
+    function renderYesNoField(sf, dataKey, value) {
+        return renderChoiceField(sf, dataKey, value, ['Yes', 'No']);
+    }
+
+    function renderTextField(sf, dataKey, hasValue, displayValue) {
+        const valueClass = hasValue ? 'extract-field-value' : 'extract-field-value extract-field-null';
+        const placeholder = hasValue ? '' : 'NOT CLEAR VIA TRANSCRIPT';
+        return `<div class="${valueClass}" contenteditable="true" data-key="${escapeAttr(dataKey)}" data-field-type="text">${hasValue ? escapeHtml(displayValue) : placeholder}</div>`;
+    }
+
+    function renderFields(schemaFields, fieldData, sectionId, entryIdx) {
+        let html = '';
+
+        for (const sf of schemaFields) {
+            if (sf.group_header) {
+                html += `<div class="extract-group-header">${escapeHtml(sf.group_header)}</div>`;
+            }
+
+            const fd = fieldData ? fieldData[sf.id] : null;
+            const hasValue = fd && fd.value != null;
+            const displayValue = hasValue ? String(fd.value) : '';
+            const dataKey = entryIdx !== null
+                ? `${sectionId}__${entryIdx}__${sf.id}`
+                : `${sectionId}__${sf.id}`;
+            const fieldType = sf.type || 'text';
+            const icons = renderFieldIcons(sf, fd, hasValue);
+
+            let condAttr = '';
+            if (sf.condition) {
+                condAttr = ` data-condition-field="${escapeAttr(sf.condition.field)}" data-condition-value="${escapeAttr(sf.condition.value)}"`;
+            }
+
+            let valueHtml;
+            if (fieldType === 'choice') {
+                valueHtml = renderChoiceField(sf, dataKey, displayValue, sf.options || []);
+            } else if (fieldType === 'yes_no') {
+                valueHtml = renderYesNoField(sf, dataKey, displayValue);
+            } else {
+                valueHtml = renderTextField(sf, dataKey, hasValue, displayValue);
+            }
+
+            html += `<div class="extract-field"${condAttr}>
+                <div class="extract-field-name">${sf.name} ${icons}</div>
+                ${valueHtml}
+            </div>`;
+        }
+
+        return html;
+    }
+
+    function escapeAttrQuoted(str) {
+        return '&ldquo;' + escapeAttr(str) + '&rdquo;';
+    }
+
+    tool.resultContent.addEventListener('focusin', (e) => {
+        if (e.target.classList.contains('extract-field-null')) {
+            if (e.target.textContent === 'NOT CLEAR VIA TRANSCRIPT') {
+                e.target.textContent = '';
+            }
+            e.target.classList.remove('extract-field-null');
+        }
+    });
+
+    tool.resultContent.addEventListener('focusout', (e) => {
+        if (e.target.classList.contains('extract-field-value') && !e.target.textContent.trim()) {
+            e.target.textContent = 'NOT CLEAR VIA TRANSCRIPT';
+            e.target.classList.add('extract-field-null');
+        }
+    });
+
+    async function downloadExport(url, filenameBase, ext) {
+        if (!lastData) return;
+
+        const payload = {
+            sections: collectCurrentValues(lastData),
+            schema: lastData.schema,
+            repeatable_sections: lastData.repeatable_sections,
+        };
+
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Download failed');
+        }
+
+        const blob = await res.blob();
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = href;
+        a.download = `${filenameBase}_${exportTimestamp()}.${ext}`;
+        a.click();
+        URL.revokeObjectURL(href);
+    }
+
+    btnCsv.addEventListener('click', async () => {
+        if (!lastData) return;
+        btnCsv.disabled = true;
+        try {
+            await downloadExport('{{ url_for("api_ep_export_csv") }}', 'EP_Raw_Data', 'csv');
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            btnCsv.disabled = false;
+        }
+    });
+
+    btnDocx.addEventListener('click', async () => {
+        if (!lastData) return;
+        btnDocx.disabled = true;
+        try {
+            await downloadExport('{{ url_for("api_ep_export_docx") }}', 'EP_Drafting_Notes', 'docx');
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            btnDocx.disabled = false;
+        }
+    });
+
+    function collectCurrentValues(data) {
+        const sections = JSON.parse(JSON.stringify(data.sections));
+
+        function setFieldValue(key, val) {
+            const parts = key.split('__');
+            if (parts.length >= 3 && sections[parts[0]]?.entries) {
+                const [secId, entryIdx, ...rest] = parts;
+                const fieldId = rest[0];
+                const entry = sections[secId].entries[parseInt(entryIdx)];
+                if (entry) {
+                    if (!entry.fields[fieldId]) entry.fields[fieldId] = {};
+                    entry.fields[fieldId].value = val;
+                }
+            } else {
+                const secId = parts[0];
+                const fieldId = parts[1];
+                if (sections[secId]) {
+                    if (!sections[secId].fields) sections[secId].fields = {};
+                    if (!sections[secId].fields[fieldId]) sections[secId].fields[fieldId] = {};
+                    sections[secId].fields[fieldId].value = val;
+                }
+            }
+        }
+
+        tool.resultContent.querySelectorAll('[data-field-type="text"]').forEach(el => {
+            let val = el.textContent.trim();
+            if (val === 'NOT CLEAR VIA TRANSCRIPT') val = null;
+            setFieldValue(el.dataset.key, val);
+        });
+
+        tool.resultContent.querySelectorAll('[data-field-type="choice"]').forEach(el => {
+            const checked = el.querySelector('input[type="radio"]:checked');
+            setFieldValue(el.dataset.key, checked ? checked.value : null);
+        });
+
+        return sections;
+    }
+
+    const tip = document.createElement('div');
+    tip.className = 'global-tooltip';
+    document.body.appendChild(tip);
+    let hideTimer = null;
+    let activeIcon = null;
+
+    document.addEventListener('mouseover', (e) => {
+        const icon = e.target.closest('.tip-icon');
+        if (!icon || !icon.dataset.tip) return;
+
+        clearTimeout(hideTimer);
+        activeIcon = icon;
+        tip.innerHTML = icon.dataset.tip;
+        tip.style.opacity = '1';
+
+        const rect = icon.getBoundingClientRect();
+        const tipWidth = tip.offsetWidth;
+        const tipHeight = tip.offsetHeight;
+
+        let left = rect.left + rect.width / 2 - tipWidth / 2;
+        left = Math.max(8, Math.min(left, window.innerWidth - tipWidth - 8));
+
+        let top = rect.top - tipHeight - 6;
+        if (top < 8) top = rect.bottom + 6;
+
+        tip.style.left = left + 'px';
+        tip.style.top = top + 'px';
+    });
+
+    document.addEventListener('mouseout', (e) => {
+        const icon = e.target.closest('.tip-icon');
+        if (!icon || icon !== activeIcon) return;
+        if (icon.contains(e.relatedTarget)) return;
+
+        hideTimer = setTimeout(() => {
+            tip.style.opacity = '0';
+            activeIcon = null;
+        }, 80);
+    });
+</script>
+{% endblock %}

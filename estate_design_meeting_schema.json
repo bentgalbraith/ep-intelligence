@@ -1,0 +1,155 @@
+{
+  "schema_id": "estate_design_meeting_intake_schema_v2",
+  "schema_name": "Estate Design Meeting Intake Schema",
+  "schema_description": "Structured field schema for extracting the exact planning details needed to populate the current Drafting Notes form from an introductory client meeting transcript. The schema is designed so the extracted output can be used directly to draft the form.",
+  "sections": [
+    {
+      "id": "client_and_matter_context",
+      "name": "Client and Matter Context",
+      "description": "Single-record section for the client identity and high-level matter setup reflected on the Drafting Notes form.",
+      "fields": [
+        {
+          "id": "client_name",
+          "name": "Client Name",
+          "type": "text",
+          "description": "Name of the client or client couple whose estate planning matter is being discussed."
+        },
+        {
+          "id": "draft_ep_diagram_based_on",
+          "name": "Draft EP Diagram Based On",
+          "type": "choice",
+          "options": ["Prior Plan", "Notes Below"],
+          "description": "Whether the Draft EP diagram should be based on the prior plan or on the meeting notes discussed in the current meeting."
+        },
+        {
+          "id": "restatement",
+          "name": "Restatement",
+          "type": "yes_no",
+          "description": "Whether the planning work is a restatement of an existing trust or estate plan."
+        }
+      ]
+    },
+    {
+      "id": "ancillary_document_agents",
+      "name": "Ancillary Document Agents",
+      "header": "Ancillary Document Agents:",
+      "description": "Single-record section for the people nominated to serve under the ancillary documents listed on the Drafting Notes form.",
+      "fields": [
+        {
+          "id": "hcs_lw_hipaa_agents",
+          "name": "HCS / LW / HIPAA",
+          "type": "text",
+          "description": "Name or names of the people who should serve for healthcare surrogate, living will, and HIPAA roles if discussed together."
+        },
+        {
+          "id": "power_of_attorney_agents",
+          "name": "Power of Attorney",
+          "type": "text",
+          "description": "Name or names of the people who should serve as financial or general power of attorney agents."
+        },
+        {
+          "id": "personal_representative",
+          "name": "Personal Representative",
+          "type": "text",
+          "description": "Name or names of the people who should serve as personal representative, executor, or equivalent probate fiduciary."
+        }
+      ]
+    },
+    {
+      "id": "trust_structure_and_fiduciaries",
+      "name": "Trust Structure and Fiduciaries",
+      "description": "Single-record section for the trust template, remarriage election, trustee appointments, and trust protector information needed to complete the Drafting Notes form.",
+      "fields": [
+        {
+          "id": "trust_template",
+          "name": "Trust Template",
+          "type": "choice",
+          "options": ["Big Marital", "Marital Disclaim", "Joint", "CPT"],
+          "description": "Which trust template structure should be used for the plan."
+        },
+        {
+          "id": "remarriage_provisions",
+          "name": "Remarriage Provisions",
+          "type": "yes_no",
+          "description": "Whether remarriage provisions should be included in the plan."
+        },
+        {
+          "id": "initial_trustees",
+          "name": "Initial Trustees",
+          "type": "text",
+          "description": "Name or names of the people who should serve as the initial acting trustees."
+        },
+        {
+          "id": "disability_admin_trustees",
+          "name": "Disability / Admin Trustees",
+          "type": "text",
+          "description": "Name or names of the people who should serve during disability or administrative phases of trust administration."
+        },
+        {
+          "id": "trustees_for_separate_trusts_marital_family",
+          "name": "Marital / Family",
+          "group_header": "Trustees for Separate Trusts:",
+          "type": "text",
+          "description": "Name or names of the trustees who should serve for marital or family separate trusts."
+        },
+        {
+          "id": "trustees_for_separate_trusts_other_benes",
+          "name": "Other Benes",
+          "type": "text",
+          "description": "Name or names of the trustees who should serve for separate trusts created for other beneficiaries."
+        },
+        {
+          "id": "has_trust_protector",
+          "name": "Trust Protector",
+          "type": "yes_no",
+          "description": "Whether the plan should include a trust protector."
+        },
+        {
+          "id": "trust_protector_name",
+          "name": "If yes, who",
+          "type": "text",
+          "condition": {"field": "has_trust_protector", "value": "Yes"},
+          "description": "Name of the person intended to serve as trust protector, if one is included."
+        }
+      ]
+    },
+    {
+      "id": "distribution_and_beneficiary_notes",
+      "name": "Distribution and Beneficiary Notes",
+      "description": "Single-record section for the substantive gift, separate trust, and contingent beneficiary instructions needed for the Drafting Notes form.",
+      "fields": [
+        {
+          "id": "specific_distributions",
+          "name": "Specific Distributions",
+          "type": "text",
+          "description": "Details of any specific gifts, bequests, distributions, or special carve-outs discussed during the meeting."
+        },
+        {
+          "id": "separate_trust_content",
+          "name": "Separate Trust Content",
+          "type": "text",
+          "description": "Details about how any separate trusts should work, what protections or terms they should include, or what content should be built into them."
+        },
+        {
+          "id": "remote_contingent_beneficiaries",
+          "name": "Remote Contingent Beneficiary(ies)",
+          "type": "text",
+          "description": "Name or description of the people or class of people who should inherit if the primary intended beneficiaries do not."
+        }
+      ]
+    },
+    {
+      "id": "general_notes",
+      "name": "General Notes",
+      "description": "Single-record section for any additional planning details needed to complete the Drafting Notes form.",
+      "fields": [
+        {
+          "id": "other_notes",
+          "name": "Other Notes",
+          "type": "text",
+          "description": "Any other relevant planning notes, drafting points, family context, or special instructions discussed during the meeting."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <div class="navbar-left">
+        <a href="{{ url_for('dashboard') }}" class="navbar-brand">
+            <svg class="navbar-brand-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m15 18-6-6 6-6"/>
+            </svg>
+            {{ firm_name or 'EP Intelligence' }}
+        </a>
+        <span class="navbar-sep">/</span>
+        <span class="navbar-page">{{ page_title }}</span>
+    </div>
+    <a href="{{ url_for('logout') }}" class="btn-pill btn-sm">Log Out</a>
+</nav>
+<main class="ep-layout">
+    <section class="ep-panel ep-form-panel">
+        {% block form_panel %}{% endblock %}
+    </section>
+    <section class="ep-panel ep-result-panel" id="result-panel">
+        {% block result_header %}{% endblock %}
+        <div class="result-empty" id="result-empty">Results will appear here</div>
+        <div class="result-content" id="result-content" style="display:none"></div>
+    </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/tool-common.js') }}"></script>
+{% block tool_scripts %}{% endblock %}
+{% endblock %}

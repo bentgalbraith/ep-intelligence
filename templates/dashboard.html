@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <a href="{{ url_for('dashboard') }}" class="navbar-brand">{{ firm_name or 'EP Intelligence' }}</a>
+    <a href="{{ url_for('logout') }}" class="btn-pill btn-sm">Log Out</a>
+</nav>
+<main class="dashboard">
+    <h2 class="dashboard-heading">What would you like to do?</h2>
+    <div class="tool-grid">
+        <a href="{{ url_for('drafting_notes') }}" class="tool-card">
+            <div class="tool-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>
+                </svg>
+            </div>
+            <span class="tool-label">Generate Drafting Notes From Transcript</span>
+        </a>
+        <a href="{{ url_for('doc_separator') }}" class="tool-card">
+            <div class="tool-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 7h-3a2 2 0 0 1-2-2V2"/><path d="M21 6v6.5c0 .8-.7 1.5-1.5 1.5h-7c-.8 0-1.5-.7-1.5-1.5v-9c0-.8.7-1.5 1.5-1.5H17Z"/><path d="M7 8v8.8c0 .3.2.6.4.8.2.2.5.4.8.4H15"/><path d="M3 12v8.8c0 .3.2.6.4.8.2.2.5.4.8.4H11"/>
+                </svg>
+            </div>
+            <span class="tool-label">Separate & Auto-Name Scanned Documents</span>
+        </a>
+        <a href="{{ url_for('prospect_summarizer') }}" class="tool-card">
+            <div class="tool-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/>
+                </svg>
+            </div>
+            <span class="tool-label">Summarize Prospect EP Documents</span>
+        </a>
+    </div>
+    <div class="tracker-strip" id="tracker-strip">
+        <button class="tracker-btn" id="tracker-btn" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>
+            </svg>
+            Track Client Progress
+        </button>
+        <form class="tracker-auth" id="tracker-auth">
+            <div class="tracker-auth-row">
+                <div class="tracker-auth-input-wrap">
+                    <input type="password" name="tracker_code" placeholder="Tracker Access Code" autocomplete="off" required>
+                    <p class="tracker-auth-error" id="tracker-auth-error"></p>
+                </div>
+                <button type="submit" class="btn-submit" aria-label="Submit">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+                    </svg>
+                </button>
+            </div>
+        </form>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const strip = document.getElementById('tracker-strip');
+    const btn = document.getElementById('tracker-btn');
+    const form = document.getElementById('tracker-auth');
+    const errEl = document.getElementById('tracker-auth-error');
+    const input = form.querySelector('input');
+
+    btn.addEventListener('click', function() {
+        strip.classList.add('is-open');
+        requestAnimationFrame(() => input.focus());
+    });
+
+    const submitBtn = form.querySelector('.btn-submit');
+
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        errEl.textContent = '';
+        submitBtn.classList.add('is-loading');
+        const code = input.value;
+        try {
+            const res = await fetch('{{ url_for("api_tracker_auth") }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({code}),
+            });
+            const data = await res.json();
+            if (res.ok && data.ok) {
+                window.location.href = '{{ url_for("client_progress") }}';
+            } else {
+                submitBtn.classList.remove('is-loading');
+                errEl.textContent = data.error || 'Invalid access code';
+                input.value = '';
+                input.focus();
+            }
+        } catch {
+            submitBtn.classList.remove('is-loading');
+            errEl.textContent = 'Something went wrong';
+        }
+    });
+})();
+</script>
+{% endblock %}

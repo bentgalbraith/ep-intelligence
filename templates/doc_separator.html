@@ -1,0 +1,217 @@
+{% extends "tool_base.html" %}
+{% set page_title = "Separate & Auto-Name Scanned Documents" %}
+
+{% block form_panel %}
+<form class="ep-form" id="sep-form">
+    <label class="field-label">Upload Scanned PDF</label>
+    <div class="file-drop-zone" id="drop-zone">
+        <input type="file" id="pdf-input" accept=".pdf" hidden>
+        <svg class="drop-zone-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/>
+        </svg>
+        <span class="drop-zone-text" id="drop-zone-text">Drag & drop a PDF here, or click to browse</span>
+    </div>
+    <button type="submit" class="btn-pill btn-generate" id="btn-process" disabled>
+        <span class="btn-label">Process</span>
+        <span class="spinner" hidden></span>
+    </button>
+</form>
+{% endblock %}
+
+{% block tool_scripts %}
+<script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('pdf-input');
+    const dropText = document.getElementById('drop-zone-text');
+
+    let selectedFile = null;
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) selectFile(fileInput.files[0]);
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (file && file.type === 'application/pdf') selectFile(file);
+    });
+
+    function selectFile(file) {
+        selectedFile = file;
+        dropText.textContent = file.name;
+        dropZone.classList.add('has-file');
+        tool.btn.disabled = false;
+    }
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    const STATUS_URL_TEMPLATE = '{{ url_for("api_doc_separate_status", job_id="__JID__") }}';
+
+    async function pollJob(jobId) {
+        const url = STATUS_URL_TEMPLATE.replace('__JID__', jobId);
+        while (true) {
+            await sleep(3000);
+            const res = await fetchWithTimeout(url);
+            const data = await res.json();
+
+            if (data.status === 'processing') continue;
+            if (data.status === 'error') throw new Error(data.error || 'Processing failed');
+            return data;
+        }
+    }
+
+    const tool = initToolForm({
+        formId: 'sep-form',
+        btnId: 'btn-process',
+        async onSubmit({ setLoading, showResult, showError, btnLabel, hasRun }) {
+            if (!selectedFile) return;
+
+            const state = setLoading(true);
+            state.btnLabel.textContent = 'Processing...';
+
+            try {
+                const fd = new FormData();
+                fd.append('pdf', selectedFile);
+
+                const uploadRes = await fetchWithTimeout('{{ url_for("api_doc_separate") }}', {
+                    method: 'POST',
+                    body: fd,
+                });
+
+                const uploadData = await uploadRes.json();
+                if (!uploadRes.ok) throw new Error(uploadData.error || 'Something went wrong');
+
+                const result = await pollJob(uploadData.job_id);
+                showResult(renderResults(result.documents, result.download_token, uploadData.job_id));
+            } catch (err) {
+                showError(err.message);
+            } finally {
+                const s = setLoading(false);
+                tool.btn.disabled = !selectedFile;
+                s.btnLabel.textContent = hasRun() ? 'Re-Process' : 'Process';
+            }
+        }
+    });
+
+    let lastJobId = null;
+    let lastDocuments = null;
+
+    const SINGLE_DL_TEMPLATE = '{{ url_for("api_doc_separate_download_single", token="__TKN__", doc_index=0) }}'.replace('/0', '/__IDX__');
+
+    function renderResults(docs, token, jobId) {
+        lastJobId = jobId;
+        lastDocuments = docs;
+
+        let html = '<div class="doc-list">';
+        html += `<div class="doc-list-header">${docs.length} document${docs.length !== 1 ? 's' : ''} detected</div>`;
+        for (let i = 0; i < docs.length; i++) {
+            const doc = docs[i];
+            const pages = doc.start_page === doc.end_page
+                ? `page ${doc.start_page}`
+                : `pages ${doc.start_page}–${doc.end_page}`;
+            const datePart = doc.document_date || '(Undated)';
+            const fname = `${doc.client_last_name}, ${doc.client_first_name} - ${doc.document_type} ${datePart}`;
+            const singleUrl = SINGLE_DL_TEMPLATE.replace('__TKN__', token).replace('__IDX__', i);
+            html += `<a href="${singleUrl}" download class="doc-list-item doc-list-item--link">
+                <span class="doc-list-check">✓</span>
+                <div class="doc-list-info">
+                    <span class="doc-list-name">${escapeHtml(fname)}.pdf</span>
+                    <span class="doc-list-pages">${pages}</span>
+                </div>
+            </a>`;
+        }
+        html += '</div>';
+        const dlUrl = '{{ url_for("api_doc_separate_download", token="__TKN__") }}'.replace('__TKN__', token);
+        html += `<a href="${dlUrl}" download="Separated_Documents_${exportTimestamp()}.zip" class="btn-pill btn-generate" style="text-align:center;text-decoration:none">Download ZIP Folder</a>`;
+
+        html += `<div class="redo-section" id="redo-section">
+            <button type="button" class="btn-pill btn-redo" id="btn-show-redo">Redo with Feedback</button>
+            <div class="redo-form" id="redo-form" hidden>
+                <label class="field-label">What To Fix</label>
+                <textarea class="field-textarea" id="redo-feedback" rows="3" placeholder="e.g. Pages 6-8 are a separate Power of Attorney for the wife, not part of the husband's trust."></textarea>
+                <button type="button" class="btn-pill btn-generate" id="btn-redo-submit">
+                    <span class="btn-label">Re-Process with Feedback</span>
+                    <span class="spinner" hidden></span>
+                </button>
+            </div>
+        </div>`;
+
+        return html;
+    }
+
+    document.addEventListener('click', (e) => {
+        if (e.target.id === 'btn-show-redo') {
+            e.target.hidden = true;
+            document.getElementById('redo-section').classList.add('is-open');
+            document.getElementById('redo-form').hidden = false;
+            document.getElementById('redo-feedback').focus();
+        }
+
+        if (e.target.id === 'btn-redo-submit' || e.target.closest('#btn-redo-submit')) {
+            handleRedo();
+        }
+    });
+
+    async function handleRedo() {
+        const feedback = document.getElementById('redo-feedback').value.trim();
+        if (!feedback || !lastJobId) return;
+
+        const btn = document.getElementById('btn-redo-submit');
+        const btnLabel = btn.querySelector('.btn-label');
+        const spinner = btn.querySelector('.spinner');
+        const textarea = document.getElementById('redo-feedback');
+
+        btn.disabled = true;
+        btnLabel.textContent = 'Processing...';
+        spinner.hidden = false;
+        textarea.disabled = true;
+
+        const redoStart = Date.now();
+
+        try {
+            const res = await fetchWithTimeout('{{ url_for("api_doc_separate_redo") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ job_id: lastJobId, feedback }),
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Something went wrong');
+
+            const result = await pollJob(data.job_id);
+            const resultPanel = document.getElementById('result-content');
+            if (resultPanel) {
+                resultPanel.innerHTML = renderResults(result.documents, result.download_token, data.job_id);
+            }
+
+            const totalSecs = (Date.now() - redoStart) / 1000;
+            const display = totalSecs >= 60
+                ? `${Math.floor(totalSecs / 60)}m ${(totalSecs % 60).toFixed(0)}s`
+                : `${totalSecs.toFixed(1)}s`;
+            const redoSection = document.getElementById('redo-section');
+            if (redoSection) {
+                const elapsed = document.createElement('p');
+                elapsed.className = 'result-elapsed';
+                elapsed.textContent = `Redo completed in ${display}`;
+                redoSection.appendChild(elapsed);
+            }
+        } catch (err) {
+            alert(err.message);
+            btn.disabled = false;
+            btnLabel.textContent = 'Re-Process with Feedback';
+            spinner.hidden = true;
+            textarea.disabled = false;
+        }
+    }
+</script>
+{% endblock %}
