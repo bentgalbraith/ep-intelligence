@@ -116,6 +116,16 @@ def init_db():
                 current = -1
             else:
                 current = row[0]
+                if current >= 0:
+                    cur.execute("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM information_schema.tables
+                            WHERE table_name = 'firms'
+                        )
+                    """)
+                    if not cur.fetchone()[0]:
+                        cur.execute("UPDATE _schema_version SET version = -1")
+                        current = -1
 
             for i, statements in enumerate(MIGRATIONS):
                 if i > current:
