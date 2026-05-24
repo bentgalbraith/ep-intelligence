@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% set cfg = firm.config if (firm and firm.config) else {} %}
+
+{% block title %}{{ 'Edit ' + firm.name if firm else 'New Firm' }} — Admin — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <div class="navbar-left">
+        <a href="{{ url_for('admin_firms') }}" class="navbar-brand">
+            <svg class="navbar-brand-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m15 18-6-6 6-6"/>
+            </svg>
+            Admin
+        </a>
+        <span class="navbar-sep">/</span>
+        <span class="navbar-page">{{ firm.name if firm else 'New Firm' }}</span>
+    </div>
+    <a href="{{ url_for('admin_logout') }}" class="btn-pill btn-sm">Log Out</a>
+</nav>
+
+<main class="admin-main admin-edit-main">
+    {% if error %}
+    <div class="admin-error-banner">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" class="admin-form" id="admin-form">
+        <section class="admin-section">
+            <h3 class="admin-section-title">Identity</h3>
+            <div class="admin-field-row">
+                <div class="admin-field">
+                    <label class="admin-label">Firm Name <span class="admin-req">*</span></label>
+                    <input class="admin-input" name="name" type="text" required
+                           value="{{ firm.name if firm else '' }}">
+                </div>
+                <div class="admin-field">
+                    <label class="admin-label">Slug <span class="admin-req">*</span></label>
+                    <input class="admin-input" name="slug" type="text" required
+                           value="{{ firm.slug if firm else '' }}"
+                           pattern="[a-z0-9\-]+" title="Lowercase letters, numbers, and hyphens only">
+                </div>
+            </div>
+            <div class="admin-field-row">
+                <div class="admin-field">
+                    <label class="admin-label">Tool Access Code{% if firm %} (leave blank to keep current){% else %} <span class="admin-req">*</span>{% endif %}</label>
+                    <input class="admin-input" name="access_code" type="text" autocomplete="off"
+                           {% if not firm %}required{% endif %}
+                           placeholder="{{ firm.access_code_plain if firm else '' }}">
+                </div>
+                <div class="admin-field">
+                    <label class="admin-label">Tracker Access Code{% if firm %} (leave blank to keep current){% else %} <span class="admin-req">*</span>{% endif %}</label>
+                    <input class="admin-input" name="tracker_access_code" type="text" autocomplete="off"
+                           {% if not firm %}required{% endif %}
+                           placeholder="{{ firm.tracker_access_code_plain if firm else '' }}">
+                </div>
+            </div>
+        </section>
+
+        <section class="admin-section">
+            <h3 class="admin-section-title">Firm Context <span class="admin-req">*</span></h3>
+            <p class="admin-hint">Injected into every AI prompt. Describe the firm, key personnel, and any output conventions.</p>
+            <textarea class="admin-textarea" name="firm_context" rows="4" required>{{ cfg.get('firm_context', '') }}</textarea>
+        </section>
+
+        <section class="admin-section">
+            <h3 class="admin-section-title">EP Extraction Schema <span class="admin-req">*</span></h3>
+            <p class="admin-hint">JSON schema defining sections and fields for drafting notes extraction. Must contain a top-level "sections" array.</p>
+            <textarea class="admin-textarea admin-textarea-json" name="ep_schema" rows="12" required>{{ cfg.get('ep_schema', '') | tojson(indent=2) if cfg.get('ep_schema') else '' }}</textarea>
+            <p class="admin-json-status" data-for="ep_schema"></p>
+        </section>
+
+        <section class="admin-section">
+            <h3 class="admin-section-title">EP Repeatable Sections <span class="admin-req">*</span></h3>
+            <p class="admin-hint">JSON array of section IDs that support multiple entries (e.g. family members, beneficiaries).</p>
+            <textarea class="admin-textarea admin-textarea-json" name="ep_repeatable_sections" rows="4" required>{{ cfg.get('ep_repeatable_sections', []) | tojson(indent=2) }}</textarea>
+            <p class="admin-json-status" data-for="ep_repeatable_sections"></p>
+        </section>
+
+        <section class="admin-section">
+            <h3 class="admin-section-title">Prospect Schema <span class="admin-req">*</span></h3>
+            <p class="admin-hint">JSON schema for prospect document summarization. Must contain a top-level "sections" array.</p>
+            <textarea class="admin-textarea admin-textarea-json" name="prospect_schema" rows="12" required>{{ cfg.get('prospect_schema', '') | tojson(indent=2) if cfg.get('prospect_schema') else '' }}</textarea>
+            <p class="admin-json-status" data-for="prospect_schema"></p>
+        </section>
+
+        <section class="admin-section">
+            <h3 class="admin-section-title">Document Separator</h3>
+            <div class="admin-field-row">
+                <div class="admin-field" style="flex:2">
+                    <label class="admin-label">Filename Format <span class="admin-req">*</span></label>
+                    <input class="admin-input" name="doc_filename_format" type="text" required
+                           value="{{ cfg.get('doc_filename_format', '') }}"
+                           placeholder="{last}, {first} - {type} {date}">
+                    <p class="admin-hint" style="margin-top:0.3rem">Placeholders: {last}, {first}, {type}, {date}</p>
+                </div>
+            </div>
+            <label class="admin-label" style="margin-top:0.75rem">Additional Rules</label>
+            <p class="admin-hint">Extra instructions for the AI when identifying document boundaries (optional).</p>
+            <textarea class="admin-textarea" name="doc_separator_rules" rows="3">{{ cfg.get('doc_separator_rules', '') }}</textarea>
+        </section>
+
+        <section class="admin-section">
+            <h3 class="admin-section-title">Tracker Default Steps <span class="admin-req">*</span></h3>
+            <p class="admin-hint">JSON array of default pipeline steps for new clients. Each entry needs "name", "description", and "sort_order".</p>
+            <textarea class="admin-textarea admin-textarea-json" name="tracker_default_steps" rows="8" required>{{ cfg.get('tracker_default_steps', []) | tojson(indent=2) }}</textarea>
+            <p class="admin-json-status" data-for="tracker_default_steps"></p>
+        </section>
+
+        <section class="admin-section">
+            <h3 class="admin-section-title">Client Portal</h3>
+            <div class="admin-field">
+                <label class="admin-label">Client Site URL</label>
+                <input class="admin-input" name="client_site_url" type="url"
+                       value="{{ cfg.get('client_site_url', '') }}"
+                       placeholder="https://example.com">
+            </div>
+        </section>
+
+        <div class="admin-form-actions">
+            <a href="{{ url_for('admin_firms') }}" class="btn-pill btn-sm">Cancel</a>
+            <button type="submit" class="btn-pill btn-sm btn-generate" id="btn-save">Save</button>
+        </div>
+    </form>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    document.querySelectorAll('.admin-textarea-json').forEach(function(ta) {
+        var status = document.querySelector('[data-for="' + ta.name + '"]');
+        function validate() {
+            var v = ta.value.trim();
+            if (!v) { status.textContent = ''; ta.classList.remove('is-json-error'); return; }
+            try {
+                JSON.parse(v);
+                status.textContent = 'Valid JSON';
+                status.className = 'admin-json-status is-valid';
+                ta.classList.remove('is-json-error');
+            } catch (e) {
+                status.textContent = 'Invalid JSON: ' + e.message;
+                status.className = 'admin-json-status is-invalid';
+                ta.classList.add('is-json-error');
+            }
+        }
+        ta.addEventListener('input', validate);
+        validate();
+    });
+
+    document.getElementById('admin-form').addEventListener('submit', function(e) {
+        var bad = document.querySelector('.admin-textarea-json.is-json-error');
+        if (bad) {
+            e.preventDefault();
+            bad.focus();
+            bad.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    });
+})();
+</script>
+{% endblock %}

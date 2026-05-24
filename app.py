@@ -35,6 +35,7 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 limiter = Limiter(get_remote_address, app=app)
 
 XAI_MODEL = os.environ.get("XAI_MODEL", "grok-4-1-fast-reasoning")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 xai_client = OpenAI(
     api_key=os.environ["XAI_API_KEY"],
@@ -71,32 +72,30 @@ def _get_firm_config(firm_id):
 
 
 def _get_ep_schema(firm_config):
-    """Extract the EP schema from firm config, falling back to file."""
     ep = firm_config.get("ep_schema")
-    if ep and ep.get("sections"):
-        return ep
-    from pathlib import Path
-    schema_path = Path(__file__).parent / "estate_design_meeting_schema.json"
-    if schema_path.exists():
-        with open(schema_path) as f:
-            return json.load(f)
-    return {"sections": []}
+    if not ep or not ep.get("sections"):
+        raise ValueError("Firm config is missing 'ep_schema'. Every firm must have a complete configuration.")
+    return ep
 
 
 def _get_repeatable_sections(firm_config):
-    return set(firm_config.get("ep_repeatable_sections") or [])
+    val = firm_config.get("ep_repeatable_sections")
+    if val is None:
+        raise ValueError("Firm config is missing 'ep_repeatable_sections'. Every firm must have a complete configuration.")
+    return set(val)
 
 
 def _get_prospect_schema(firm_config):
     ps = firm_config.get("prospect_schema")
-    if ps and ps.get("sections"):
-        return ps
-    return PROSPECT_SCHEMA
+    if not ps or not ps.get("sections"):
+        raise ValueError("Firm config is missing 'prospect_schema'. Every firm must have a complete configuration.")
+    return ps
 
 
 def _build_ep_extraction_prompt(firm_config):
-    """Build the EP extraction prompt with firm-specific context."""
-    firm_context = firm_config.get("firm_context", "")
+    firm_context = firm_config.get("firm_context")
+    if not firm_context:
+        raise ValueError("Firm config is missing 'firm_context'. Every firm must have a complete configuration.")
 
     prompt = """\
 You are a legal assistant specializing in estate planning. You will receive a \
@@ -206,6 +205,15 @@ def tracker_required(f):
     return decorated
 
 
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("is_admin"):
+            return redirect(url_for("admin_login"))
+        return f(*args, **kwargs)
+    return decorated
+
+
 # ---------------------------------------------------------------------------
 # Public pages
 # ---------------------------------------------------------------------------
@@ -275,7 +283,7 @@ def api_ep_extract():
         return jsonify({"error": "Transcript is required."}), 400
 
     firm_id = session.get("firm_id")
-    firm_config = _get_firm_config(firm_id) if firm_id else {}
+    firm_config = _get_firm_config(firm_id)
     ep_schema = _get_ep_schema(firm_config)
     repeatable_sections = _get_repeatable_sections(firm_config)
 
@@ -427,7 +435,7 @@ def api_doc_separate():
         return jsonify({"error": "The uploaded file is empty."}), 400
 
     firm_id = session.get("firm_id")
-    firm_config = _get_firm_config(firm_id) if firm_id else {}
+    firm_config = _get_firm_config(firm_id)
 
     job_id = uuid.uuid4().hex
     with _jobs_lock:
@@ -555,7 +563,9 @@ def api_doc_separate_redo():
     pdf_content = original_job.get("pdf_content")
     previous_documents = original_job.get("documents")
     firm_id = original_job.get("firm_id")
-    firm_config = original_job.get("firm_config") or {}
+    firm_config = original_job.get("firm_config")
+    if not firm_config:
+        return jsonify({"error": "Original job data expired. Please re-upload."}), 410
 
     if not page_texts or not pdf_content:
         return jsonify({"error": "Original job data expired. Please re-upload."}), 410
@@ -618,7 +628,7 @@ def api_prospect_summarize():
 
     notes = request.form.get("notes", "")
     firm_id = session.get("firm_id")
-    firm_config = _get_firm_config(firm_id) if firm_id else {}
+    firm_config = _get_firm_config(firm_id)
 
     job_id = uuid.uuid4().hex
     with _jobs_lock:
@@ -657,7 +667,7 @@ def api_prospect_summary_docx():
 
     if not schema:
         firm_id = session.get("firm_id")
-        firm_config = _get_firm_config(firm_id) if firm_id else {}
+        firm_config = _get_firm_config(firm_id)
         schema = _get_prospect_schema(firm_config).get("sections", [])
 
     if not sections:
@@ -844,6 +854,182 @@ def api_tracker_lookup():
     if not result:
         return jsonify({"error": "Invalid Client ID or Access Code."}), 401
     return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# Admin
+# ---------------------------------------------------------------------------
+
+REQUIRED_CONFIG_KEYS = [
+    "firm_context", "ep_schema", "ep_repeatable_sections",
+    "prospect_schema", "doc_separator_rules", "doc_filename_format",
+    "tracker_default_steps",
+]
+
+@app.route("/admin/login", methods=["GET", "POST"])
+@limiter.limit("10/minute")
+def admin_login():
+    if session.get("is_admin"):
+        return redirect(url_for("admin_firms"))
+    error = None
+    if request.method == "POST":
+        pw = request.form.get("password", "")
+        if ADMIN_PASSWORD and pw == ADMIN_PASSWORD:
+            session["is_admin"] = True
+            return redirect(url_for("admin_firms"))
+        error = "Invalid password"
+    return render_template("admin_login.html", error=error)
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("is_admin", None)
+    return redirect(url_for("admin_login"))
+
+
+@app.route("/admin")
+@admin_required
+def admin_firms():
+    firms = tracker_db.list_firms() if tracker_db.DATABASE_URL else []
+    return render_template("admin_firms.html", firms=firms)
+
+
+@app.route("/admin/firms/new", methods=["GET", "POST"])
+@admin_required
+def admin_firm_new():
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        slug = request.form.get("slug", "").strip()
+        access_code = request.form.get("access_code", "").strip()
+        tracker_code = request.form.get("tracker_access_code", "").strip()
+
+        if not all([name, slug, access_code, tracker_code]):
+            return render_template("admin_firm_edit.html", firm=None,
+                                   error="All identity fields are required.")
+
+        try:
+            config = _parse_config_from_form(request.form)
+        except ConfigParseError as e:
+            return render_template("admin_firm_edit.html", firm=None, error=str(e))
+
+        errors = _validate_config(config)
+        if errors:
+            stub = {"name": name, "slug": slug, "config": config}
+            return render_template("admin_firm_edit.html", firm=stub,
+                                   error=" | ".join(errors))
+
+        try:
+            tracker_db.create_firm(name, slug, access_code, tracker_code, config)
+        except Exception as e:
+            if "unique" in str(e).lower():
+                stub = {"name": name, "slug": slug, "config": config}
+                return render_template("admin_firm_edit.html", firm=stub,
+                                       error="A firm with that slug already exists.")
+            raise
+
+        return redirect(url_for("admin_firms"))
+
+    return render_template("admin_firm_edit.html", firm=None)
+
+
+@app.route("/admin/firms/<firm_id>", methods=["GET", "POST"])
+@admin_required
+def admin_firm_edit(firm_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        slug = request.form.get("slug", "").strip()
+        access_code = request.form.get("access_code", "").strip() or None
+        tracker_code = request.form.get("tracker_access_code", "").strip() or None
+
+        if not name or not slug:
+            return render_template("admin_firm_edit.html", firm=firm,
+                                   error="Firm name and slug are required.")
+
+        try:
+            config = _parse_config_from_form(request.form)
+        except ConfigParseError as e:
+            return render_template("admin_firm_edit.html", firm=firm, error=str(e))
+
+        errors = _validate_config(config)
+        if errors:
+            firm["config"] = config
+            return render_template("admin_firm_edit.html", firm=firm,
+                                   error=" | ".join(errors))
+
+        try:
+            tracker_db.update_firm(firm_id, name=name, slug=slug,
+                                   access_code=access_code,
+                                   tracker_access_code=tracker_code,
+                                   config=config)
+        except Exception as e:
+            if "unique" in str(e).lower():
+                return render_template("admin_firm_edit.html", firm=firm,
+                                       error="A firm with that slug already exists.")
+            raise
+
+        with _firm_config_lock:
+            _firm_config_cache.pop(str(firm_id), None)
+
+        return redirect(url_for("admin_firms"))
+
+    return render_template("admin_firm_edit.html", firm=firm)
+
+
+class ConfigParseError(Exception):
+    pass
+
+
+def _parse_config_from_form(form):
+    config = {}
+    config["firm_context"] = form.get("firm_context", "").strip()
+    config["doc_separator_rules"] = form.get("doc_separator_rules", "").strip()
+    config["doc_filename_format"] = form.get("doc_filename_format", "").strip()
+    config["client_site_url"] = form.get("client_site_url", "").strip()
+
+    for key in ["ep_schema", "prospect_schema", "tracker_default_steps"]:
+        raw = form.get(key, "").strip()
+        if raw:
+            try:
+                config[key] = json.loads(raw)
+            except json.JSONDecodeError as e:
+                raise ConfigParseError(f"Invalid JSON in {key}: {e}")
+        else:
+            config[key] = {}
+
+    raw_rep = form.get("ep_repeatable_sections", "").strip()
+    if raw_rep:
+        try:
+            config["ep_repeatable_sections"] = json.loads(raw_rep)
+        except json.JSONDecodeError as e:
+            raise ConfigParseError(f"Invalid JSON in ep_repeatable_sections: {e}")
+    else:
+        config["ep_repeatable_sections"] = []
+
+    return config
+
+
+def _validate_config(config):
+    errors = []
+    if not config.get("firm_context"):
+        errors.append("Firm context is required")
+    ep = config.get("ep_schema")
+    if not ep or not isinstance(ep, dict) or not ep.get("sections"):
+        errors.append("EP schema must be valid JSON with a 'sections' array")
+    ps = config.get("prospect_schema")
+    if not ps or not isinstance(ps, dict) or not ps.get("sections"):
+        errors.append("Prospect schema must be valid JSON with a 'sections' array")
+    if not isinstance(config.get("ep_repeatable_sections"), list):
+        errors.append("Repeatable sections must be a JSON array")
+    ts = config.get("tracker_default_steps")
+    if not ts or not isinstance(ts, list):
+        errors.append("Tracker default steps must be a JSON array")
+    if not config.get("doc_filename_format"):
+        errors.append("Document filename format is required")
+    return errors
 
 
 if __name__ == "__main__":

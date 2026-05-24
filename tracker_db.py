@@ -224,11 +224,13 @@ def get_firm(firm_id):
 
 
 def get_firm_config(firm_id):
-    """Return just the config dict for a firm, with caching."""
     firm = get_firm(firm_id)
     if not firm:
-        return {}
-    return firm.get("config") or {}
+        raise ValueError(f"Firm {firm_id} not found")
+    config = firm.get("config")
+    if not config:
+        raise ValueError(f"Firm {firm_id} has no configuration")
+    return config
 
 
 def lookup_firm_by_access_code(access_code):
