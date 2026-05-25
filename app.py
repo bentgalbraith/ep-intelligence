@@ -23,6 +23,7 @@ from doc_separator import separate_documents, redo_with_feedback, _extract_json
 from ep_export import build_export_csv, build_questionnaire_docx
 from prospect_summarizer import extract_prospect_documents, build_summary_docx, PROSPECT_SCHEMA
 from quote_verify import verify_quotes
+import resend
 import tracker_db
 
 app = Flask(__name__)
@@ -36,6 +37,9 @@ limiter = Limiter(get_remote_address, app=app)
 
 XAI_MODEL = os.environ.get("XAI_MODEL", "grok-4-1-fast-reasoning")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
 
 xai_client = OpenAI(
     api_key=os.environ["XAI_API_KEY"],
@@ -197,6 +201,46 @@ def admin_required(f):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/waitlist", methods=["GET", "POST"])
+@limiter.limit("5/minute")
+def waitlist():
+    if request.method == "GET":
+        return render_template("waitlist.html")
+
+    firm_name = request.form.get("firm_name", "").strip()
+    contact_name = request.form.get("contact_name", "").strip()
+    phone = request.form.get("phone", "").strip()
+    email = request.form.get("email", "").strip()
+    firm_size = request.form.get("firm_size", "").strip()
+
+    if not all([firm_name, contact_name, email, firm_size]):
+        return render_template("waitlist.html", error="Please fill in all required fields.")
+
+    body = (
+        f"<h2>New Waitlist Signup</h2>"
+        f"<p><strong>Firm Name:</strong> {firm_name}</p>"
+        f"<p><strong>Contact Name:</strong> {contact_name}</p>"
+        f"<p><strong>Phone:</strong> {phone or '(not provided)'}</p>"
+        f"<p><strong>Email:</strong> {email}</p>"
+        f"<p><strong>Firm Size:</strong> {firm_size}</p>"
+    )
+
+    if RESEND_API_KEY:
+        try:
+            resend.Emails.send({
+                "from": "EP Intelligence <onboarding@resend.dev>",
+                "to": ["ben@ep-intelligence.com"],
+                "subject": f"Waitlist: {firm_name}",
+                "html": body,
+            })
+        except Exception:
+            traceback.print_exc()
+    else:
+        app.logger.warning("RESEND_API_KEY not set — waitlist email not sent")
+
+    return render_template("waitlist.html", success=True)
 
 
 @app.route("/login", methods=["GET", "POST"])
