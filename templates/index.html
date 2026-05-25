@@ -69,22 +69,34 @@
       text-shadow: 0 3px 15px rgba(0, 0, 0, 0.25);
     }
 
-    .btn-sign-in {
+    .btn-group {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      margin-top: 1.8rem;
+    }
+
+    .btn-sign-in,
+    .btn-waitlist {
       display: inline-block;
-      margin-top: 2.5rem;
       padding: 0.75rem 2.8rem;
       font-family: 'Inter', sans-serif;
       font-size: 0.9rem;
       font-weight: 500;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: #ea580c;
       text-decoration: none;
-      border: 2px solid rgba(255, 255, 255, 0.6);
       border-radius: 100px;
-      background: rgba(255, 255, 255, 0.95);
       cursor: pointer;
       transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+      text-align: center;
+    }
+
+    .btn-sign-in {
+      color: #ea580c;
+      border: 2px solid rgba(255, 255, 255, 0.6);
+      background: rgba(255, 255, 255, 0.95);
     }
 
     .btn-sign-in:hover {
@@ -95,22 +107,9 @@
     }
 
     .btn-waitlist {
-      display: inline-block;
-      margin-top: 2.5rem;
-      margin-left: 1rem;
-      padding: 0.75rem 2.8rem;
-      font-family: 'Inter', sans-serif;
-      font-size: 0.9rem;
-      font-weight: 500;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
       color: rgba(255, 255, 255, 0.9);
-      text-decoration: none;
       border: 2px solid rgba(255, 255, 255, 0.4);
-      border-radius: 100px;
       background: transparent;
-      cursor: pointer;
-      transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
     }
 
     .btn-waitlist:hover {
@@ -118,6 +117,30 @@
       border-color: rgba(255, 255, 255, 0.7);
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
       transform: scale(1.06);
+    }
+
+    @media (max-width: 600px) {
+      .btn-group {
+        flex-direction: column;
+        padding: 0 2rem;
+      }
+
+      .btn-sign-in,
+      .btn-waitlist {
+        width: 100%;
+        padding: 0.85rem 1rem;
+      }
+
+      h1:hover,
+      p:hover {
+        transform: none;
+        text-shadow: none;
+      }
+
+      .btn-sign-in:hover,
+      .btn-waitlist:hover {
+        transform: none;
+      }
     }
 
     @keyframes fadeUp {
@@ -150,8 +173,10 @@
   <div class="container">
     <h1>Estate Planning Intelligence</h1>
     <p>Expanding the AI toolbox for estate planning firms.</p>
-    <a href="{{ url_for('login') }}" class="btn-sign-in">Sign In</a>
-    <a href="{{ url_for('waitlist') }}" class="btn-waitlist">Join Waitlist</a>
+    <div class="btn-group">
+      <a href="{{ url_for('login') }}" class="btn-sign-in">Sign In</a>
+      <a href="{{ url_for('waitlist') }}" class="btn-waitlist">Join Waitlist</a>
+    </div>
   </div>
 </body>
 </html>

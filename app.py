@@ -230,7 +230,7 @@ def waitlist():
     if RESEND_API_KEY:
         try:
             resend.Emails.send({
-                "from": "EP Intelligence <onboarding@resend.dev>",
+                "from": "EP Intelligence <notifications@ep-intelligence.com>",
                 "to": ["ben@ep-intelligence.com"],
                 "subject": f"Waitlist: {firm_name}",
                 "html": body,

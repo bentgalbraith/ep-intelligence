@@ -98,6 +98,9 @@ MIGRATIONS = [
             firm_id UUID REFERENCES firms(id)
         )""",
     ],
+    [
+        """ALTER TABLE ai_usage_log ADD COLUMN IF NOT EXISTS firm_id UUID REFERENCES firms(id)""",
+    ],
 ]
 
 
