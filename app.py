@@ -46,6 +46,7 @@ xai_client = OpenAI(
 if tracker_db.DATABASE_URL:
     tracker_db.init_db()
     tracker_db.seed_firm_if_empty()
+    tracker_db.migrate_repeatable_sections_into_schema()
 
 
 # ---------------------------------------------------------------------------
@@ -78,11 +79,8 @@ def _get_ep_schema(firm_config):
     return ep
 
 
-def _get_repeatable_sections(firm_config):
-    val = firm_config.get("ep_repeatable_sections")
-    if val is None:
-        raise ValueError("Firm config is missing 'ep_repeatable_sections'. Every firm must have a complete configuration.")
-    return set(val)
+def _get_repeatable_sections(ep_schema):
+    return {s["id"] for s in ep_schema.get("sections", []) if s.get("repeatable")}
 
 
 def _get_prospect_schema(firm_config):
@@ -122,12 +120,12 @@ or "false".
 - "choice": set "value" to exactly one of the strings listed in the field's \
 "options" array. Use the exact spelling and capitalization from the options.
 
-Some sections are repeatable (e.g. family_members, beneficiary_shares). For \
-those, return an array of entries — one object per person/item found. Each \
-entry has "fields" mapping field IDs to {value, quote}.
+Some sections have "repeatable": true in the schema. For those, return an \
+array of entries — one object per person/item found. Each entry has "fields" \
+mapping field IDs to {value, quote}.
 
-For singleton sections, return "fields" mapping field IDs to {value, quote} \
-directly.
+For sections without "repeatable": true, return "fields" mapping field IDs \
+to {value, quote} directly.
 
 Return ONLY valid JSON with this structure (no markdown, no commentary):
 {
@@ -285,7 +283,7 @@ def api_ep_extract():
     firm_id = session.get("firm_id")
     firm_config = _get_firm_config(firm_id)
     ep_schema = _get_ep_schema(firm_config)
-    repeatable_sections = _get_repeatable_sections(firm_config)
+    repeatable_sections = _get_repeatable_sections(ep_schema)
 
     schema_text = json.dumps(ep_schema["sections"], indent=2)
     system_content = _build_ep_extraction_prompt(firm_config) + schema_text
@@ -318,7 +316,6 @@ def api_ep_extract():
         extraction = _extract_json(raw)
         verify_quotes(extraction, transcript)
         extraction["schema"] = ep_schema["sections"]
-        extraction["repeatable_sections"] = list(repeatable_sections)
         return jsonify(extraction)
     except json.JSONDecodeError as e:
         app.logger.error("JSON parse error: %s\nRaw response: %s", e, raw[:500])
@@ -861,7 +858,7 @@ def api_tracker_lookup():
 # ---------------------------------------------------------------------------
 
 REQUIRED_CONFIG_KEYS = [
-    "firm_context", "ep_schema", "ep_repeatable_sections",
+    "firm_context", "ep_schema",
     "prospect_schema", "doc_separator_rules", "doc_filename_format",
     "tracker_default_steps",
 ]
@@ -1000,15 +997,6 @@ def _parse_config_from_form(form):
         else:
             config[key] = {}
 
-    raw_rep = form.get("ep_repeatable_sections", "").strip()
-    if raw_rep:
-        try:
-            config["ep_repeatable_sections"] = json.loads(raw_rep)
-        except json.JSONDecodeError as e:
-            raise ConfigParseError(f"Invalid JSON in ep_repeatable_sections: {e}")
-    else:
-        config["ep_repeatable_sections"] = []
-
     return config
 
 
@@ -1022,8 +1010,6 @@ def _validate_config(config):
     ps = config.get("prospect_schema")
     if not ps or not isinstance(ps, dict) or not ps.get("sections"):
         errors.append("Prospect schema must be valid JSON with a 'sections' array")
-    if not isinstance(config.get("ep_repeatable_sections"), list):
-        errors.append("Repeatable sections must be a JSON array")
     ts = config.get("tracker_default_steps")
     if not ts or not isinstance(ts, list):
         errors.append("Tracker default steps must be a JSON array")

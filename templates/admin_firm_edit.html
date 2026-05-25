@@ -71,13 +71,6 @@
         </section>
 
         <section class="admin-section">
-            <h3 class="admin-section-title">EP Repeatable Sections <span class="admin-req">*</span></h3>
-            <p class="admin-hint">JSON array of section IDs that support multiple entries (e.g. family members, beneficiaries).</p>
-            <textarea class="admin-textarea admin-textarea-json" name="ep_repeatable_sections" rows="4" required>{{ cfg.get('ep_repeatable_sections', []) | tojson(indent=2) }}</textarea>
-            <p class="admin-json-status" data-for="ep_repeatable_sections"></p>
-        </section>
-
-        <section class="admin-section">
             <h3 class="admin-section-title">Prospect Schema <span class="admin-req">*</span></h3>
             <p class="admin-hint">JSON schema for prospect document summarization. Must contain a top-level "sections" array.</p>
             <textarea class="admin-textarea admin-textarea-json" name="prospect_schema" rows="12" required>{{ cfg.get('prospect_schema', '') | tojson(indent=2) if cfg.get('prospect_schema') else '' }}</textarea>
@@ -119,7 +112,7 @@
 
         <div class="admin-form-actions">
             <a href="{{ url_for('admin_firms') }}" class="btn-pill btn-sm">Cancel</a>
-            <button type="submit" class="btn-pill btn-sm btn-generate" id="btn-save">Save</button>
+            <button type="submit" class="btn-pill btn-sm btn-admin-save" id="btn-save">Save</button>
         </div>
     </form>
 </main>

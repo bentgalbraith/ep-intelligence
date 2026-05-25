@@ -162,13 +162,6 @@ def seed_firm_if_empty():
             "any output."
         ),
         "ep_schema": ep_schema,
-        "ep_repeatable_sections": [
-            "family_members", "disability_trustees", "administrative_trustees",
-            "financial_poa_agents",
-            "healthcare_documents_and_agents", "pour_over_wills_and_personal_representatives",
-            "beneficiary_shares", "specific_gifts", "pet_trust_remainder_beneficiaries",
-            "charitable_beneficiaries", "client_todo_items",
-        ],
         "prospect_schema": prospect_schema,
         "doc_separator_rules": "",
         "doc_filename_format": "{last}, {first} - {type} {date}",
@@ -190,6 +183,31 @@ def seed_firm_if_empty():
 
 # ---------------------------------------------------------------------------
 # Firms
+def migrate_repeatable_sections_into_schema():
+    """One-time: move ep_repeatable_sections list into each schema section as 'repeatable': true."""
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id, config FROM firms")
+            for row in cur.fetchall():
+                config = row["config"]
+                if isinstance(config, str):
+                    config = json.loads(config)
+                rep = config.get("ep_repeatable_sections")
+                if rep is None:
+                    continue
+                rep_set = set(rep)
+                schema = config.get("ep_schema") or {}
+                for sec in schema.get("sections", []):
+                    if sec["id"] in rep_set:
+                        sec["repeatable"] = True
+                config["ep_schema"] = schema
+                del config["ep_repeatable_sections"]
+                cur.execute(
+                    "UPDATE firms SET config = %s, updated_at = now() WHERE id = %s",
+                    (json.dumps(config), row["id"]),
+                )
+
+
 # ---------------------------------------------------------------------------
 
 def create_firm(name, slug, access_code, tracker_access_code, config=None):

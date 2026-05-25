@@ -88,7 +88,7 @@
     function renderExtraction(data) {
         const sections = data.sections;
         const schemaSections = data.schema;
-        const repeatableSet = new Set(data.repeatable_sections);
+        const repeatableSet = new Set(schemaSections.filter(s => s.repeatable).map(s => s.id));
         let html = '';
 
         for (const schemaSec of schemaSections) {
@@ -229,7 +229,7 @@
         const payload = {
             sections: collectCurrentValues(lastData),
             schema: lastData.schema,
-            repeatable_sections: lastData.repeatable_sections,
+            repeatable_sections: lastData.schema.filter(s => s.repeatable).map(s => s.id),
         };
 
         const res = await fetch(url, {
