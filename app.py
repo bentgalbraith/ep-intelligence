@@ -46,7 +46,6 @@ xai_client = OpenAI(
 if tracker_db.DATABASE_URL:
     tracker_db.init_db()
     tracker_db.seed_firm_if_empty()
-    tracker_db.migrate_repeatable_sections_into_schema()
 
 
 # ---------------------------------------------------------------------------
@@ -78,9 +77,6 @@ def _get_ep_schema(firm_config):
         raise ValueError("Firm config is missing 'ep_schema'. Every firm must have a complete configuration.")
     return ep
 
-
-def _get_repeatable_sections(ep_schema):
-    return {s["id"] for s in ep_schema.get("sections", []) if s.get("repeatable")}
 
 
 def _get_prospect_schema(firm_config):
@@ -120,13 +116,6 @@ or "false".
 - "choice": set "value" to exactly one of the strings listed in the field's \
 "options" array. Use the exact spelling and capitalization from the options.
 
-Some sections have "repeatable": true in the schema. For those, return an \
-array of entries — one object per person/item found. Each entry has "fields" \
-mapping field IDs to {value, quote}.
-
-For sections without "repeatable": true, return "fields" mapping field IDs \
-to {value, quote} directly.
-
 Return ONLY valid JSON with this structure (no markdown, no commentary):
 {
   "sections": {
@@ -135,17 +124,6 @@ Return ONLY valid JSON with this structure (no markdown, no commentary):
         "<field_id>": {"value": "...", "quote": "..."},
         ...
       }
-    },
-    "<repeatable_section_id>": {
-      "entries": [
-        {
-          "fields": {
-            "<field_id>": {"value": "...", "quote": "..."},
-            ...
-          }
-        },
-        ...
-      ]
     }
   }
 }
@@ -283,7 +261,6 @@ def api_ep_extract():
     firm_id = session.get("firm_id")
     firm_config = _get_firm_config(firm_id)
     ep_schema = _get_ep_schema(firm_config)
-    repeatable_sections = _get_repeatable_sections(ep_schema)
 
     schema_text = json.dumps(ep_schema["sections"], indent=2)
     system_content = _build_ep_extraction_prompt(firm_config) + schema_text
@@ -337,10 +314,9 @@ def api_ep_export_csv():
     data = request.get_json() or {}
     sections = data.get("sections") or {}
     schema = data.get("schema") or []
-    repeatable_sections = data.get("repeatable_sections") or []
 
     try:
-        buf = build_export_csv(sections, schema, repeatable_sections)
+        buf = build_export_csv(sections, schema)
         return Response(
             buf.getvalue(),
             mimetype="text/csv; charset=utf-8",
@@ -357,10 +333,9 @@ def api_ep_export_docx():
     data = request.get_json() or {}
     sections = data.get("sections") or {}
     schema = data.get("schema") or []
-    repeatable_sections = data.get("repeatable_sections") or []
 
     try:
-        buf = build_questionnaire_docx(sections, schema, repeatable_sections)
+        buf = build_questionnaire_docx(sections, schema)
         return Response(
             buf.getvalue(),
             mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

@@ -110,12 +110,12 @@
             </div>
         </section>
 
-        <div class="admin-form-actions">
-            <a href="{{ url_for('admin_firms') }}" class="btn-pill btn-sm">Cancel</a>
-            <button type="submit" class="btn-pill btn-sm btn-admin-save" id="btn-save">Save</button>
-        </div>
     </form>
 </main>
+<div class="admin-save-bar">
+    <a href="{{ url_for('admin_firms') }}" class="btn-pill btn-sm">Cancel</a>
+    <button type="submit" form="admin-form" class="btn-pill btn-sm btn-admin-save" id="btn-save">Save</button>
+</div>
 {% endblock %}
 
 {% block scripts %}

@@ -74,72 +74,36 @@ def _add_checkbox_sdt(paragraph, checked=False):
     paragraph._element.append(sdt)
 
 
-def iter_export_rows(sections, schema, repeatable_sections):
+def iter_export_rows(sections, schema):
     """
     Walk schema order; yield dicts with keys:
-    section_id, section_name, entry_label, field_id, field_name, field_description, value, quote
+    section_id, section_name, field_id, field_name, field_description, value, quote
     """
     sections = sections or {}
-    repeatable_set = set(repeatable_sections or [])
 
     for sec in schema:
         sid = sec["id"]
         sname = sec.get("name") or sid
         sdata = sections.get(sid) or {}
+        fmap = sdata.get("fields") or {}
 
-        if sid in repeatable_set:
-            entries = sdata.get("entries") or []
-            if not entries:
-                for field in sec.get("fields") or []:
-                    yield {
-                        "section_id": sid,
-                        "section_name": sname,
-                        "entry_label": "(none)",
-                        "field_id": field["id"],
-                        "field_name": field.get("name") or field["id"],
-                        "field_description": field.get("description") or "",
-                        "value": "",
-                        "quote": "",
-                    }
-                continue
-            for ei, ent in enumerate(entries):
-                label = f"Entry {ei + 1}"
-                fmap = ent.get("fields") or {}
-                for field in sec.get("fields") or []:
-                    fid = field["id"]
-                    fd = fmap.get(fid) or {}
-                    val = fd.get("value")
-                    quote = fd.get("quote")
-                    yield {
-                        "section_id": sid,
-                        "section_name": sname,
-                        "entry_label": label,
-                        "field_id": fid,
-                        "field_name": field.get("name") or fid,
-                        "field_description": field.get("description") or "",
-                        "value": _str_or_empty(val) if val is not None else "",
-                        "quote": _str_or_empty(quote) if quote is not None else "",
-                    }
-        else:
-            fmap = sdata.get("fields") or {}
-            for field in sec.get("fields") or []:
-                fid = field["id"]
-                fd = fmap.get(fid) or {}
-                val = fd.get("value")
-                quote = fd.get("quote")
-                yield {
-                    "section_id": sid,
-                    "section_name": sname,
-                    "entry_label": "",
-                    "field_id": fid,
-                    "field_name": field.get("name") or fid,
-                    "field_description": field.get("description") or "",
-                    "value": _str_or_empty(val) if val is not None else "",
-                    "quote": _str_or_empty(quote) if quote is not None else "",
-                }
+        for field in sec.get("fields") or []:
+            fid = field["id"]
+            fd = fmap.get(fid) or {}
+            val = fd.get("value")
+            quote = fd.get("quote")
+            yield {
+                "section_id": sid,
+                "section_name": sname,
+                "field_id": fid,
+                "field_name": field.get("name") or fid,
+                "field_description": field.get("description") or "",
+                "value": _str_or_empty(val) if val is not None else "",
+                "quote": _str_or_empty(quote) if quote is not None else "",
+            }
 
 
-def build_export_csv(sections, schema, repeatable_sections):
+def build_export_csv(sections, schema):
     """UTF-8 with BOM for Excel; returns BytesIO."""
     buf = StringIO()
     writer = csv.writer(buf)
@@ -147,7 +111,6 @@ def build_export_csv(sections, schema, repeatable_sections):
         [
             "section_id",
             "section_name",
-            "entry",
             "field_id",
             "field_name",
             "field_description",
@@ -155,12 +118,11 @@ def build_export_csv(sections, schema, repeatable_sections):
             "quote",
         ]
     )
-    for row in iter_export_rows(sections, schema, repeatable_sections):
+    for row in iter_export_rows(sections, schema):
         writer.writerow(
             [
                 row["section_id"],
                 row["section_name"],
-                row["entry_label"],
                 row["field_id"],
                 row["field_name"],
                 row["field_description"],
@@ -259,7 +221,7 @@ def _add_section_spacer(doc):
     p.paragraph_format.space_after = Pt(6)
 
 
-def build_questionnaire_docx(sections, schema, repeatable_sections):
+def build_questionnaire_docx(sections, schema):
     """Worksheet-style .docx (firm drafting-notes layout); returns BytesIO."""
     doc = Document()
     doc.styles["Normal"].font.name = _SANS
@@ -269,7 +231,6 @@ def build_questionnaire_docx(sections, schema, repeatable_sections):
         s.left_margin = Inches(1)
         s.right_margin = Inches(1)
 
-    repeatable_set = set(repeatable_sections or [])
     sections = sections or {}
 
     for sec_idx, sec in enumerate(schema):
@@ -283,24 +244,9 @@ def build_questionnaire_docx(sections, schema, repeatable_sections):
         if header:
             _add_section_header(doc, header)
 
-        if sid in repeatable_set:
-            entries = sdata.get("entries") or []
-            if not entries:
-                continue
-            for ei, ent in enumerate(entries):
-                sub = doc.add_paragraph()
-                sub.paragraph_format.space_before = Pt(4)
-                sub.paragraph_format.space_after = Pt(4)
-                sr = sub.add_run("Entry " + str(ei + 1))
-                _sans_run(sr, size_pt=Pt(10), bold=True)
-
-                fmap = ent.get("fields") or {}
-                for field in sec.get("fields") or []:
-                    _render_docx_field(doc, field, fmap)
-        else:
-            fmap = sdata.get("fields") or {}
-            for field in sec.get("fields") or []:
-                _render_docx_field(doc, field, fmap)
+        fmap = sdata.get("fields") or {}
+        for field in sec.get("fields") or []:
+            _render_docx_field(doc, field, fmap)
 
     out = BytesIO()
     doc.save(out)

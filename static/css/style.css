@@ -1790,8 +1790,7 @@ a.doc-list-item--link:hover {
 
 .admin-edit-main {
     max-width: 760px;
-    overflow-y: auto;
-    height: calc(100vh - 52px);
+    padding-bottom: 5rem;
 }
 
 .admin-header {
@@ -1950,16 +1949,20 @@ a.doc-list-item--link:hover {
     color: #dc2626;
 }
 
-.admin-form-actions {
+.admin-save-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 150;
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: center;
     gap: 0.75rem;
-    padding: 1.5rem 0 2rem;
-    position: sticky;
-    bottom: 0;
-    background: #fafaf8;
-    z-index: 10;
+    padding: 0.8rem 2rem;
+    background: #ffffff;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.04);
 }
 
 .btn-admin-save {

@@ -88,29 +88,12 @@
     function renderExtraction(data) {
         const sections = data.sections;
         const schemaSections = data.schema;
-        const repeatableSet = new Set(schemaSections.filter(s => s.repeatable).map(s => s.id));
         let html = '';
 
         for (const schemaSec of schemaSections) {
             const secData = sections[schemaSec.id];
-            const isRepeatable = repeatableSet.has(schemaSec.id);
-            let sectionHtml = '';
-
-            if (isRepeatable && secData && secData.entries) {
-                for (let i = 0; i < secData.entries.length; i++) {
-                    const entry = secData.entries[i];
-                    const entryHtml = renderFields(schemaSec.fields, entry.fields, schemaSec.id, i);
-                    if (entryHtml) {
-                        sectionHtml += `<div class="extract-entry">
-                            <div class="extract-entry-label">Entry ${i + 1}</div>
-                            ${entryHtml}
-                        </div>`;
-                    }
-                }
-            } else {
-                const fieldData = secData ? secData.fields : null;
-                sectionHtml = renderFields(schemaSec.fields, fieldData, schemaSec.id, null);
-            }
+            const fieldData = secData ? secData.fields : null;
+            const sectionHtml = renderFields(schemaSec.fields, fieldData, schemaSec.id);
 
             if (!sectionHtml) continue;
 
@@ -163,7 +146,7 @@
         return `<div class="${valueClass}" contenteditable="true" data-key="${escapeAttr(dataKey)}" data-field-type="text">${hasValue ? escapeHtml(displayValue) : placeholder}</div>`;
     }
 
-    function renderFields(schemaFields, fieldData, sectionId, entryIdx) {
+    function renderFields(schemaFields, fieldData, sectionId) {
         let html = '';
 
         for (const sf of schemaFields) {
@@ -174,9 +157,7 @@
             const fd = fieldData ? fieldData[sf.id] : null;
             const hasValue = fd && fd.value != null;
             const displayValue = hasValue ? String(fd.value) : '';
-            const dataKey = entryIdx !== null
-                ? `${sectionId}__${entryIdx}__${sf.id}`
-                : `${sectionId}__${sf.id}`;
+            const dataKey = `${sectionId}__${sf.id}`;
             const fieldType = sf.type || 'text';
             const icons = renderFieldIcons(sf, fd, hasValue);
 
@@ -229,7 +210,6 @@
         const payload = {
             sections: collectCurrentValues(lastData),
             schema: lastData.schema,
-            repeatable_sections: lastData.schema.filter(s => s.repeatable).map(s => s.id),
         };
 
         const res = await fetch(url, {
@@ -281,22 +261,12 @@
 
         function setFieldValue(key, val) {
             const parts = key.split('__');
-            if (parts.length >= 3 && sections[parts[0]]?.entries) {
-                const [secId, entryIdx, ...rest] = parts;
-                const fieldId = rest[0];
-                const entry = sections[secId].entries[parseInt(entryIdx)];
-                if (entry) {
-                    if (!entry.fields[fieldId]) entry.fields[fieldId] = {};
-                    entry.fields[fieldId].value = val;
-                }
-            } else {
-                const secId = parts[0];
-                const fieldId = parts[1];
-                if (sections[secId]) {
-                    if (!sections[secId].fields) sections[secId].fields = {};
-                    if (!sections[secId].fields[fieldId]) sections[secId].fields[fieldId] = {};
-                    sections[secId].fields[fieldId].value = val;
-                }
+            const secId = parts[0];
+            const fieldId = parts[1];
+            if (sections[secId]) {
+                if (!sections[secId].fields) sections[secId].fields = {};
+                if (!sections[secId].fields[fieldId]) sections[secId].fields[fieldId] = {};
+                sections[secId].fields[fieldId].value = val;
             }
         }
 
