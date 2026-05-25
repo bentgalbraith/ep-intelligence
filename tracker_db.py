@@ -100,6 +100,19 @@ MIGRATIONS = [
     ],
     [
         """ALTER TABLE ai_usage_log ADD COLUMN IF NOT EXISTS firm_id UUID REFERENCES firms(id)""",
+        """ALTER TABLE clients ADD COLUMN IF NOT EXISTS firm_id UUID REFERENCES firms(id)""",
+        """UPDATE clients SET firm_id = (SELECT id FROM firms ORDER BY created_at LIMIT 1) WHERE firm_id IS NULL""",
+        """DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'clients_firm_id_client_id_code_key'
+            ) THEN
+                BEGIN
+                    ALTER TABLE clients ADD CONSTRAINT clients_firm_id_client_id_code_key UNIQUE (firm_id, client_id_code);
+                EXCEPTION WHEN others THEN NULL;
+                END;
+            END IF;
+        END $$""",
     ],
 ]
 
