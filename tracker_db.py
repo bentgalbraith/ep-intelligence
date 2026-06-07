@@ -185,6 +185,12 @@ def seed_firm_if_empty():
         "doc_filename_format": "{last}, {first} - {type} {date}",
         "tracker_default_steps": DEFAULT_STEPS,
         "client_site_url": "https://gwclient.com",
+        "tools_enabled": {
+            "drafting_notes": True,
+            "doc_separator": True,
+            "prospect_summarizer": True,
+            "tracker": True,
+        },
     }
 
     access_code = os.environ.get("SEED_ACCESS_CODE", "changeme")

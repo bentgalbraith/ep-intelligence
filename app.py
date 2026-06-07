@@ -185,6 +185,29 @@ def tracker_required(f):
     return decorated
 
 
+def _is_tool_enabled(tool_key):
+    """Check whether a tool is enabled for the current firm."""
+    firm_id = session.get("firm_id")
+    if not firm_id:
+        return True
+    config = _get_firm_config(firm_id) or {}
+    return config.get("tools_enabled", {}).get(tool_key, True)
+
+
+def tool_enabled(tool_key):
+    """Decorator that blocks access when a tool is disabled for the firm."""
+    def wrapper(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if not _is_tool_enabled(tool_key):
+                if request.path.startswith("/api/"):
+                    return jsonify({"error": "This tool is not enabled for your firm."}), 403
+                return redirect(url_for("dashboard"))
+            return f(*args, **kwargs)
+        return decorated
+    return wrapper
+
+
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -267,7 +290,10 @@ def login():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    return render_template("dashboard.html", firm_name=session.get("firm_name", ""))
+    firm_config = _get_firm_config(session.get("firm_id"))
+    tools_enabled = (firm_config or {}).get("tools_enabled", {})
+    return render_template("dashboard.html", firm_name=session.get("firm_name", ""),
+                           tools_enabled=tools_enabled)
 
 
 @app.route("/logout")
@@ -282,6 +308,7 @@ def logout():
 
 @app.route("/drafting-notes")
 @login_required
+@tool_enabled("drafting_notes")
 def drafting_notes():
     return render_template("drafting_notes.html", firm_name=session.get("firm_name", ""))
 
@@ -294,6 +321,7 @@ def ep_diagram_redirect():
 
 @app.route("/api/ep-extract", methods=["POST"])
 @login_required
+@tool_enabled("drafting_notes")
 def api_ep_extract():
     data = request.get_json()
     transcript = (data.get("transcript") or "").strip()
@@ -354,6 +382,7 @@ def api_ep_extract():
 
 @app.route("/api/ep-export-csv", methods=["POST"])
 @login_required
+@tool_enabled("drafting_notes")
 def api_ep_export_csv():
     data = request.get_json() or {}
     sections = data.get("sections") or {}
@@ -373,6 +402,7 @@ def api_ep_export_csv():
 
 @app.route("/api/ep-export-docx", methods=["POST"])
 @login_required
+@tool_enabled("drafting_notes")
 def api_ep_export_docx():
     data = request.get_json() or {}
     sections = data.get("sections") or {}
@@ -435,12 +465,14 @@ def _run_doc_separate(job_id, pdf_content, firm_id, firm_config):
 
 @app.route("/doc-separator")
 @login_required
+@tool_enabled("doc_separator")
 def doc_separator():
     return render_template("doc_separator.html", firm_name=session.get("firm_name", ""))
 
 
 @app.route("/api/doc-separate", methods=["POST"])
 @login_required
+@tool_enabled("doc_separator")
 def api_doc_separate():
     f = request.files.get("pdf")
     if not f or not f.filename.lower().endswith(".pdf"):
@@ -465,6 +497,7 @@ def api_doc_separate():
 
 @app.route("/api/doc-separate/status/<job_id>")
 @login_required
+@tool_enabled("doc_separator")
 def api_doc_separate_status(job_id):
     with _jobs_lock:
         job = _jobs.get(job_id)
@@ -487,6 +520,7 @@ def api_doc_separate_status(job_id):
 
 @app.route("/api/doc-separate/download/<token>")
 @login_required
+@tool_enabled("doc_separator")
 def api_doc_separate_download(token):
     with _jobs_lock:
         entry = _zip_cache.get(token)
@@ -503,6 +537,7 @@ def api_doc_separate_download(token):
 
 @app.route("/api/doc-separate/download/<token>/<int:doc_index>")
 @login_required
+@tool_enabled("doc_separator")
 def api_doc_separate_download_single(token, doc_index):
     with _jobs_lock:
         entry = _zip_cache.get(token)
@@ -557,6 +592,7 @@ def _run_doc_separate_redo(job_id, pdf_content, page_texts, total_pages,
 
 @app.route("/api/doc-separate/redo", methods=["POST"])
 @login_required
+@tool_enabled("doc_separator")
 def api_doc_separate_redo():
     data = request.get_json(silent=True)
     if not data:
@@ -605,6 +641,7 @@ def api_doc_separate_redo():
 
 @app.route("/prospect-summarizer")
 @login_required
+@tool_enabled("prospect_summarizer")
 def prospect_summarizer():
     return render_template("prospect_summarizer.html", firm_name=session.get("firm_name", ""))
 
@@ -628,6 +665,7 @@ def _run_prospect_summarize(job_id, pdf_contents, notes, firm_id, firm_config):
 
 @app.route("/api/prospect-summarize", methods=["POST"])
 @login_required
+@tool_enabled("prospect_summarizer")
 def api_prospect_summarize():
     files = request.files.getlist("pdfs")
     if not files or not any(f.filename for f in files):
@@ -657,6 +695,7 @@ def api_prospect_summarize():
 
 @app.route("/api/prospect-summarize/status/<job_id>")
 @login_required
+@tool_enabled("prospect_summarizer")
 def api_prospect_summarize_status(job_id):
     with _jobs_lock:
         job = _jobs.get(job_id)
@@ -675,6 +714,7 @@ def api_prospect_summarize_status(job_id):
 
 @app.route("/api/prospect-summary-docx", methods=["POST"])
 @login_required
+@tool_enabled("prospect_summarizer")
 def api_prospect_summary_docx():
     data = request.get_json() or {}
     sections = data.get("sections") or {}
@@ -707,6 +747,7 @@ def api_prospect_summary_docx():
 
 @app.route("/api/tracker-auth", methods=["POST"])
 @login_required
+@tool_enabled("tracker")
 @limiter.limit("10/minute")
 def api_tracker_auth():
     from werkzeug.security import check_password_hash
@@ -730,6 +771,7 @@ def api_tracker_auth():
 
 @app.route("/client-progress")
 @login_required
+@tool_enabled("tracker")
 def client_progress():
     if not session.get("tracker_authenticated"):
         return redirect(url_for("dashboard"))
@@ -738,6 +780,7 @@ def client_progress():
 
 @app.route("/client-progress/<client_id>")
 @login_required
+@tool_enabled("tracker")
 def client_detail(client_id):
     if not session.get("tracker_authenticated"):
         return redirect(url_for("dashboard"))
@@ -746,6 +789,7 @@ def client_detail(client_id):
 
 @app.route("/api/tracker/clients", methods=["GET"])
 @tracker_required
+@tool_enabled("tracker")
 def api_tracker_list_clients():
     firm_id = session.get("firm_id")
     return jsonify(tracker_db.list_clients(firm_id))
@@ -753,6 +797,7 @@ def api_tracker_list_clients():
 
 @app.route("/api/tracker/clients", methods=["POST"])
 @tracker_required
+@tool_enabled("tracker")
 def api_tracker_create_client():
     data = request.get_json() or {}
     name = (data.get("client_name") or "").strip()
@@ -772,6 +817,7 @@ def api_tracker_create_client():
 
 @app.route("/api/tracker/clients/<client_id>", methods=["GET"])
 @tracker_required
+@tool_enabled("tracker")
 def api_tracker_get_client(client_id):
     firm_id = session.get("firm_id")
     client = tracker_db.get_client(client_id, firm_id=firm_id)
@@ -783,6 +829,7 @@ def api_tracker_get_client(client_id):
 
 @app.route("/api/tracker/clients/<client_id>", methods=["PUT"])
 @tracker_required
+@tool_enabled("tracker")
 def api_tracker_update_client(client_id):
     data = request.get_json() or {}
     kwargs = {}
@@ -803,6 +850,7 @@ def api_tracker_update_client(client_id):
 
 @app.route("/api/tracker/clients/<client_id>", methods=["DELETE"])
 @tracker_required
+@tool_enabled("tracker")
 def api_tracker_delete_client(client_id):
     tracker_db.delete_client(client_id)
     return jsonify({"ok": True})
@@ -810,6 +858,7 @@ def api_tracker_delete_client(client_id):
 
 @app.route("/api/tracker/clients/<client_id>/steps", methods=["POST"])
 @tracker_required
+@tool_enabled("tracker")
 def api_tracker_add_step(client_id):
     data = request.get_json() or {}
     name = (data.get("name") or "").strip()
@@ -823,6 +872,7 @@ def api_tracker_add_step(client_id):
 
 @app.route("/api/tracker/steps/<step_id>", methods=["PUT"])
 @tracker_required
+@tool_enabled("tracker")
 def api_tracker_update_step(step_id):
     data = request.get_json() or {}
     tracker_db.update_step(step_id, **data)
@@ -831,6 +881,7 @@ def api_tracker_update_step(step_id):
 
 @app.route("/api/tracker/steps/<step_id>", methods=["DELETE"])
 @tracker_required
+@tool_enabled("tracker")
 def api_tracker_delete_step(step_id):
     tracker_db.delete_step(step_id)
     return jsonify({"ok": True})
@@ -838,6 +889,7 @@ def api_tracker_delete_step(step_id):
 
 @app.route("/api/tracker/clients/<client_id>/reorder", methods=["PUT"])
 @tracker_required
+@tool_enabled("tracker")
 def api_tracker_reorder_steps(client_id):
     data = request.get_json() or {}
     step_ids = data.get("step_ids", [])
@@ -1005,6 +1057,12 @@ def _parse_config_from_form(form):
     config["doc_separator_rules"] = form.get("doc_separator_rules", "").strip()
     config["doc_filename_format"] = form.get("doc_filename_format", "").strip()
     config["client_site_url"] = form.get("client_site_url", "").strip()
+    config["tools_enabled"] = {
+        "drafting_notes": bool(form.get("tool_drafting_notes")),
+        "doc_separator": bool(form.get("tool_doc_separator")),
+        "prospect_summarizer": bool(form.get("tool_prospect_summarizer")),
+        "tracker": bool(form.get("tool_tracker")),
+    }
 
     for key in ["ep_schema", "prospect_schema", "tracker_default_steps"]:
         raw = form.get(key, "").strip()

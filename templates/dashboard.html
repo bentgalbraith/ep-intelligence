@@ -10,7 +10,9 @@
 </nav>
 <main class="dashboard">
     <h2 class="dashboard-heading">What would you like to do?</h2>
+    {% set te = tools_enabled or {} %}
     <div class="tool-grid">
+        {% if te.get('drafting_notes', true) %}
         <a href="{{ url_for('drafting_notes') }}" class="tool-card">
             <div class="tool-icon">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -19,6 +21,8 @@
             </div>
             <span class="tool-label">Generate Drafting Notes From Transcript</span>
         </a>
+        {% endif %}
+        {% if te.get('doc_separator', true) %}
         <a href="{{ url_for('doc_separator') }}" class="tool-card">
             <div class="tool-icon">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -27,6 +31,8 @@
             </div>
             <span class="tool-label">Separate & Auto-Name Scanned Documents</span>
         </a>
+        {% endif %}
+        {% if te.get('prospect_summarizer', true) %}
         <a href="{{ url_for('prospect_summarizer') }}" class="tool-card">
             <div class="tool-icon">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -35,7 +41,9 @@
             </div>
             <span class="tool-label">Summarize Prospect EP Documents</span>
         </a>
+        {% endif %}
     </div>
+    {% if te.get('tracker', true) %}
     <div class="tracker-strip" id="tracker-strip">
         <button class="tracker-btn" id="tracker-btn" type="button">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -57,10 +65,12 @@
             </div>
         </form>
     </div>
+    {% endif %}
 </main>
 {% endblock %}
 
 {% block scripts %}
+{% if te.get('tracker', true) %}
 <script>
 (function() {
     const strip = document.getElementById('tracker-strip');
@@ -103,4 +113,5 @@
     });
 })();
 </script>
+{% endif %}
 {% endblock %}

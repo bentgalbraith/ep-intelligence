@@ -1949,6 +1949,28 @@ a.doc-list-item--link:hover {
     color: #dc2626;
 }
 
+.admin-toggle-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    margin-top: 0.5rem;
+}
+
+.admin-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    color: #1a1a1a;
+    cursor: pointer;
+}
+
+.admin-toggle input[type="checkbox"] {
+    accent-color: #ea580c;
+    width: 15px;
+    height: 15px;
+}
+
 .admin-save-bar {
     position: fixed;
     bottom: 0;

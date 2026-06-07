@@ -57,6 +57,18 @@
             </div>
         </section>
 
+        {% set tools = cfg.get('tools_enabled', {}) %}
+        <section class="admin-section">
+            <h3 class="admin-section-title">Enabled Tools</h3>
+            <p class="admin-hint">Uncheck a tool to hide it from this firm's dashboard.</p>
+            <div class="admin-toggle-grid">
+                <label class="admin-toggle"><input type="checkbox" name="tool_drafting_notes" value="1" {{ 'checked' if tools.get('drafting_notes', true) }}> Drafting Notes</label>
+                <label class="admin-toggle"><input type="checkbox" name="tool_doc_separator" value="1" {{ 'checked' if tools.get('doc_separator', true) }}> Document Separator</label>
+                <label class="admin-toggle"><input type="checkbox" name="tool_prospect_summarizer" value="1" {{ 'checked' if tools.get('prospect_summarizer', true) }}> Prospect Summarizer</label>
+                <label class="admin-toggle"><input type="checkbox" name="tool_tracker" value="1" {{ 'checked' if tools.get('tracker', true) }}> Client Progress Tracker</label>
+            </div>
+        </section>
+
         <section class="admin-section">
             <h3 class="admin-section-title">Firm Context <span class="admin-req">*</span></h3>
             <p class="admin-hint">Injected into every AI prompt. Describe the firm, key personnel, and any output conventions.</p>
