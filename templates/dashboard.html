@@ -5,7 +5,7 @@
 
 {% block body %}
 <nav class="navbar">
-    <a href="{{ url_for('dashboard') }}" class="navbar-brand">{{ firm_name or 'EP Intelligence' }}</a>
+    <a href="{{ url_for('dashboard') }}" class="navbar-brand"><img src="{{ url_for('static', filename='EPILogo_Orange.png') }}" alt="" class="navbar-logo">{{ firm_name or 'EP Intelligence' }}</a>
     <a href="{{ url_for('logout') }}" class="btn-pill btn-sm">Log Out</a>
 </nav>
 <main class="dashboard">

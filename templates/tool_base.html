@@ -7,9 +7,7 @@
 <nav class="navbar">
     <div class="navbar-left">
         <a href="{{ url_for('dashboard') }}" class="navbar-brand">
-            <svg class="navbar-brand-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="m15 18-6-6 6-6"/>
-            </svg>
+            <img src="{{ url_for('static', filename='EPILogo_Orange.png') }}" alt="" class="navbar-logo">
             {{ firm_name or 'EP Intelligence' }}
         </a>
         <span class="navbar-sep">/</span>

@@ -239,6 +239,13 @@ h1 {
     color: #ea580c;
 }
 
+.navbar-logo {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
 .navbar-brand-chevron {
     flex-shrink: 0;
 }
