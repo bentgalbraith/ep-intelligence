@@ -70,7 +70,7 @@
 {% endblock %}
 
 {% block scripts %}
-{% if te.get('tracker', true) %}
+{% if (tools_enabled or {}).get('tracker', true) %}
 <script>
 (function() {
     const strip = document.getElementById('tracker-strip');
