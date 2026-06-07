@@ -38,15 +38,10 @@
       animation: fadeUp 1s ease forwards;
     }
 
-    .landing-title {
-      display: inline-flex;
-      align-items: center;
-      gap: clamp(0.6rem, 2vw, 1rem);
-    }
-
     .landing-logo {
-      width: clamp(40px, 8vw, 64px);
+      width: clamp(48px, 10vw, 72px);
       height: auto;
+      margin-bottom: 1.2rem;
       filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
     }
 
@@ -182,10 +177,8 @@
   <div class="orb orb-2"></div>
   <div class="orb orb-3"></div>
   <div class="container">
-    <div class="landing-title">
-      <img src="{{ url_for('static', filename='EPILogo_White.png') }}" alt="EP Intelligence" class="landing-logo">
-      <h1>Estate Planning Intelligence</h1>
-    </div>
+    <img src="{{ url_for('static', filename='EPILogo_White.png') }}" alt="EP Intelligence" class="landing-logo">
+    <h1>Estate Planning Intelligence</h1>
     <p>Expanding the AI toolbox for estate planning firms.</p>
     <div class="btn-group">
       <a href="{{ url_for('login') }}" class="btn-sign-in">Sign In</a>
