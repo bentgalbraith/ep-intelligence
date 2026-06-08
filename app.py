@@ -1095,5 +1095,21 @@ def _validate_config(config):
     return errors
 
 
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template("error.html",
+                           error_code=404,
+                           error_title="Page not found",
+                           error_detail="The page you're looking for doesn't exist or has been moved."), 404
+
+
+@app.errorhandler(500)
+def internal_server_error(e):
+    return render_template("error.html",
+                           error_code=500,
+                           error_title="Something went wrong",
+                           error_detail="Please try again, or contact support if the issue persists."), 500
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=int(os.environ.get("PORT", "8080")))

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ error_code }} — EP Intelligence</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='EPILogo_Orange.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: linear-gradient(-45deg, #ea580c, #f97316, #c2410c, #fb923c, #d97706);
+      background-size: 400% 400%;
+      animation: gradientShift 10s ease infinite;
+      overflow: hidden;
+    }
+
+    @keyframes gradientShift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    .container {
+      text-align: center;
+      padding: 2rem;
+      max-width: 500px;
+      opacity: 0;
+      transform: translateY(30px);
+      animation: fadeUp 1s ease forwards;
+    }
+
+    .error-logo {
+      width: 56px;
+      height: auto;
+      margin-bottom: 1.5rem;
+      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
+    }
+
+    .error-code {
+      font-size: clamp(4rem, 12vw, 7rem);
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.25);
+      line-height: 1;
+      letter-spacing: -0.03em;
+    }
+
+    .error-message {
+      font-size: clamp(1.1rem, 3vw, 1.4rem);
+      font-weight: 500;
+      color: #ffffff;
+      margin-top: 0.6rem;
+    }
+
+    .error-detail {
+      font-size: 0.95rem;
+      color: rgba(255, 255, 255, 0.7);
+      margin-top: 0.6rem;
+      line-height: 1.5;
+    }
+
+    .btn-home {
+      display: inline-block;
+      margin-top: 2rem;
+      padding: 0.75rem 2.8rem;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      text-decoration: none;
+      color: #ea580c;
+      background: rgba(255, 255, 255, 0.95);
+      border: 2px solid rgba(255, 255, 255, 0.6);
+      border-radius: 100px;
+      transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    .btn-home:hover {
+      background: #ffffff;
+      border-color: #ffffff;
+      box-shadow: 0 6px 30px rgba(0, 0, 0, 0.2);
+      transform: scale(1.06);
+    }
+
+    @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+
+    .orb { position: absolute; border-radius: 50%; filter: blur(100px); opacity: 0.5; animation: float 7s ease-in-out infinite; }
+    .orb-1 { width: 500px; height: 500px; background: #fff7ed; top: -200px; right: -150px; }
+    .orb-2 { width: 450px; height: 450px; background: #fed7aa; bottom: -180px; left: -150px; animation-delay: -3.5s; }
+    .orb-3 { width: 350px; height: 350px; background: #ffffff; top: 30%; left: 50%; animation-delay: -1.5s; }
+
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(40px, -30px) scale(1.08); }
+      66% { transform: translate(-30px, 25px) scale(0.92); }
+    }
+  </style>
+</head>
+<body>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+  <div class="container">
+    <img src="{{ url_for('static', filename='EPILogo_White.png') }}" alt="EP Intelligence" class="error-logo">
+    <div class="error-code">{{ error_code }}</div>
+    <p class="error-message">{{ error_title }}</p>
+    <p class="error-detail">{{ error_detail }}</p>
+    <a href="{{ url_for('index') }}" class="btn-home">Back to Home</a>
+  </div>
+</body>
+</html>
