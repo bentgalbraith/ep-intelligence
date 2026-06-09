@@ -166,7 +166,6 @@ def _ocr_pages(pdf_content, firm_id=None):
     texts = {}
     for start in range(0, total, PAGES_PER_CHUNK):
         end = min(start + PAGES_PER_CHUNK, total)
-        chunk_pages = end - start
         writer = PdfWriter()
         for i in range(start, end):
             writer.add_page(reader.pages[i])
@@ -174,7 +173,6 @@ def _ocr_pages(pdf_content, firm_id=None):
         buf = io.BytesIO()
         writer.write(buf)
 
-        chunk_start = time.time()
         try:
             result = client.process_document(
                 request=documentai.ProcessRequest(
@@ -184,17 +182,11 @@ def _ocr_pages(pdf_content, firm_id=None):
                     ),
                 )
             )
-            log_ai_call(
-                provider="google_documentai", tool="doc_separator_ocr", status="success",
-                pages_processed=chunk_pages,
-                execution_ms=int((time.time() - chunk_start) * 1000),
-                firm_id=firm_id,
-            )
         except Exception:
             log_ai_call(
                 provider="google_documentai", tool="doc_separator_ocr", status="error",
-                pages_processed=chunk_pages,
-                execution_ms=int((time.time() - chunk_start) * 1000),
+                pages_processed=total,
+                execution_ms=int((time.time() - ocr_start) * 1000),
                 notes=traceback.format_exc(),
                 firm_id=firm_id,
             )
@@ -204,6 +196,13 @@ def _ocr_pages(pdf_content, firm_id=None):
             texts[start + local_idx + 1] = _page_text(result.document, page)
 
     ocr_elapsed = time.time() - ocr_start
+
+    log_ai_call(
+        provider="google_documentai", tool="doc_separator_ocr", status="success",
+        pages_processed=total,
+        execution_ms=int(ocr_elapsed * 1000),
+        firm_id=firm_id,
+    )
     total_chars = sum(len(t) for t in texts.values())
     empty_pages = [pn for pn in range(1, total + 1) if not texts.get(pn, "").strip()]
     log.info("OCR complete: %d pages, %d chars, %.1fs", total, total_chars, ocr_elapsed)

@@ -497,7 +497,10 @@ h1 {
     font-weight: 500;
     text-align: center;
     padding: 0.55rem 2.5rem 0.55rem 1rem;
-    position: relative;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
     z-index: 200;
     line-height: 1.4;
 }
@@ -524,6 +527,18 @@ h1 {
 @media (max-width: 768px) {
     .mobile-banner {
         display: block;
+    }
+
+    .navbar {
+        top: 34px;
+    }
+
+    .ep-layout,
+    .dashboard,
+    .tracker-main,
+    .detail-main,
+    .admin-main {
+        padding-top: 91px;
     }
 }
 
