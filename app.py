@@ -1,3 +1,4 @@
+import collections
 import io
 import json
 import os
@@ -12,7 +13,7 @@ from functools import wraps
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, has_request_context, jsonify, redirect, render_template, request, session, url_for
 from flask_cors import cross_origin
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -408,6 +409,7 @@ def api_ep_extract():
         return jsonify(extraction)
     except json.JSONDecodeError as e:
         app.logger.error("JSON parse error: %s\nRaw response: %s", e, raw[:500])
+        _notify_tool_error("Drafting Notes", str(e), firm_id=firm_id)
         return jsonify({"error": "AI returned invalid JSON. Please try again."}), 500
     except Exception as e:
         log_ai_call(
@@ -417,6 +419,7 @@ def api_ep_extract():
             firm_id=firm_id,
         )
         app.logger.error("EP extract error: %s", e)
+        _notify_tool_error("Drafting Notes", str(e), firm_id=firm_id)
         return jsonify({"error": str(e)}), 500
 
 
@@ -437,6 +440,7 @@ def api_ep_export_csv():
         )
     except Exception as e:
         app.logger.error("CSV export error: %s", e)
+        _notify_tool_error("CSV Export", str(e))
         return jsonify({"error": str(e)}), 500
 
 
@@ -457,6 +461,7 @@ def api_ep_export_docx():
         )
     except Exception as e:
         app.logger.error("DOCX export error: %s", e)
+        _notify_tool_error("DOCX Export", str(e))
         return jsonify({"error": str(e)}), 500
 
 
@@ -499,6 +504,9 @@ def _run_doc_separate(job_id, pdf_content, firm_id, firm_config):
             })
     except Exception as e:
         app.logger.error("Doc separator error (job %s): %s", job_id, e)
+        _notify_tool_error("Document Separator", str(e), firm_id=firm_id,
+                           firm_name=_jobs[job_id].get("firm_name"),
+                           firm_slug=_jobs[job_id].get("firm_slug"))
         with _jobs_lock:
             _jobs[job_id].update({"status": "error", "error": str(e)})
 
@@ -529,7 +537,9 @@ def api_doc_separate():
     with _jobs_lock:
         _purge_stale(_jobs)
         _purge_stale(_zip_cache)
-        _jobs[job_id] = {"status": "processing", "ts": time.time()}
+        _jobs[job_id] = {"status": "processing", "ts": time.time(),
+                         "firm_name": session.get("firm_name"),
+                         "firm_slug": session.get("firm_slug")}
 
     _executor.submit(_run_doc_separate, job_id, pdf_content, firm_id, firm_config)
     return jsonify({"job_id": job_id})
@@ -626,6 +636,9 @@ def _run_doc_separate_redo(job_id, pdf_content, page_texts, total_pages,
             })
     except Exception as e:
         app.logger.error("Doc separator redo error (job %s): %s", job_id, e)
+        _notify_tool_error("Document Separator (Redo)", str(e), firm_id=firm_id,
+                           firm_name=_jobs[job_id].get("firm_name"),
+                           firm_slug=_jobs[job_id].get("firm_slug"))
         with _jobs_lock:
             _jobs[job_id].update({"status": "error", "error": str(e)})
 
@@ -666,7 +679,9 @@ def api_doc_separate_redo():
     with _jobs_lock:
         _purge_stale(_jobs)
         _purge_stale(_zip_cache)
-        _jobs[new_job_id] = {"status": "processing", "ts": time.time()}
+        _jobs[new_job_id] = {"status": "processing", "ts": time.time(),
+                             "firm_name": session.get("firm_name"),
+                             "firm_slug": session.get("firm_slug")}
 
     _executor.submit(
         _run_doc_separate_redo, new_job_id, pdf_content, page_texts,
@@ -699,6 +714,9 @@ def _run_prospect_summarize(job_id, pdf_contents, notes, firm_id, firm_config):
             _jobs[job_id].update({"status": "complete", "extraction": extraction})
     except Exception as e:
         app.logger.error("Prospect summarizer error (job %s): %s", job_id, e)
+        _notify_tool_error("Prospect Summarizer", str(e), firm_id=firm_id,
+                           firm_name=_jobs[job_id].get("firm_name"),
+                           firm_slug=_jobs[job_id].get("firm_slug"))
         with _jobs_lock:
             _jobs[job_id].update({"status": "error", "error": str(e)})
 
@@ -727,7 +745,9 @@ def api_prospect_summarize():
     job_id = uuid.uuid4().hex
     with _jobs_lock:
         _purge_stale(_jobs)
-        _jobs[job_id] = {"status": "processing", "ts": time.time()}
+        _jobs[job_id] = {"status": "processing", "ts": time.time(),
+                         "firm_name": session.get("firm_name"),
+                         "firm_slug": session.get("firm_slug")}
 
     _executor.submit(_run_prospect_summarize, job_id, pdf_contents, notes, firm_id, firm_config)
     return jsonify({"job_id": job_id})
@@ -778,6 +798,7 @@ def api_prospect_summary_docx():
         )
     except Exception as e:
         app.logger.error("Prospect summary DOCX export error: %s", e)
+        _notify_tool_error("Prospect Summary DOCX", str(e))
         return jsonify({"error": str(e)}), 500
 
 
@@ -1157,8 +1178,87 @@ def page_not_found(e):
                            error_detail="The page you're looking for doesn't exist or has been moved."), 404
 
 
+_error_alert_timestamps = collections.deque()
+_ERROR_ALERT_MAX = 20
+_ERROR_ALERT_WINDOW = 3600
+
+
+def _can_send_alert():
+    now = time.time()
+    while _error_alert_timestamps and _error_alert_timestamps[0] < now - _ERROR_ALERT_WINDOW:
+        _error_alert_timestamps.popleft()
+    if len(_error_alert_timestamps) >= _ERROR_ALERT_MAX:
+        return False
+    _error_alert_timestamps.append(now)
+    return True
+
+
+def _send_error_alert(e):
+    if not RESEND_API_KEY or not _can_send_alert():
+        return
+
+    firm_name = session.get("firm_name", "N/A")
+    firm_slug = session.get("firm_slug", "N/A")
+    tb = traceback.format_exception(type(e), e, e.__traceback__)
+
+    body = (
+        f"<h2>500 Internal Server Error</h2>"
+        f"<p><strong>Time:</strong> {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}</p>"
+        f"<p><strong>URL:</strong> {request.method} {request.url}</p>"
+        f"<p><strong>Firm:</strong> {firm_name} ({firm_slug})</p>"
+        f"<p><strong>IP:</strong> {request.remote_addr}</p>"
+        f"<p><strong>User-Agent:</strong> {request.headers.get('User-Agent', 'N/A')}</p>"
+        f"<hr>"
+        f"<pre style=\"font-size:12px;white-space:pre-wrap;\">{''.join(tb)}</pre>"
+    )
+
+    try:
+        resend.Emails.send({
+            "from": "EP Intelligence <notifications@ep-intelligence.com>",
+            "to": ["ben@ep-intelligence.com"],
+            "subject": f"[500] {request.method} {request.path}",
+            "html": body,
+        })
+    except Exception:
+        app.logger.warning("Failed to send 500 alert email", exc_info=True)
+
+
+def _notify_tool_error(tool_name, error, firm_id=None, firm_name=None, firm_slug=None):
+    """Send alert for tool errors that don't trigger the 500 error handler."""
+    if not RESEND_API_KEY or not _can_send_alert():
+        return
+    if firm_name is None:
+        firm_name = session.get("firm_name", "N/A") if has_request_context() else "N/A"
+    if firm_slug is None:
+        firm_slug = session.get("firm_slug", "N/A") if has_request_context() else "N/A"
+
+    tb = traceback.format_exc()
+    req_url = f"{request.method} {request.url}" if has_request_context() else "background job"
+
+    body = (
+        f"<h2>Tool Error: {tool_name}</h2>"
+        f"<p><strong>Time:</strong> {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}</p>"
+        f"<p><strong>URL:</strong> {req_url}</p>"
+        f"<p><strong>Firm:</strong> {firm_name} ({firm_slug})</p>"
+        f"<p><strong>Error:</strong> {error}</p>"
+        f"<hr>"
+        f"<pre style=\"font-size:12px;white-space:pre-wrap;\">{tb}</pre>"
+    )
+
+    try:
+        resend.Emails.send({
+            "from": "EP Intelligence <notifications@ep-intelligence.com>",
+            "to": ["ben@ep-intelligence.com"],
+            "subject": f"[Tool Error] {tool_name}",
+            "html": body,
+        })
+    except Exception:
+        app.logger.warning("Failed to send tool error alert email", exc_info=True)
+
+
 @app.errorhandler(500)
 def internal_server_error(e):
+    _send_error_alert(e)
     return render_template("error.html",
                            error_code=500,
                            error_title="Something went wrong",
