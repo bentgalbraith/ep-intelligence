@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Firm Onboarding — EP Intelligence</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='EPILogo_Orange.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: linear-gradient(-45deg, #ea580c, #f97316, #c2410c, #fb923c, #d97706);
+      background-size: 400% 400%;
+      animation: gradientShift 10s ease infinite;
+    }
+
+    @keyframes gradientShift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    .container {
+      text-align: center;
+      padding: 2rem;
+      width: 100%;
+      max-width: 480px;
+      opacity: 0;
+      transform: translateY(30px);
+      animation: fadeUp 1s ease forwards;
+    }
+
+    .landing-logo {
+      width: clamp(40px, 8vw, 56px);
+      height: auto;
+      margin-bottom: 1rem;
+      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      margin-bottom: 0.4rem;
+    }
+
+    .subtitle {
+      font-size: 0.95rem;
+      color: rgba(255, 255, 255, 0.8);
+      margin-bottom: 2rem;
+      font-weight: 400;
+    }
+
+    .onboarding-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+    }
+
+    .onboarding-form input[type="text"],
+    .onboarding-form input[type="email"],
+    .onboarding-form input[type="tel"] {
+      width: 100%;
+      padding: 0.75rem 1.2rem;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.9rem;
+      color: #1a1a1a;
+      background: rgba(255, 255, 255, 0.95);
+      border: 2px solid rgba(255, 255, 255, 0.6);
+      border-radius: 100px;
+      outline: none;
+      transition: all 0.3s ease;
+    }
+
+    .onboarding-form input::placeholder {
+      color: rgba(0, 0, 0, 0.35);
+    }
+
+    .onboarding-form input:focus {
+      border-color: #ffffff;
+      background: #ffffff;
+      box-shadow: 0 0 30px rgba(255, 255, 255, 0.3);
+    }
+
+    .radio-group {
+      background: rgba(255, 255, 255, 0.15);
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      border-radius: 16px;
+      padding: 1.2rem 1.4rem;
+      text-align: left;
+      margin-top: 0.3rem;
+    }
+
+    .radio-group-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #ffffff;
+      margin-bottom: 0.8rem;
+      letter-spacing: 0.01em;
+    }
+
+    .radio-options {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .radio-option {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      cursor: pointer;
+    }
+
+    .radio-option input[type="radio"] {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255, 255, 255, 0.5);
+      border-radius: 50%;
+      background: transparent;
+      cursor: pointer;
+      flex-shrink: 0;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+
+    .radio-option input[type="radio"]:checked {
+      border-color: #ffffff;
+      background: #ffffff;
+    }
+
+    .radio-option input[type="radio"]:checked::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ea580c;
+    }
+
+    .radio-option span {
+      font-size: 0.88rem;
+      color: rgba(255, 255, 255, 0.9);
+      font-weight: 400;
+    }
+
+    .btn-submit {
+      margin-top: 0.5rem;
+      padding: 0.75rem 2rem;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #ea580c;
+      background: rgba(255, 255, 255, 0.95);
+      border: 2px solid rgba(255, 255, 255, 0.6);
+      border-radius: 100px;
+      cursor: pointer;
+      transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    .btn-submit:hover {
+      background: #ffffff;
+      border-color: #ffffff;
+      box-shadow: 0 6px 30px rgba(0, 0, 0, 0.2);
+      transform: scale(1.04);
+    }
+
+    .form-error {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: #ffffff;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 0.5rem 1.2rem;
+      border-radius: 100px;
+      animation: shake 0.4s ease;
+    }
+
+    .payment-placeholder {
+      background: rgba(255, 255, 255, 0.18);
+      border: 2px dashed rgba(255, 255, 255, 0.35);
+      border-radius: 20px;
+      padding: 2.5rem 2rem;
+      margin-top: 0.5rem;
+    }
+
+    .payment-placeholder h2 {
+      font-size: 1.15rem;
+      color: #ffffff;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .payment-placeholder p {
+      font-size: 0.9rem;
+      color: rgba(255, 255, 255, 0.7);
+      line-height: 1.5;
+    }
+
+    @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-6px); }
+      40% { transform: translateX(6px); }
+      60% { transform: translateX(-4px); }
+      80% { transform: translateX(4px); }
+    }
+
+    .orb { position: absolute; border-radius: 50%; filter: blur(100px); opacity: 0.5; animation: float 7s ease-in-out infinite; }
+    .orb-1 { width: 500px; height: 500px; background: #fff7ed; top: -200px; right: -150px; }
+    .orb-2 { width: 450px; height: 450px; background: #fed7aa; bottom: -180px; left: -150px; animation-delay: -3.5s; }
+    .orb-3 { width: 350px; height: 350px; background: #ffffff; top: 30%; left: 50%; animation-delay: -1.5s; }
+
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(40px, -30px) scale(1.08); }
+      66% { transform: translate(-30px, 25px) scale(0.92); }
+    }
+  </style>
+</head>
+<body>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+  <div class="container">
+    <img src="{{ url_for('static', filename='EPILogo_White.png') }}" alt="EP Intelligence" class="landing-logo">
+    <h1>Firm Onboarding</h1>
+    <p class="subtitle">We're excited to have you join the program.</p>
+
+    {% if step == 'payment' %}
+    <div class="payment-placeholder">
+      <h2>Set Up Your Subscription</h2>
+      <p>Stripe payment form will be embedded here.</p>
+    </div>
+    {% else %}
+    <form class="onboarding-form" method="POST" action="{{ url_for('onboarding') }}">
+      {% if error %}
+      <p class="form-error">{{ error }}</p>
+      {% endif %}
+      <input type="text" name="firm_name" placeholder="Firm Name" value="{{ request.form.get('firm_name', '') }}" required>
+      <input type="text" name="contact_name" placeholder="Your Name" value="{{ request.form.get('contact_name', '') }}" required>
+      <input type="tel" name="phone" placeholder="Phone Number" value="{{ request.form.get('phone', '') }}">
+      <input type="email" name="email" placeholder="Email" value="{{ request.form.get('email', '') }}" required>
+
+      <div class="radio-group">
+        <div class="radio-group-label">How many attorneys are at your firm?</div>
+        <div class="radio-options">
+          {% set sizes = [
+            ("1", "1 attorney"),
+            ("2-5", "2–5 attorneys"),
+            ("6-20", "6–20 attorneys"),
+            ("21-50", "21–50 attorneys"),
+            ("51-100", "51–100 attorneys"),
+            ("101+", "101+ attorneys")
+          ] %}
+          {% for val, label in sizes %}
+          <label class="radio-option">
+            <input type="radio" name="firm_size" value="{{ val }}" {{ 'checked' if request.form.get('firm_size') == val else '' }} required>
+            <span>{{ label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <button type="submit" class="btn-submit">Continue</button>
+    </form>
+    {% endif %}
+  </div>
+</body>
+</html>

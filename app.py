@@ -266,6 +266,46 @@ def waitlist():
     return render_template("waitlist.html", success=True)
 
 
+@app.route("/onboarding", methods=["GET", "POST"])
+@limiter.limit("5/minute")
+def onboarding():
+    if request.method == "GET":
+        return render_template("onboarding.html")
+
+    firm_name = request.form.get("firm_name", "").strip()
+    contact_name = request.form.get("contact_name", "").strip()
+    phone = request.form.get("phone", "").strip()
+    email = request.form.get("email", "").strip()
+    firm_size = request.form.get("firm_size", "").strip()
+
+    if not all([firm_name, contact_name, email, firm_size]):
+        return render_template("onboarding.html", error="Please fill in all required fields.")
+
+    body = (
+        f"<h2>New Firm Onboarding</h2>"
+        f"<p><strong>Firm Name:</strong> {firm_name}</p>"
+        f"<p><strong>Contact Name:</strong> {contact_name}</p>"
+        f"<p><strong>Phone:</strong> {phone or '(not provided)'}</p>"
+        f"<p><strong>Email:</strong> {email}</p>"
+        f"<p><strong>Firm Size:</strong> {firm_size}</p>"
+    )
+
+    if RESEND_API_KEY:
+        try:
+            resend.Emails.send({
+                "from": "EP Intelligence <notifications@ep-intelligence.com>",
+                "to": ["ben@ep-intelligence.com"],
+                "subject": f"Onboarding: {firm_name}",
+                "html": body,
+            })
+        except Exception:
+            traceback.print_exc()
+    else:
+        app.logger.warning("RESEND_API_KEY not set — onboarding email not sent")
+
+    return render_template("onboarding.html", step="payment")
+
+
 @app.route("/login", methods=["GET", "POST"])
 @limiter.limit("10/minute")
 def login():
