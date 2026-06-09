@@ -9,6 +9,7 @@ body {
     background: #fafaf8;
     color: #1a1a1a;
     height: 100vh;
+    min-width: 320px;
     overflow: hidden;
     cursor: default;
 }
