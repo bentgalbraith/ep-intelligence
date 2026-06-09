@@ -491,15 +491,26 @@ h1 {
 
 .mobile-banner {
     display: none;
-    background: #ea580c;
+    position: fixed;
+    bottom: 1.2rem;
+    left: 1rem;
+    right: 1rem;
+    z-index: 300;
+    background: #1a1a1a;
     color: #ffffff;
-    font-size: 0.78rem;
-    font-weight: 500;
+    font-size: 0.8rem;
+    font-weight: 400;
     text-align: center;
-    padding: 0.55rem 2.5rem 0.55rem 1rem;
-    position: relative;
-    z-index: 200;
+    padding: 0.9rem 2.2rem 0.9rem 1rem;
+    border-radius: 12px;
     line-height: 1.4;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+    animation: slideUp 0.4s ease;
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 .mobile-banner-close {
@@ -509,16 +520,11 @@ h1 {
     transform: translateY(-50%);
     background: none;
     border: none;
-    color: #ffffff;
-    font-size: 1.2rem;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 1.3rem;
     cursor: pointer;
     padding: 0.2rem 0.4rem;
     line-height: 1;
-    opacity: 0.8;
-}
-
-.mobile-banner-close:hover {
-    opacity: 1;
 }
 
 @media (max-width: 768px) {
@@ -2062,19 +2068,25 @@ a.doc-list-item--link:hover {
     box-shadow: 0 4px 16px rgba(234, 88, 12, 0.2);
 }
 
-.btn-admin-secondary {
-    border-color: rgba(0, 0, 0, 0.15);
-    color: rgba(0, 0, 0, 0.45);
+.btn-admin-duplicate {
+    background: none;
+    border: none;
+    padding: 0.2rem;
+    color: rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+    transition: color 0.2s;
+    display: inline-flex;
+    align-items: center;
 }
 
-.btn-admin-secondary:hover {
-    border-color: rgba(0, 0, 0, 0.3);
-    color: rgba(0, 0, 0, 0.7);
+.btn-admin-duplicate:hover {
+    color: #ea580c;
 }
 
 .admin-actions-cell {
     display: flex;
-    gap: 0.4rem;
+    gap: 0.5rem;
+    align-items: center;
     justify-content: flex-end;
 }
 
