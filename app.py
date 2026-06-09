@@ -1000,6 +1000,20 @@ def admin_firm_new():
     return render_template("admin_firm_edit.html", firm=None)
 
 
+@app.route("/admin/firms/<firm_id>/duplicate")
+@admin_required
+def admin_firm_duplicate(firm_id):
+    source = tracker_db.get_firm(firm_id)
+    if not source:
+        return redirect(url_for("admin_firms"))
+    stub = {
+        "name": "",
+        "slug": "",
+        "config": source.get("config") or {},
+    }
+    return render_template("admin_firm_edit.html", firm=stub, duplicate=True)
+
+
 @app.route("/admin/firms/<firm_id>", methods=["GET", "POST"])
 @admin_required
 def admin_firm_edit(firm_id):

@@ -489,6 +489,44 @@ h1 {
     display: none;
 }
 
+.mobile-banner {
+    display: none;
+    background: #ea580c;
+    color: #ffffff;
+    font-size: 0.78rem;
+    font-weight: 500;
+    text-align: center;
+    padding: 0.55rem 2.5rem 0.55rem 1rem;
+    position: relative;
+    z-index: 200;
+    line-height: 1.4;
+}
+
+.mobile-banner-close {
+    position: absolute;
+    right: 0.6rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #ffffff;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0.2rem 0.4rem;
+    line-height: 1;
+    opacity: 0.8;
+}
+
+.mobile-banner-close:hover {
+    opacity: 1;
+}
+
+@media (max-width: 768px) {
+    .mobile-banner {
+        display: block;
+    }
+}
+
 .ai-disclaimer {
     position: fixed;
     bottom: 0;
@@ -2022,6 +2060,22 @@ a.doc-list-item--link:hover {
     border-color: #f97316;
     color: #ffffff;
     box-shadow: 0 4px 16px rgba(234, 88, 12, 0.2);
+}
+
+.btn-admin-secondary {
+    border-color: rgba(0, 0, 0, 0.15);
+    color: rgba(0, 0, 0, 0.45);
+}
+
+.btn-admin-secondary:hover {
+    border-color: rgba(0, 0, 0, 0.3);
+    color: rgba(0, 0, 0, 0.7);
+}
+
+.admin-actions-cell {
+    display: flex;
+    gap: 0.4rem;
+    justify-content: flex-end;
 }
 
 /* ── Responsive ── */

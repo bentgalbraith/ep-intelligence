@@ -11,8 +11,18 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body class="{% block body_class %}{% endblock %}">
+    <div class="mobile-banner" id="mobile-banner">
+        <span>This site is designed for desktop. We recommend using a larger screen.</span>
+        <button class="mobile-banner-close" id="mobile-banner-close" aria-label="Dismiss">&times;</button>
+    </div>
     {% block background %}{% endblock %}
     {% block body %}{% endblock %}
     {% block scripts %}{% endblock %}
+    <script>
+    (function(){
+        var b=document.getElementById('mobile-banner'),x=document.getElementById('mobile-banner-close');
+        if(b&&x){x.addEventListener('click',function(){b.style.display='none';});}
+    })();
+    </script>
 </body>
 </html>

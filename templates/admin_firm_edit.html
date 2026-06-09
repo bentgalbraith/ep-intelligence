@@ -2,7 +2,8 @@
 
 {% set cfg = firm.config if (firm and firm.config) else {} %}
 
-{% block title %}{{ 'Edit ' + firm.name if firm else 'New Firm' }} — Admin — EP Intelligence{% endblock %}
+{% set is_duplicate = duplicate | default(false) %}
+{% block title %}{{ 'Duplicate Firm' if is_duplicate else ('Edit ' + firm.name if (firm and firm.name) else 'New Firm') }} — Admin — EP Intelligence{% endblock %}
 {% block body_class %}page-dashboard{% endblock %}
 
 {% block body %}
@@ -15,7 +16,7 @@
             Admin
         </a>
         <span class="navbar-sep">/</span>
-        <span class="navbar-page">{{ firm.name if firm else 'New Firm' }}</span>
+        <span class="navbar-page">{{ 'Duplicate Firm' if is_duplicate else (firm.name if (firm and firm.name) else 'New Firm') }}</span>
     </div>
     <a href="{{ url_for('admin_logout') }}" class="btn-pill btn-sm">Log Out</a>
 </nav>
@@ -25,7 +26,7 @@
     <div class="admin-error-banner">{{ error }}</div>
     {% endif %}
 
-    <form method="POST" class="admin-form" id="admin-form">
+    <form method="POST" action="{{ url_for('admin_firm_new') if (is_duplicate or not firm or not firm.id) else '' }}" class="admin-form" id="admin-form">
         <section class="admin-section">
             <h3 class="admin-section-title">Identity</h3>
             <div class="admin-field-row">
@@ -43,16 +44,17 @@
             </div>
             <div class="admin-field-row">
                 <div class="admin-field">
-                    <label class="admin-label">Tool Access Code{% if firm %} (leave blank to keep current){% else %} <span class="admin-req">*</span>{% endif %}</label>
+                    {% set codes_required = not firm or is_duplicate or not firm.id %}
+                    <label class="admin-label">Tool Access Code{% if not codes_required %} (leave blank to keep current){% else %} <span class="admin-req">*</span>{% endif %}</label>
                     <input class="admin-input" name="access_code" type="text" autocomplete="off"
-                           {% if not firm %}required{% endif %}
-                           placeholder="{{ firm.access_code_plain if firm else '' }}">
+                           {% if codes_required %}required{% endif %}
+                           placeholder="{{ firm.access_code_plain if (firm and not is_duplicate) else '' }}">
                 </div>
                 <div class="admin-field">
-                    <label class="admin-label">Tracker Access Code{% if firm %} (leave blank to keep current){% else %} <span class="admin-req">*</span>{% endif %}</label>
+                    <label class="admin-label">Tracker Access Code{% if not codes_required %} (leave blank to keep current){% else %} <span class="admin-req">*</span>{% endif %}</label>
                     <input class="admin-input" name="tracker_access_code" type="text" autocomplete="off"
-                           {% if not firm %}required{% endif %}
-                           placeholder="{{ firm.tracker_access_code_plain if firm else '' }}">
+                           {% if codes_required %}required{% endif %}
+                           placeholder="{{ firm.tracker_access_code_plain if (firm and not is_duplicate) else '' }}">
                 </div>
             </div>
         </section>

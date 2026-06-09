@@ -36,7 +36,10 @@
                     <td>{{ f.name }}</td>
                     <td><code class="admin-slug">{{ f.slug }}</code></td>
                     <td>{{ f.created_at.strftime('%b %d, %Y') if f.created_at else '' }}</td>
-                    <td><a href="{{ url_for('admin_firm_edit', firm_id=f.id) }}" class="btn-pill btn-sm">Edit</a></td>
+                    <td class="admin-actions-cell">
+                        <a href="{{ url_for('admin_firm_edit', firm_id=f.id) }}" class="btn-pill btn-sm">Edit</a>
+                        <a href="{{ url_for('admin_firm_duplicate', firm_id=f.id) }}" class="btn-pill btn-sm btn-admin-secondary">Duplicate</a>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
