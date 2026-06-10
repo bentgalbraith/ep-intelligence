@@ -191,25 +191,8 @@
       animation: shake 0.4s ease;
     }
 
-    .payment-placeholder {
-      background: rgba(255, 255, 255, 0.18);
-      border: 2px dashed rgba(255, 255, 255, 0.35);
-      border-radius: 20px;
-      padding: 2.5rem 2rem;
+    .payment-section {
       margin-top: 0.5rem;
-    }
-
-    .payment-placeholder h2 {
-      font-size: 1.15rem;
-      color: #ffffff;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-    }
-
-    .payment-placeholder p {
-      font-size: 0.9rem;
-      color: rgba(255, 255, 255, 0.7);
-      line-height: 1.5;
     }
 
     @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
@@ -243,9 +226,13 @@
     <p class="subtitle">We're excited to have you join the program.</p>
 
     {% if step == 'payment' %}
-    <div class="payment-placeholder">
-      <h2>Set Up Your Subscription</h2>
-      <p>Stripe payment form will be embedded here.</p>
+    <div class="payment-section">
+      <script async src="https://js.stripe.com/v3/buy-button.js"></script>
+      <stripe-buy-button
+        buy-button-id="buy_btn_1TgvEi01FY87YNYdsfq6rVyP"
+        publishable-key="pk_live_51TgRIf01FY87YNYdeDVF04wDyyAJE7oh3Lb6hfHymfAtceOZZbJawFeZaAT9EPDgtZLgYXAL2fInqXHisO1ditZj00KMnnXZ1A"
+      >
+      </stripe-buy-button>
     </div>
     {% else %}
     <form class="onboarding-form" method="POST" action="{{ url_for('onboarding') }}">
