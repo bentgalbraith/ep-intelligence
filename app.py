@@ -278,6 +278,8 @@ def waitlist():
 @limiter.limit("5/minute")
 def onboarding():
     if request.method == "GET":
+        if request.args.get("session_id"):
+            return render_template("onboarding.html", step="success")
         return render_template("onboarding.html")
 
     firm_name = request.form.get("firm_name", "").strip()

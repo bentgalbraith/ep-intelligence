@@ -195,6 +195,21 @@
       margin-top: 0.5rem;
     }
 
+    .success-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+      margin-top: 1rem;
+    }
+
+    .success-text {
+      font-size: 1.05rem;
+      color: rgba(255, 255, 255, 0.9);
+      line-height: 1.6;
+      font-weight: 400;
+    }
+
     @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
     @keyframes shake {
       0%, 100% { transform: translateX(0); }
@@ -223,13 +238,22 @@
   <div class="container">
     <img src="{{ url_for('static', filename='EPILogo_White.png') }}" alt="EP Intelligence" class="landing-logo">
     <h1>Firm Onboarding</h1>
-    {% if step == 'payment' %}
+    {% if step == 'success' %}
+    <p class="subtitle">You're all set.</p>
+    {% elif step == 'payment' %}
     <p class="subtitle">Final step: set up your payment method.</p>
     {% else %}
     <p class="subtitle">We just need a few quick details.</p>
     {% endif %}
 
-    {% if step == 'payment' %}
+    {% if step == 'success' %}
+    <div class="success-section">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+      </svg>
+      <p class="success-text">Payment confirmed. We'll be in touch shortly to get your firm set up.</p>
+    </div>
+    {% elif step == 'payment' %}
     <div class="payment-section">
       <div id="checkout"></div>
     </div>
