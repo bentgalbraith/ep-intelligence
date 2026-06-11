@@ -25,6 +25,7 @@ from ep_export import build_export_csv, build_questionnaire_docx
 from prospect_summarizer import extract_prospect_documents, build_summary_docx, PROSPECT_SCHEMA
 from quote_verify import verify_quotes
 import resend
+import stripe
 import tracker_db
 
 app = Flask(__name__)
@@ -41,6 +42,11 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 if RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY
+
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "")
+if STRIPE_SECRET_KEY:
+    stripe.api_key = STRIPE_SECRET_KEY
 
 xai_client = OpenAI(
     api_key=os.environ["XAI_API_KEY"],
@@ -155,9 +161,9 @@ def set_security_headers(response):
         "script-src 'self' 'unsafe-inline' https://js.stripe.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
-        "connect-src 'self' https://api.stripe.com; "
+        "connect-src 'self' https://api.stripe.com https://merchant-ui-api.stripe.com; "
         "img-src 'self' data: https://*.stripe.com; "
-        "frame-src https://js.stripe.com https://hooks.stripe.com; "
+        "frame-src https://js.stripe.com https://hooks.stripe.com https://connect-js.stripe.com; "
         "frame-ancestors 'none'"
     )
     return response
@@ -306,6 +312,24 @@ def onboarding():
         app.logger.warning("RESEND_API_KEY not set — onboarding email not sent")
 
     return render_template("onboarding.html", step="payment")
+
+
+@app.route("/api/create-checkout-session", methods=["POST"])
+@limiter.limit("5/minute")
+def create_checkout_session():
+    if not STRIPE_SECRET_KEY or not STRIPE_PRICE_ID:
+        return jsonify({"error": "Payment not configured."}), 503
+    try:
+        checkout_session = stripe.checkout.Session.create(
+            ui_mode="embedded",
+            line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
+            mode="subscription",
+            return_url=request.host_url + "onboarding?session_id={CHECKOUT_SESSION_ID}",
+        )
+        return jsonify({"clientSecret": checkout_session.client_secret})
+    except Exception as e:
+        app.logger.error("Stripe checkout session error: %s", e)
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/login", methods=["GET", "POST"])

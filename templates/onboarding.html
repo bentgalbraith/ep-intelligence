@@ -223,17 +223,26 @@
   <div class="container">
     <img src="{{ url_for('static', filename='EPILogo_White.png') }}" alt="EP Intelligence" class="landing-logo">
     <h1>Firm Onboarding</h1>
-    <p class="subtitle">We're excited to have you join the program.</p>
+    {% if step == 'payment' %}
+    <p class="subtitle">Final step: set up your payment method.</p>
+    {% else %}
+    <p class="subtitle">We just need a few quick details.</p>
+    {% endif %}
 
     {% if step == 'payment' %}
     <div class="payment-section">
-      <script async src="https://js.stripe.com/v3/buy-button.js"></script>
-      <stripe-buy-button
-        buy-button-id="buy_btn_1TgvEi01FY87YNYdsfq6rVyP"
-        publishable-key="pk_live_51TgRIf01FY87YNYdeDVF04wDyyAJE7oh3Lb6hfHymfAtceOZZbJawFeZaAT9EPDgtZLgYXAL2fInqXHisO1ditZj00KMnnXZ1A"
-      >
-      </stripe-buy-button>
+      <div id="checkout"></div>
     </div>
+    <script src="https://js.stripe.com/v3/"></script>
+    <script>
+    (async function() {
+      const stripe = Stripe("pk_live_51TgRIf01FY87YNYdeDVF04wDyyAJE7oh3Lb6hfHymfAtceOZZbJawFeZaAT9EPDgtZLgYXAL2fInqXHisO1ditZj00KMnnXZ1A");
+      const res = await fetch("/api/create-checkout-session", { method: "POST" });
+      const { clientSecret } = await res.json();
+      const checkout = await stripe.initEmbeddedCheckout({ clientSecret });
+      checkout.mount("#checkout");
+    })();
+    </script>
     {% else %}
     <form class="onboarding-form" method="POST" action="{{ url_for('onboarding') }}">
       {% if error %}
