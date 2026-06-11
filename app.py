@@ -321,7 +321,7 @@ def create_checkout_session():
         return jsonify({"error": "Payment not configured."}), 503
     try:
         checkout_session = stripe.checkout.Session.create(
-            ui_mode="embedded",
+            ui_mode="embedded_page",
             line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
             mode="subscription",
             return_url=request.host_url + "onboarding?session_id={CHECKOUT_SESSION_ID}",

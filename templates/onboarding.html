@@ -236,11 +236,19 @@
     <script src="https://js.stripe.com/v3/"></script>
     <script>
     (async function() {
-      const stripe = Stripe("pk_live_51TgRIf01FY87YNYdeDVF04wDyyAJE7oh3Lb6hfHymfAtceOZZbJawFeZaAT9EPDgtZLgYXAL2fInqXHisO1ditZj00KMnnXZ1A");
-      const res = await fetch("/api/create-checkout-session", { method: "POST" });
-      const { clientSecret } = await res.json();
-      const checkout = await stripe.initEmbeddedCheckout({ clientSecret });
-      checkout.mount("#checkout");
+      try {
+        const stripe = Stripe("pk_live_51TgRIf01FY87YNYdeDVF04wDyyAJE7oh3Lb6hfHymfAtceOZZbJawFeZaAT9EPDgtZLgYXAL2fInqXHisO1ditZj00KMnnXZ1A");
+        const res = await fetch("/api/create-checkout-session", { method: "POST" });
+        const data = await res.json();
+        if (data.error) {
+          document.getElementById("checkout").textContent = "Payment setup unavailable: " + data.error;
+          return;
+        }
+        const checkout = await stripe.initEmbeddedCheckout({ clientSecret: data.clientSecret });
+        checkout.mount("#checkout");
+      } catch (e) {
+        document.getElementById("checkout").textContent = "Payment setup error: " + e.message;
+      }
     })();
     </script>
     {% else %}
