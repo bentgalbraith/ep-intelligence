@@ -20,14 +20,14 @@
         <h2 class="admin-heading">Login Log</h2>
     </div>
 
-    <form method="get" style="display:flex;gap:.5rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap">
-        <select name="firm" style="padding:.35rem .5rem;border:1px solid #ccc;border-radius:6px;font-size:.85rem">
+    <form method="get" class="login-log-filters">
+        <select name="firm" class="admin-input login-log-select">
             <option value="">All firms</option>
             {% for f in firms %}
             <option value="{{ f.slug }}" {{ 'selected' if selected_firm == f.slug }}>{{ f.name }}</option>
             {% endfor %}
         </select>
-        <select name="status" style="padding:.35rem .5rem;border:1px solid #ccc;border-radius:6px;font-size:.85rem">
+        <select name="status" class="admin-input login-log-select">
             <option value="">All</option>
             <option value="success" {{ 'selected' if selected_status == 'success' }}>Success</option>
             <option value="failure" {{ 'selected' if selected_status == 'failure' }}>Failure</option>

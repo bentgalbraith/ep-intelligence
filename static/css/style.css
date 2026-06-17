@@ -2091,6 +2091,20 @@ a.doc-list-item--link:hover {
     justify-content: flex-end;
 }
 
+.login-log-filters {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+}
+
+.login-log-select {
+    width: auto;
+    padding: 0.45rem 0.8rem;
+    font-size: 0.82rem;
+}
+
 /* ── Responsive ── */
 
 @media (max-width: 900px) {
