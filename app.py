@@ -8,6 +8,7 @@ import traceback
 import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from functools import wraps
 
 from dotenv import load_dotenv
@@ -34,6 +35,7 @@ app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=10)
 
 limiter = Limiter(get_remote_address, app=app)
 
@@ -344,7 +346,16 @@ def login():
     if request.method == "POST":
         code = request.form.get("access_code", "")
         firm = tracker_db.lookup_firm_by_access_code(code)
+        if tracker_db.DATABASE_URL:
+            tracker_db.log_login_attempt(
+                ip_address=request.remote_addr or "",
+                access_code_used=code,
+                firm_name=firm["name"] if firm else None,
+                firm_slug=firm["slug"] if firm else None,
+                success=bool(firm),
+            )
         if firm:
+            session.permanent = True
             session["authenticated"] = True
             session["firm_id"] = str(firm["id"])
             session["firm_name"] = firm["name"]
@@ -1048,6 +1059,27 @@ def admin_logout():
 def admin_firms():
     firms = tracker_db.list_firms() if tracker_db.DATABASE_URL else []
     return render_template("admin_firms.html", firms=firms)
+
+
+@app.route("/admin/login-log")
+@admin_required
+def admin_login_log():
+    firm_slug = request.args.get("firm", "")
+    status = request.args.get("status", "")
+    success_filter = None
+    if status == "success":
+        success_filter = True
+    elif status == "failure":
+        success_filter = False
+    attempts = []
+    if tracker_db.DATABASE_URL:
+        attempts = tracker_db.get_login_attempts(
+            firm_slug=firm_slug or None,
+            success=success_filter,
+        )
+    firms = tracker_db.list_firms() if tracker_db.DATABASE_URL else []
+    return render_template("admin_login_log.html", attempts=attempts, firms=firms,
+                           selected_firm=firm_slug, selected_status=status)
 
 
 @app.route("/admin/firms/new", methods=["GET", "POST"])

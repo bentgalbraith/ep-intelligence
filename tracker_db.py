@@ -116,6 +116,19 @@ MIGRATIONS = [
             END IF;
         END $$""",
     ],
+    # v3: login attempts log
+    [
+        """CREATE TABLE IF NOT EXISTS login_attempts (
+            id SERIAL PRIMARY KEY,
+            attempted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            ip_address TEXT NOT NULL,
+            access_code_used TEXT NOT NULL DEFAULT '',
+            firm_name TEXT,
+            firm_slug TEXT,
+            success BOOLEAN NOT NULL
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_login_attempts_at ON login_attempts(attempted_at DESC)",
+    ],
 ]
 
 
@@ -457,6 +470,36 @@ def reorder_steps(client_id, step_ids):
                     (i, sid, client_id),
                 )
             cur.execute("UPDATE clients SET updated_at = now() WHERE id = %s", (client_id,))
+
+
+# ---------------------------------------------------------------------------
+# Login attempts log
+# ---------------------------------------------------------------------------
+
+def log_login_attempt(ip_address, access_code_used, firm_name, firm_slug, success):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO login_attempts (ip_address, access_code_used, firm_name, firm_slug, success)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (ip_address, access_code_used, firm_name, firm_slug, success),
+            )
+
+
+def get_login_attempts(limit=200, offset=0, firm_slug=None, success=None):
+    clauses, params = [], []
+    if firm_slug:
+        clauses.append("firm_slug = %s")
+        params.append(firm_slug)
+    if success is not None:
+        clauses.append("success = %s")
+        params.append(success)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.extend([limit, offset])
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(f"SELECT * FROM login_attempts {where} ORDER BY attempted_at DESC LIMIT %s OFFSET %s", params)
+            return cur.fetchall()
 
 
 # ---------------------------------------------------------------------------

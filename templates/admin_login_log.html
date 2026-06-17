@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Login Log — Admin — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <div class="navbar-left">
+        <span class="navbar-brand">Admin</span>
+        <span class="navbar-sep">/</span>
+        <a href="{{ url_for('admin_firms') }}" class="navbar-page" style="text-decoration:none;color:inherit">Firms</a>
+        <span class="navbar-sep">/</span>
+        <span class="navbar-page">Login Log</span>
+    </div>
+    <a href="{{ url_for('admin_logout') }}" class="btn-pill btn-sm">Log Out</a>
+</nav>
+
+<main class="admin-main">
+    <div class="admin-header">
+        <h2 class="admin-heading">Login Log</h2>
+    </div>
+
+    <form method="get" style="display:flex;gap:.5rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap">
+        <select name="firm" style="padding:.35rem .5rem;border:1px solid #ccc;border-radius:6px;font-size:.85rem">
+            <option value="">All firms</option>
+            {% for f in firms %}
+            <option value="{{ f.slug }}" {{ 'selected' if selected_firm == f.slug }}>{{ f.name }}</option>
+            {% endfor %}
+        </select>
+        <select name="status" style="padding:.35rem .5rem;border:1px solid #ccc;border-radius:6px;font-size:.85rem">
+            <option value="">All</option>
+            <option value="success" {{ 'selected' if selected_status == 'success' }}>Success</option>
+            <option value="failure" {{ 'selected' if selected_status == 'failure' }}>Failure</option>
+        </select>
+        <button type="submit" class="btn-pill btn-sm">Filter</button>
+    </form>
+
+    {% if attempts %}
+    <div class="tracker-table-wrap">
+        <table class="tracker-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>IP Address</th>
+                    <th>Access Code</th>
+                    <th>Firm</th>
+                    <th>Result</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in attempts %}
+                <tr>
+                    <td style="white-space:nowrap">{{ a.attempted_at.strftime('%b %d, %Y %I:%M %p') }}</td>
+                    <td><code>{{ a.ip_address }}</code></td>
+                    <td><code>{{ a.access_code_used }}</code></td>
+                    <td>{{ a.firm_name or '—' }}</td>
+                    <td>
+                        {% if a.success %}
+                        <span style="color:#16a34a;font-weight:600">Success</span>
+                        {% else %}
+                        <span style="color:#dc2626;font-weight:600">Failed</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="admin-empty">No login attempts recorded yet.</p>
+    {% endif %}
+</main>
+{% endblock %}

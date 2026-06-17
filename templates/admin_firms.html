@@ -16,7 +16,10 @@
 <main class="admin-main">
     <div class="admin-header">
         <h2 class="admin-heading">Firms</h2>
-        <a href="{{ url_for('admin_firm_new') }}" class="btn-pill btn-sm">New Firm</a>
+        <div style="display:flex;gap:.5rem">
+            <a href="{{ url_for('admin_login_log') }}" class="btn-pill btn-sm">Login Log</a>
+            <a href="{{ url_for('admin_firm_new') }}" class="btn-pill btn-sm">New Firm</a>
+        </div>
     </div>
 
     {% if firms %}
