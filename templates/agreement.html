@@ -1,12 +1,38 @@
-{% extends "base.html" %}
-
-{% block title %}EPI Program &amp; Access Agreement — EP Intelligence{% endblock %}
-{% block body_class %}page-dashboard{% endblock %}
-
-{% block body %}
-<main class="agreement-main">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+  <title>EPI Program &amp; Access Agreement — EP Intelligence</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='EPILogo_Orange.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #fafaf8; color: #1a1a1a; }
+    main { max-width: 720px; margin: 0 auto; padding: 4rem 2rem 5rem; }
+    .agreement-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 2rem; }
+    h1 { font-size: 1.6rem; font-weight: 600; color: #1a1a1a; letter-spacing: 0.01em; text-align: left; }
+    h2 { font-size: 1.05rem; font-weight: 600; color: #1a1a1a; margin-top: 2rem; margin-bottom: 0.75rem; }
+    p { font-size: 0.88rem; font-weight: 400; color: #1a1a1a; line-height: 1.75; margin-bottom: 0.75rem; }
+    ul { margin: 0.5rem 0 0.75rem 1.5rem; padding: 0; }
+    li { font-size: 0.88rem; font-weight: 400; color: #1a1a1a; line-height: 1.75; margin-bottom: 0.3rem; }
+    .btn-print {
+      flex-shrink: 0; padding: 0.45rem 1.4rem; font-family: 'Inter', sans-serif; font-size: 0.75rem;
+      font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: #1a1a1a;
+      background: rgba(255,255,255,0.6); border: 1px solid rgba(0,0,0,0.12); border-radius: 100px;
+      cursor: pointer; transition: all 0.4s cubic-bezier(0.23,1,0.32,1); margin-top: 0.3rem;
+    }
+    .btn-print:hover { background: rgba(234,88,12,0.1); border-color: rgba(234,88,12,0.5); color: #ea580c; }
+    @media print { .btn-print { display: none; } main { padding-top: 0; } }
+    @media (max-width: 640px) { main { padding: 2.5rem 1.25rem 4rem; } h1 { font-size: 1.3rem; } }
+  </style>
+</head>
+<body>
+<main>
     <div class="agreement-header">
-        <h1 class="agreement-title">EPI Program &amp; Access Agreement</h1>
+        <h1>EPI Program &amp; Access Agreement</h1>
         <button class="btn-print" onclick="window.print()">Print Agreement</button>
     </div>
 
@@ -342,4 +368,5 @@
 
     <p>The provisions of this Agreement that by their nature should survive termination shall survive, including provisions concerning confidentiality, privilege and work product, ownership, feedback, restrictions, indemnification, warranty disclaimers, limitation of liability, notices, governing law, venue, and miscellaneous terms.</p>
 </main>
-{% endblock %}
+</body>
+</html>
