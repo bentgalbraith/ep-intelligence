@@ -158,6 +158,64 @@
       font-weight: 400;
     }
 
+    .agreement-check {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.6rem;
+      text-align: left;
+      cursor: pointer;
+      margin-top: 0.3rem;
+      padding: 0 0.2rem;
+    }
+
+    .agreement-check input[type="checkbox"] {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255, 255, 255, 0.5);
+      border-radius: 4px;
+      background: transparent;
+      cursor: pointer;
+      flex-shrink: 0;
+      margin-top: 1px;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+
+    .agreement-check input[type="checkbox"]:checked {
+      border-color: #ffffff;
+      background: #ffffff;
+    }
+
+    .agreement-check input[type="checkbox"]:checked::after {
+      content: '\2713';
+      position: absolute;
+      top: -1px;
+      left: 2px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #ea580c;
+    }
+
+    .agreement-check span {
+      font-size: 0.78rem;
+      color: rgba(255, 255, 255, 0.85);
+      font-weight: 400;
+      line-height: 1.5;
+    }
+
+    .agreement-check a {
+      color: #ffffff;
+      font-weight: 500;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .agreement-check a:hover {
+      color: #ffffff;
+    }
+
     .btn-submit {
       margin-top: 0.5rem;
       padding: 0.75rem 2rem;
@@ -304,6 +362,11 @@
           {% endfor %}
         </div>
       </div>
+
+      <label class="agreement-check">
+        <input type="checkbox" name="agree" required>
+        <span>I have reviewed and agree to the <a href="{{ url_for('agreement') }}" target="_blank">EPI Program &amp; Access Agreement</a>. I represent that I am authorized to legally bind the firm identified in this onboarding form.</span>
+      </label>
 
       <button type="submit" class="btn-submit">Continue</button>
     </form>

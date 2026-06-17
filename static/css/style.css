@@ -2091,6 +2091,91 @@ a.doc-list-item--link:hover {
     justify-content: flex-end;
 }
 
+/* ── Agreement page ── */
+
+.agreement-main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 4rem 2rem 5rem;
+}
+
+.agreement-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.agreement-title {
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: #1a1a1a;
+    letter-spacing: 0.01em;
+    text-align: left;
+    display: block;
+}
+
+.btn-print {
+    flex-shrink: 0;
+    padding: 0.45rem 1.4rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #1a1a1a;
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 100px;
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+    margin-top: 0.3rem;
+}
+
+.btn-print:hover {
+    background: rgba(234, 88, 12, 0.1);
+    border-color: rgba(234, 88, 12, 0.5);
+    color: #ea580c;
+}
+
+@media print {
+    .btn-print { display: none; }
+    .mobile-banner { display: none !important; }
+    .agreement-main { padding-top: 0; }
+}
+
+.agreement-main h2 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #1a1a1a;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+}
+
+.agreement-main p {
+    font-size: 0.88rem;
+    font-weight: 400;
+    color: #1a1a1a;
+    line-height: 1.75;
+    margin-bottom: 0.75rem;
+}
+
+.agreement-main ul {
+    margin: 0.5rem 0 0.75rem 1.5rem;
+    padding: 0;
+}
+
+.agreement-main li {
+    font-size: 0.88rem;
+    font-weight: 400;
+    color: #1a1a1a;
+    line-height: 1.75;
+    margin-bottom: 0.3rem;
+}
+
+/* ── Login log ── */
+
 .login-log-filters {
     display: flex;
     align-items: center;

@@ -236,6 +236,11 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/agreement")
+def agreement():
+    return render_template("agreement.html")
+
+
 @app.route("/waitlist", methods=["GET", "POST"])
 @limiter.limit("5/minute")
 def waitlist():
