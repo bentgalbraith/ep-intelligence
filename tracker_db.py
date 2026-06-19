@@ -116,7 +116,13 @@ MIGRATIONS = [
             END IF;
         END $$""",
     ],
-    # v3: login attempts log
+    # v3: allow firm deletion without losing ai_usage_log rows
+    [
+        """ALTER TABLE ai_usage_log DROP CONSTRAINT IF EXISTS ai_usage_log_firm_id_fkey""",
+        """ALTER TABLE ai_usage_log ADD CONSTRAINT ai_usage_log_firm_id_fkey
+           FOREIGN KEY (firm_id) REFERENCES firms(id) ON DELETE SET NULL""",
+    ],
+    # v4: login attempts log
     [
         """CREATE TABLE IF NOT EXISTS login_attempts (
             id SERIAL PRIMARY KEY,
@@ -282,6 +288,14 @@ def list_firms():
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT id, name, slug, created_at FROM firms ORDER BY name")
             return cur.fetchall()
+
+
+def delete_firm(firm_id):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM client_steps WHERE client_id IN (SELECT id FROM clients WHERE firm_id = %s)", (firm_id,))
+            cur.execute("DELETE FROM clients WHERE firm_id = %s", (firm_id,))
+            cur.execute("DELETE FROM firms WHERE id = %s", (firm_id,))
 
 
 def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_access_code=None, config=None):

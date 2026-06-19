@@ -2084,6 +2084,57 @@ a.doc-list-item--link:hover {
     color: #ea580c;
 }
 
+.admin-delete-section {
+    margin-top: 1rem;
+    border-top: 1px solid rgba(220, 38, 38, 0.15);
+    padding-top: 1.5rem;
+}
+
+.btn-admin-delete-start {
+    background: rgba(220, 38, 38, 0.06);
+    border-color: rgba(220, 38, 38, 0.25);
+    color: #dc2626;
+}
+
+.btn-admin-delete-start:hover {
+    background: rgba(220, 38, 38, 0.12);
+    border-color: rgba(220, 38, 38, 0.5);
+    color: #dc2626;
+    box-shadow: none;
+    transform: none;
+}
+
+.btn-admin-delete-final {
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #ffffff;
+}
+
+.btn-admin-delete-final:hover {
+    background: #b91c1c;
+    border-color: #b91c1c;
+    color: #ffffff;
+    box-shadow: 0 4px 16px rgba(220, 38, 38, 0.2);
+    transform: none;
+}
+
+.btn-admin-delete-final:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.btn-admin-delete-final:disabled:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+    box-shadow: none;
+}
+
+.admin-delete-warning {
+    font-size: 0.85rem;
+    color: #dc2626;
+    line-height: 1.5;
+}
+
 .admin-actions-cell {
     display: flex;
     gap: 0.5rem;

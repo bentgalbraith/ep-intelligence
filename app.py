@@ -1186,6 +1186,23 @@ def admin_firm_edit(firm_id):
     return render_template("admin_firm_edit.html", firm=firm)
 
 
+@app.route("/admin/firms/<firm_id>/delete", methods=["POST"])
+@admin_required
+def admin_firm_delete(firm_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
+    expected = f"delete firm {firm['slug']}"
+    confirmation = request.form.get("confirmation", "").strip()
+    if confirmation != expected:
+        return render_template("admin_firm_edit.html", firm=firm,
+                               error="Deletion confirmation did not match. Firm was not deleted.")
+    tracker_db.delete_firm(firm_id)
+    with _firm_config_lock:
+        _firm_config_cache.pop(str(firm_id), None)
+    return redirect(url_for("admin_firms"))
+
+
 class ConfigParseError(Exception):
     pass
 
