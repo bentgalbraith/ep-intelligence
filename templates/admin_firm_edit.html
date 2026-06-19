@@ -129,23 +129,23 @@
 
     {% if firm and firm.id and not is_duplicate %}
     <section class="admin-section admin-delete-section" id="delete-section">
-        <h3 class="admin-section-title" style="color:#dc2626">Delete Firm</h3>
-        <p class="admin-hint">Permanently delete this firm, all its clients, and all client steps. This cannot be undone.</p>
+        <h3 class="admin-section-title admin-delete-title">Delete Firm</h3>
+        <p class="admin-hint">Permanently delete this firm and all associated data. This cannot be undone.</p>
 
         <button type="button" class="btn-pill btn-sm btn-admin-delete-start" id="delete-start">Delete This Firm</button>
 
-        <div class="admin-delete-confirm" id="delete-confirm" hidden>
+        <div class="admin-delete-step" id="delete-confirm" hidden>
             <p class="admin-delete-warning">Are you sure? This will permanently delete <strong>{{ firm.name }}</strong> and all associated data.</p>
-            <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+            <div class="admin-delete-actions">
                 <button type="button" class="btn-pill btn-sm" id="delete-cancel">Cancel</button>
                 <button type="button" class="btn-pill btn-sm btn-admin-delete-start" id="delete-proceed">Yes, Delete</button>
             </div>
         </div>
 
-        <form method="POST" action="{{ url_for('admin_firm_delete', firm_id=firm.id) }}" class="admin-delete-final" id="delete-final" hidden>
-            <p class="admin-delete-warning">Type <strong>delete firm {{ firm.slug }}</strong> exactly to confirm.</p>
-            <input class="admin-input" name="confirmation" type="text" autocomplete="off" placeholder="delete firm {{ firm.slug }}" id="delete-input" style="margin-top:0.5rem">
-            <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+        <form method="POST" action="{{ url_for('admin_firm_delete', firm_id=firm.id) }}" class="admin-delete-step" id="delete-final" hidden>
+            <p class="admin-delete-warning">Type <strong>"delete firm {{ firm.slug }}"</strong> to confirm deletion.</p>
+            <input class="admin-input admin-delete-input" name="confirmation" type="text" autocomplete="off" placeholder="delete firm {{ firm.slug }}" id="delete-input">
+            <div class="admin-delete-actions">
                 <button type="button" class="btn-pill btn-sm" id="delete-back">Back</button>
                 <button type="submit" class="btn-pill btn-sm btn-admin-delete-final" id="delete-submit" disabled>Permanently Delete</button>
             </div>

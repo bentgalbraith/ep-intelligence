@@ -2085,9 +2085,41 @@ a.doc-list-item--link:hover {
 }
 
 .admin-delete-section {
-    margin-top: 1rem;
+    margin-top: 1.5rem;
     border-top: 1px solid rgba(220, 38, 38, 0.15);
     padding-top: 1.5rem;
+}
+
+.admin-delete-title {
+    color: #dc2626;
+}
+
+.admin-delete-step {
+    background: rgba(220, 38, 38, 0.04);
+    border: 1px solid rgba(220, 38, 38, 0.12);
+    border-radius: 10px;
+    padding: 1.2rem 1.4rem;
+    margin-top: 0.75rem;
+}
+
+.admin-delete-warning {
+    font-size: 0.85rem;
+    color: #1a1a1a;
+    line-height: 1.6;
+}
+
+.admin-delete-warning strong {
+    color: #dc2626;
+}
+
+.admin-delete-input {
+    margin-top: 0.6rem;
+}
+
+.admin-delete-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1rem;
 }
 
 .btn-admin-delete-start {
@@ -2127,12 +2159,6 @@ a.doc-list-item--link:hover {
     background: #dc2626;
     border-color: #dc2626;
     box-shadow: none;
-}
-
-.admin-delete-warning {
-    font-size: 0.85rem;
-    color: #dc2626;
-    line-height: 1.5;
 }
 
 .admin-actions-cell {
