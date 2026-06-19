@@ -295,6 +295,7 @@ def delete_firm(firm_id):
         with conn.cursor() as cur:
             cur.execute("DELETE FROM client_steps WHERE client_id IN (SELECT id FROM clients WHERE firm_id = %s)", (firm_id,))
             cur.execute("DELETE FROM clients WHERE firm_id = %s", (firm_id,))
+            cur.execute("UPDATE ai_usage_log SET firm_id = NULL WHERE firm_id = %s", (firm_id,))
             cur.execute("DELETE FROM firms WHERE id = %s", (firm_id,))
 
 
