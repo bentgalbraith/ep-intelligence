@@ -42,6 +42,16 @@
             <span class="tool-label">Summarize Prospect EP Documents</span>
         </a>
         {% endif %}
+        {% if te.get('doc_differences') %}
+        <a href="{{ url_for('doc_differences') }}" class="tool-card">
+            <div class="tool-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 2H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h5"/><path d="M15 2h5a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2h-5"/><path d="M12 6v12"/><path d="m8 9-3 3 3 3"/><path d="m16 9 3 3-3 3"/>
+                </svg>
+            </div>
+            <span class="tool-label">Identify Document Differences</span>
+        </a>
+        {% endif %}
     </div>
     {% if te.get('tracker', true) %}
     <div class="tracker-strip" id="tracker-strip">

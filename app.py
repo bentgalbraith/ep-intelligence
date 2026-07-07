@@ -195,13 +195,17 @@ def tracker_required(f):
     return decorated
 
 
+_OPT_IN_TOOLS = {"doc_differences"}
+
+
 def _is_tool_enabled(tool_key):
     """Check whether a tool is enabled for the current firm."""
     firm_id = session.get("firm_id")
     if not firm_id:
         return True
     config = _get_firm_config(firm_id) or {}
-    return config.get("tools_enabled", {}).get(tool_key, True)
+    default = tool_key not in _OPT_IN_TOOLS
+    return config.get("tools_enabled", {}).get(tool_key, default)
 
 
 def tool_enabled(tool_key):
@@ -846,6 +850,17 @@ def api_prospect_summary_docx():
 
 
 # ---------------------------------------------------------------------------
+# Document Differences
+# ---------------------------------------------------------------------------
+
+@app.route("/doc-differences")
+@login_required
+@tool_enabled("doc_differences")
+def doc_differences():
+    return render_template("doc_differences.html", firm_name=session.get("firm_name", ""))
+
+
+# ---------------------------------------------------------------------------
 # Tracker admin
 # ---------------------------------------------------------------------------
 
@@ -1217,6 +1232,7 @@ def _parse_config_from_form(form):
         "drafting_notes": bool(form.get("tool_drafting_notes")),
         "doc_separator": bool(form.get("tool_doc_separator")),
         "prospect_summarizer": bool(form.get("tool_prospect_summarizer")),
+        "doc_differences": bool(form.get("tool_doc_differences")),
         "tracker": bool(form.get("tool_tracker")),
     }
 

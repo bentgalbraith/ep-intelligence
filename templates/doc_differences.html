@@ -1,0 +1,65 @@
+{% extends "tool_base.html" %}
+{% set page_title = "Identify Document Differences" %}
+
+{% block form_panel %}
+<form class="ep-form" id="diff-form">
+    <label class="field-label">Upload Word Document</label>
+    <div class="file-drop-zone" id="drop-zone">
+        <input type="file" id="docx-input" accept=".docx" hidden>
+        <svg class="drop-zone-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/>
+        </svg>
+        <span class="drop-zone-text" id="drop-zone-text">Drag & drop a .docx file here, or click to browse</span>
+    </div>
+    <button type="submit" class="btn-pill btn-generate" id="btn-process" disabled>
+        <span class="btn-label">Process</span>
+        <span class="spinner" hidden></span>
+    </button>
+</form>
+{% endblock %}
+
+{% block tool_scripts %}
+<script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('docx-input');
+    const dropText = document.getElementById('drop-zone-text');
+
+    let selectedFile = null;
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) selectFile(fileInput.files[0]);
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (file && file.name.toLowerCase().endsWith('.docx')) selectFile(file);
+    });
+
+    function selectFile(file) {
+        selectedFile = file;
+        dropText.textContent = file.name;
+        dropZone.classList.add('has-file');
+        document.getElementById('btn-process').disabled = false;
+    }
+
+    initToolForm({
+        formId: 'diff-form',
+        btnId: 'btn-process',
+        async onSubmit({ setLoading, showResult, showError }) {
+            if (!selectedFile) return;
+            showError('Processing not yet implemented.');
+        }
+    });
+</script>
+{% endblock %}
