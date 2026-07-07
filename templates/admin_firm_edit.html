@@ -93,6 +93,13 @@
             <p class="admin-json-status" data-for="prospect_schema"></p>
         </section>
 
+        {% if firm and firm.id and not is_duplicate %}
+        <section class="admin-section">
+            <h3 class="admin-section-title">Document Differences</h3>
+            <a href="{{ url_for('admin_specimens', firm_id=firm.id) }}" class="btn-pill btn-sm">Manage Specimen Documents</a>
+        </section>
+        {% endif %}
+
         <section class="admin-section">
             <h3 class="admin-section-title">Document Separator</h3>
             <div class="admin-field-row">

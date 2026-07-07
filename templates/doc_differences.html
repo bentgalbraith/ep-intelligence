@@ -12,7 +12,7 @@
         <span class="drop-zone-text" id="drop-zone-text">Drag & drop a .docx file here, or click to browse</span>
     </div>
     <button type="submit" class="btn-pill btn-generate" id="btn-process" disabled>
-        <span class="btn-label">Process</span>
+        <span class="btn-label">Compare</span>
         <span class="spinner" hidden></span>
     </button>
 </form>
@@ -53,12 +53,105 @@
         document.getElementById('btn-process').disabled = false;
     }
 
-    initToolForm({
+    let uploadToken = null;
+
+    const tool = initToolForm({
         formId: 'diff-form',
         btnId: 'btn-process',
-        async onSubmit({ setLoading, showResult, showError }) {
+        async onSubmit({ setLoading, showResult, showError, btnLabel, hasRun }) {
             if (!selectedFile) return;
-            showError('Processing not yet implemented.');
+
+            const state = setLoading(true);
+            state.btnLabel.textContent = 'Comparing...';
+
+            try {
+                const fd = new FormData();
+                fd.append('docx', selectedFile);
+
+                const res = await fetchWithTimeout('{{ url_for("api_doc_differences") }}', {
+                    method: 'POST',
+                    body: fd,
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Something went wrong');
+
+                uploadToken = data.upload_token;
+                showResult(renderResults(data.rankings));
+            } catch (err) {
+                showError(err.message);
+            } finally {
+                const s = setLoading(false);
+                tool.btn.disabled = !selectedFile;
+                s.btnLabel.textContent = hasRun() ? 'Re-Compare' : 'Compare';
+            }
+        }
+    });
+
+    function renderResults(rankings) {
+        if (!rankings.length) return '<p>No specimen documents found for comparison.</p>';
+
+        let html = '<div class="diff-rankings">';
+        html += '<label class="field-label">Specimen Match</label>';
+        html += '<div class="diff-specimen-list">';
+
+        for (let i = 0; i < rankings.length; i++) {
+            const r = rankings[i];
+            const checked = i === 0 ? 'checked' : '';
+            html += `<label class="diff-specimen-item">
+                <input type="radio" name="specimen" value="${escapeHtml(r.id)}" ${checked}>
+                <span class="diff-specimen-name">${escapeHtml(r.name)}</span>
+                <span class="diff-specimen-sim">${r.similarity}%</span>
+            </label>`;
+        }
+
+        html += '</div>';
+        html += `<button type="button" class="btn-pill btn-generate" id="btn-export" style="margin-top:1rem">
+            <span class="btn-label">Download Differences</span>
+            <span class="spinner" hidden></span>
+        </button>`;
+        html += '</div>';
+        return html;
+    }
+
+    document.addEventListener('click', async (e) => {
+        const btn = e.target.closest('#btn-export');
+        if (!btn) return;
+
+        const selected = document.querySelector('input[name="specimen"]:checked');
+        if (!selected || !uploadToken) return;
+
+        const btnLabel = btn.querySelector('.btn-label');
+        const spinner = btn.querySelector('.spinner');
+        btn.disabled = true;
+        btnLabel.textContent = 'Generating...';
+        spinner.hidden = false;
+
+        try {
+            const res = await fetchWithTimeout('{{ url_for("api_doc_differences_export") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ specimen_id: selected.value, upload_token: uploadToken }),
+            });
+
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || 'Export failed');
+            }
+
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Differences_${exportTimestamp()}.docx`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            btn.disabled = false;
+            btnLabel.textContent = 'Download Differences';
+            spinner.hidden = true;
         }
     });
 </script>

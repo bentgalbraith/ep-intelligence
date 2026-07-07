@@ -860,6 +860,83 @@ def doc_differences():
     return render_template("doc_differences.html", firm_name=session.get("firm_name", ""))
 
 
+@app.route("/api/doc-differences", methods=["POST"])
+@login_required
+@tool_enabled("doc_differences")
+def api_doc_differences():
+    from doc_differences import rank_specimens
+
+    f = request.files.get("docx")
+    if not f or not f.filename.lower().endswith(".docx"):
+        return jsonify({"error": "Please upload a .docx file."}), 400
+
+    upload_bytes = f.read()
+    if not upload_bytes:
+        return jsonify({"error": "The uploaded file is empty."}), 400
+
+    firm_id = session.get("firm_id")
+    specimens = tracker_db.list_specimen_documents(firm_id)
+    if not specimens:
+        return jsonify({"error": "No specimen documents configured for your firm. Contact your administrator."}), 400
+
+    full_specimens = []
+    for spec in specimens:
+        full = tracker_db.get_specimen_document(spec["id"], firm_id=firm_id)
+        if full:
+            full_specimens.append(full)
+
+    try:
+        rankings = rank_specimens(upload_bytes, full_specimens)
+    except Exception as e:
+        app.logger.error("Doc differences ranking error: %s", e)
+        _notify_tool_error("Document Differences", str(e))
+        return jsonify({"error": "Failed to process document."}), 500
+
+    token = uuid.uuid4().hex
+    with _jobs_lock:
+        _purge_stale(_zip_cache)
+        _zip_cache[token] = {"data": upload_bytes, "ts": time.time()}
+
+    return jsonify({"rankings": rankings, "upload_token": token})
+
+
+@app.route("/api/doc-differences/export", methods=["POST"])
+@login_required
+@tool_enabled("doc_differences")
+def api_doc_differences_export():
+    from doc_differences import build_diff_docx
+
+    data = request.get_json() or {}
+    specimen_id = data.get("specimen_id", "").strip()
+    upload_token = data.get("upload_token", "").strip()
+    if not specimen_id or not upload_token:
+        return jsonify({"error": "specimen_id and upload_token are required."}), 400
+
+    with _jobs_lock:
+        cached = _zip_cache.get(upload_token)
+    if not cached:
+        return jsonify({"error": "Upload expired. Please re-upload the document."}), 410
+    upload_bytes = cached["data"]
+
+    firm_id = session.get("firm_id")
+    specimen = tracker_db.get_specimen_document(specimen_id, firm_id=firm_id)
+    if not specimen:
+        return jsonify({"error": "Specimen not found."}), 404
+
+    try:
+        buf = build_diff_docx(upload_bytes, specimen["docx_data"])
+    except Exception as e:
+        app.logger.error("Doc differences export error: %s", e)
+        _notify_tool_error("Document Differences", str(e))
+        return jsonify({"error": str(e)}), 500
+
+    return Response(
+        buf.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename=Differences_{specimen['name']}.docx"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tracker admin
 # ---------------------------------------------------------------------------
@@ -1216,6 +1293,37 @@ def admin_firm_delete(firm_id):
     with _firm_config_lock:
         _firm_config_cache.pop(str(firm_id), None)
     return redirect(url_for("admin_firms"))
+
+
+@app.route("/admin/firms/<firm_id>/specimens")
+@admin_required
+def admin_specimens(firm_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
+    specimens = tracker_db.list_specimen_documents(firm_id)
+    return render_template("admin_specimens.html", firm=firm, specimens=specimens)
+
+
+@app.route("/admin/firms/<firm_id>/specimens/upload", methods=["POST"])
+@admin_required
+def admin_specimen_upload(firm_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
+    name = request.form.get("name", "").strip()
+    f = request.files.get("docx")
+    if not name or not f or not f.filename.lower().endswith(".docx"):
+        return redirect(url_for("admin_specimens", firm_id=firm_id))
+    tracker_db.create_specimen_document(firm_id, name, f.read())
+    return redirect(url_for("admin_specimens", firm_id=firm_id))
+
+
+@app.route("/admin/firms/<firm_id>/specimens/<doc_id>/delete", methods=["POST"])
+@admin_required
+def admin_specimen_delete(firm_id, doc_id):
+    tracker_db.delete_specimen_document(doc_id)
+    return redirect(url_for("admin_specimens", firm_id=firm_id))
 
 
 class ConfigParseError(Exception):

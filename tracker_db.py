@@ -135,6 +135,17 @@ MIGRATIONS = [
         )""",
         "CREATE INDEX IF NOT EXISTS idx_login_attempts_at ON login_attempts(attempted_at DESC)",
     ],
+    # v5: specimen documents for doc differences tool
+    [
+        """CREATE TABLE IF NOT EXISTS specimen_documents (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            docx_data BYTEA NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_specimen_documents_firm ON specimen_documents(firm_id)",
+    ],
 ]
 
 
@@ -515,6 +526,52 @@ def get_login_attempts(limit=200, offset=0, firm_slug=None, success=None):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(f"SELECT * FROM login_attempts {where} ORDER BY attempted_at DESC LIMIT %s OFFSET %s", params)
             return cur.fetchall()
+
+
+# ---------------------------------------------------------------------------
+# Specimen documents
+# ---------------------------------------------------------------------------
+
+def list_specimen_documents(firm_id):
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, firm_id, name, created_at FROM specimen_documents WHERE firm_id = %s ORDER BY name",
+                (firm_id,),
+            )
+            return cur.fetchall()
+
+
+def get_specimen_document(doc_id, firm_id=None):
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            sql = "SELECT id, firm_id, name, docx_data, created_at FROM specimen_documents WHERE id = %s"
+            params = [doc_id]
+            if firm_id:
+                sql += " AND firm_id = %s"
+                params.append(firm_id)
+            cur.execute(sql, params)
+            row = cur.fetchone()
+            if row and row.get("docx_data"):
+                row["docx_data"] = bytes(row["docx_data"])
+            return row
+
+
+def create_specimen_document(firm_id, name, docx_data):
+    doc_id = uuid.uuid4()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO specimen_documents (id, firm_id, name, docx_data) VALUES (%s, %s, %s, %s)",
+                (doc_id, firm_id, name, psycopg2.Binary(docx_data)),
+            )
+    return str(doc_id)
+
+
+def delete_specimen_document(doc_id):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM specimen_documents WHERE id = %s", (doc_id,))
 
 
 # ---------------------------------------------------------------------------

@@ -2184,6 +2184,46 @@ a.doc-list-item--link:hover {
     font-size: 0.82rem;
 }
 
+/* ── Doc Differences ── */
+
+.diff-specimen-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+}
+
+.diff-specimen-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.diff-specimen-item:hover {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.diff-specimen-item input[type="radio"] {
+    margin: 0;
+}
+
+.diff-specimen-name {
+    flex: 1;
+    font-size: 0.9rem;
+}
+
+.diff-specimen-sim {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--primary);
+    white-space: nowrap;
+}
+
 /* ── Responsive ── */
 
 @media (max-width: 900px) {
