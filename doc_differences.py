@@ -7,6 +7,18 @@ import re
 from docx import Document
 from docx.shared import Pt, RGBColor
 
+_QUOTE_MAP = str.maketrans({
+    "\u2018": "'", "\u2019": "'",  # curly single quotes
+    "\u201C": '"', "\u201D": '"',  # curly double quotes
+    "\u2013": "-", "\u2014": "-",  # en/em dashes
+    "\u00A0": " ",                  # non-breaking space
+})
+
+
+def _normalize(text):
+    """Normalize unicode punctuation for comparison purposes."""
+    return text.translate(_QUOTE_MAP)
+
 
 def extract_text_blocks(docx_bytes):
     """Extract paragraph texts from a .docx file as a list of strings."""
@@ -21,8 +33,8 @@ def extract_text_blocks(docx_bytes):
 
 def compute_similarity(blocks_a, blocks_b):
     """Compute similarity ratio between two documents' text blocks (0.0–1.0)."""
-    text_a = "\n".join(blocks_a)
-    text_b = "\n".join(blocks_b)
+    text_a = _normalize("\n".join(blocks_a))
+    text_b = _normalize("\n".join(blocks_b))
     return difflib.SequenceMatcher(None, text_a, text_b).ratio()
 
 
@@ -60,7 +72,7 @@ def _map_replace_block(spec_paras, upload_paras, j_start, diff_map):
         for s_idx, spec_text in enumerate(spec_paras):
             if s_idx in used_spec:
                 continue
-            sim = difflib.SequenceMatcher(None, spec_text, up_text).ratio()
+            sim = difflib.SequenceMatcher(None, _normalize(spec_text), _normalize(up_text)).ratio()
             if sim > best_sim:
                 best_sim = sim
                 best_spec_idx = s_idx
@@ -68,7 +80,9 @@ def _map_replace_block(spec_paras, upload_paras, j_start, diff_map):
         abs_idx = j_start + up_idx
         if best_spec_idx is not None and best_sim > 0.4:
             used_spec.add(best_spec_idx)
-            diff_map[abs_idx] = _word_level_diff(spec_paras[best_spec_idx], up_text)
+            word_diff = _word_level_diff(spec_paras[best_spec_idx], up_text)
+            if word_diff:
+                diff_map[abs_idx] = word_diff
         else:
             diff_map[abs_idx] = "Added — not in specimen"
 
@@ -86,9 +100,18 @@ def _map_replace_block(spec_paras, upload_paras, j_start, diff_map):
 
 
 def _word_level_diff(specimen_para, upload_para):
-    """Produce a concise description of word-level changes between two paragraphs."""
-    spec_words = specimen_para.split()
-    up_words = upload_para.split()
+    """Produce a concise description of word-level changes between two paragraphs.
+
+    Returns None if paragraphs are identical after normalization.
+    """
+    norm_spec = _normalize(specimen_para)
+    norm_up = _normalize(upload_para)
+
+    if norm_spec == norm_up:
+        return None
+
+    spec_words = norm_spec.split()
+    up_words = norm_up.split()
 
     matcher = difflib.SequenceMatcher(None, spec_words, up_words)
     changes = []
@@ -99,14 +122,14 @@ def _word_level_diff(specimen_para, upload_para):
         old = " ".join(spec_words[i1:i2])
         new = " ".join(up_words[j1:j2])
         if tag == "replace":
-            changes.append(f"\"{old}\" → \"{new}\"")
+            changes.append(f"\"{old}\" \u2192 \"{new}\"")
         elif tag == "insert":
             changes.append(f"Added: \"{new}\"")
         elif tag == "delete":
             changes.append(f"Removed: \"{old}\"")
 
     if not changes:
-        return "Formatting or whitespace change only"
+        return None
 
     if len(changes) <= 5:
         return " | ".join(changes)
@@ -128,7 +151,9 @@ def build_diff_docx(upload_bytes, specimen_bytes):
         if text:
             upload_blocks.append(text)
 
-    matcher = difflib.SequenceMatcher(None, specimen_blocks, upload_blocks)
+    norm_spec = [_normalize(b) for b in specimen_blocks]
+    norm_up = [_normalize(b) for b in upload_blocks]
+    matcher = difflib.SequenceMatcher(None, norm_spec, norm_up)
     opcodes = matcher.get_opcodes()
 
     diff_map = {}
@@ -177,7 +202,7 @@ def build_diff_docx(upload_bytes, specimen_bytes):
             comment_text = diff_map[upload_block_idx]
             if len(comment_text) > 1000:
                 comment_text = comment_text[:1000] + "..."
-            out_doc.add_comment(runs=runs, text=comment_text, author="Diff")
+            out_doc.add_comment(runs=runs, text=comment_text, author="Difference")
 
         upload_block_idx += 1
 
