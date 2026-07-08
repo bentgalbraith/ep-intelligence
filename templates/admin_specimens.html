@@ -47,12 +47,15 @@
             {% for doc in specimens %}
             <div class="specimen-row">
                 <div class="specimen-info">
-                    <span class="specimen-name">{{ doc.name }}</span>
+                    <a href="{{ url_for('admin_specimen_download', firm_id=firm.id, doc_id=doc.id) }}" class="specimen-name" download>{{ doc.name }}</a>
                     <span class="specimen-date">{{ doc.created_at.strftime('%b %d, %Y') }}</span>
                 </div>
-                <form method="POST" action="{{ url_for('admin_specimen_delete', firm_id=firm.id, doc_id=doc.id) }}" onsubmit="return confirm('Delete specimen &quot;{{ doc.name }}&quot;?')">
-                    <button type="submit" class="specimen-delete-btn">Delete</button>
-                </form>
+                <div class="specimen-actions">
+                    <a href="{{ url_for('admin_specimen_download', firm_id=firm.id, doc_id=doc.id) }}" class="specimen-download-btn" download>Download</a>
+                    <form method="POST" action="{{ url_for('admin_specimen_delete', firm_id=firm.id, doc_id=doc.id) }}" onsubmit="return confirm('Delete specimen &quot;{{ doc.name }}&quot;?')">
+                        <button type="submit" class="specimen-delete-btn">Delete</button>
+                    </form>
+                </div>
             </div>
             {% endfor %}
         </div>

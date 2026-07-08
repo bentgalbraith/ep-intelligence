@@ -54,6 +54,7 @@
     }
 
     let uploadToken = null;
+    let uploadName = null;
 
     const tool = initToolForm({
         formId: 'diff-form',
@@ -77,6 +78,7 @@
                 if (!res.ok) throw new Error(data.error || 'Something went wrong');
 
                 uploadToken = data.upload_token;
+                uploadName = data.upload_name || 'Document';
                 showResult(renderResults(data.rankings));
             } catch (err) {
                 showError(err.message);
@@ -141,9 +143,10 @@
 
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
+            const specimenName = document.querySelector('input[name="specimen"]:checked').parentElement.querySelector('.diff-specimen-name').textContent;
             const a = document.createElement('a');
             a.href = url;
-            a.download = `Differences_${exportTimestamp()}.docx`;
+            a.download = `${uploadName} vs. ${specimenName}.docx`;
             a.click();
             URL.revokeObjectURL(url);
         } catch (err) {

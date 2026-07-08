@@ -50,6 +50,35 @@ def rank_specimens(upload_bytes, specimens):
     return results
 
 
+def _word_level_diff(specimen_para, upload_para):
+    """Produce a concise description of word-level changes between two paragraphs."""
+    spec_words = specimen_para.split()
+    up_words = upload_para.split()
+
+    matcher = difflib.SequenceMatcher(None, spec_words, up_words)
+    changes = []
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        old = " ".join(spec_words[i1:i2])
+        new = " ".join(up_words[j1:j2])
+        if tag == "replace":
+            changes.append(f"\"{old}\" → \"{new}\"")
+        elif tag == "insert":
+            changes.append(f"Added: \"{new}\"")
+        elif tag == "delete":
+            changes.append(f"Removed: \"{old}\"")
+
+    if not changes:
+        return "Formatting or whitespace change only"
+
+    if len(changes) <= 5:
+        return " | ".join(changes)
+
+    return " | ".join(changes[:5]) + f" | ... and {len(changes) - 5} more changes"
+
+
 def build_diff_docx(upload_bytes, specimen_bytes):
     """Build a .docx with comments highlighting differences from the specimen.
 
@@ -72,18 +101,22 @@ def build_diff_docx(upload_bytes, specimen_bytes):
         if tag == "equal":
             continue
         elif tag == "replace":
-            for idx in range(j1, j2):
-                specimen_text = specimen_blocks[i1:i2]
-                diff_map[idx] = f"Specimen had: \"{' | '.join(specimen_text)}\""
+            for offset, idx in enumerate(range(j1, j2)):
+                spec_idx = i1 + min(offset, i2 - i1 - 1)
+                diff_map[idx] = _word_level_diff(specimen_blocks[spec_idx], upload_blocks[idx])
         elif tag == "insert":
             for idx in range(j1, j2):
                 diff_map[idx] = "Added — not in specimen"
         elif tag == "delete":
+            removed = " | ".join(specimen_blocks[i1:i2])
+            if len(removed) > 300:
+                removed = removed[:300] + "..."
+            note = f"Removed from specimen: \"{removed}\""
             if j1 in diff_map:
-                diff_map[j1] += f" | Removed from specimen: \"{' | '.join(specimen_blocks[i1:i2])}\""
+                diff_map[j1] += f" | {note}"
             else:
                 nearest = min(j1, len(upload_blocks) - 1)
-                diff_map[nearest] = f"Removed from specimen: \"{' | '.join(specimen_blocks[i1:i2])}\""
+                diff_map[nearest] = note
 
     out_doc = Document()
     style = out_doc.styles["Normal"]
@@ -107,8 +140,8 @@ def build_diff_docx(upload_bytes, specimen_bytes):
 
         if upload_block_idx in diff_map and runs:
             comment_text = diff_map[upload_block_idx]
-            if len(comment_text) > 500:
-                comment_text = comment_text[:500] + "..."
+            if len(comment_text) > 1000:
+                comment_text = comment_text[:1000] + "..."
             out_doc.add_comment(runs=runs, text=comment_text, author="Diff")
 
         upload_block_idx += 1

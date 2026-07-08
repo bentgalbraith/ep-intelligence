@@ -892,12 +892,14 @@ def api_doc_differences():
         _notify_tool_error("Document Differences", str(e))
         return jsonify({"error": "Failed to process document."}), 500
 
+    upload_name = f.filename.rsplit(".", 1)[0] if f.filename else "Document"
+
     token = uuid.uuid4().hex
     with _jobs_lock:
         _purge_stale(_zip_cache)
-        _zip_cache[token] = {"data": upload_bytes, "ts": time.time()}
+        _zip_cache[token] = {"data": upload_bytes, "name": upload_name, "ts": time.time()}
 
-    return jsonify({"rankings": rankings, "upload_token": token})
+    return jsonify({"rankings": rankings, "upload_token": token, "upload_name": upload_name})
 
 
 @app.route("/api/doc-differences/export", methods=["POST"])
@@ -917,6 +919,7 @@ def api_doc_differences_export():
     if not cached:
         return jsonify({"error": "Upload expired. Please re-upload the document."}), 410
     upload_bytes = cached["data"]
+    upload_name = cached.get("name", "Document")
 
     firm_id = session.get("firm_id")
     specimen = tracker_db.get_specimen_document(specimen_id, firm_id=firm_id)
@@ -930,10 +933,11 @@ def api_doc_differences_export():
         _notify_tool_error("Document Differences", str(e))
         return jsonify({"error": str(e)}), 500
 
+    filename = f"{upload_name} vs. {specimen['name']}.docx"
     return Response(
         buf.getvalue(),
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f"attachment; filename=Differences_{specimen['name']}.docx"},
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""},
     )
 
 
@@ -1317,6 +1321,19 @@ def admin_specimen_upload(firm_id):
         return redirect(url_for("admin_specimens", firm_id=firm_id))
     tracker_db.create_specimen_document(firm_id, name, f.read())
     return redirect(url_for("admin_specimens", firm_id=firm_id))
+
+
+@app.route("/admin/firms/<firm_id>/specimens/<doc_id>/download")
+@admin_required
+def admin_specimen_download(firm_id, doc_id):
+    doc = tracker_db.get_specimen_document(doc_id, firm_id=firm_id)
+    if not doc:
+        return redirect(url_for("admin_specimens", firm_id=firm_id))
+    return Response(
+        doc["docx_data"],
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename={doc['name']}.docx"},
+    )
 
 
 @app.route("/admin/firms/<firm_id>/specimens/<doc_id>/delete", methods=["POST"])
