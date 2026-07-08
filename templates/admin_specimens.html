@@ -22,48 +22,82 @@
     <section class="admin-section">
         <h3 class="admin-section-title">Upload Specimen</h3>
         <form method="POST" action="{{ url_for('admin_specimen_upload', firm_id=firm.id) }}" enctype="multipart/form-data" class="admin-form">
-            <div class="admin-field-row">
-                <div class="admin-field" style="flex:2">
-                    <label class="admin-label">Name <span class="admin-req">*</span></label>
-                    <input class="admin-input" name="name" type="text" required placeholder="e.g. Revocable Trust - Married w/ Kids">
-                </div>
-                <div class="admin-field" style="flex:1">
-                    <label class="admin-label">File (.docx) <span class="admin-req">*</span></label>
-                    <input class="admin-input" name="docx" type="file" accept=".docx" required>
+            <div class="admin-field">
+                <label class="admin-label">Name <span class="admin-req">*</span></label>
+                <input class="admin-input" name="name" type="text" required placeholder="e.g. Revocable Trust - Married w/ Kids">
+            </div>
+            <div class="admin-field" style="margin-top:0.75rem">
+                <label class="admin-label">File (.docx) <span class="admin-req">*</span></label>
+                <div class="specimen-file-drop" id="file-drop">
+                    <input type="file" name="docx" accept=".docx" required id="file-input" hidden>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/>
+                    </svg>
+                    <span id="file-drop-text">Choose a .docx file or drag it here</span>
                 </div>
             </div>
-            <button type="submit" class="btn-pill btn-sm btn-admin-save" style="margin-top:0.5rem">Upload</button>
+            <button type="submit" class="btn-pill btn-sm btn-admin-save" style="margin-top:0.75rem">Upload</button>
         </form>
     </section>
 
     <section class="admin-section">
         <h3 class="admin-section-title">Specimens ({{ specimens | length }})</h3>
         {% if specimens %}
-        <table class="admin-table">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Uploaded</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for doc in specimens %}
-                <tr>
-                    <td>{{ doc.name }}</td>
-                    <td>{{ doc.created_at.strftime('%b %d, %Y') }}</td>
-                    <td style="text-align:right">
-                        <form method="POST" action="{{ url_for('admin_specimen_delete', firm_id=firm.id, doc_id=doc.id) }}" style="display:inline" onsubmit="return confirm('Delete specimen &quot;{{ doc.name }}&quot;?')">
-                            <button type="submit" class="btn-pill btn-sm btn-admin-delete-start">Delete</button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="specimen-list">
+            {% for doc in specimens %}
+            <div class="specimen-row">
+                <div class="specimen-info">
+                    <span class="specimen-name">{{ doc.name }}</span>
+                    <span class="specimen-date">{{ doc.created_at.strftime('%b %d, %Y') }}</span>
+                </div>
+                <form method="POST" action="{{ url_for('admin_specimen_delete', firm_id=firm.id, doc_id=doc.id) }}" onsubmit="return confirm('Delete specimen &quot;{{ doc.name }}&quot;?')">
+                    <button type="submit" class="specimen-delete-btn">Delete</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
         {% else %}
         <p class="admin-hint">No specimen documents uploaded yet.</p>
         {% endif %}
     </section>
 </main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    var drop = document.getElementById('file-drop');
+    var input = document.getElementById('file-input');
+    var text = document.getElementById('file-drop-text');
+
+    drop.addEventListener('click', function() { input.click(); });
+
+    input.addEventListener('change', function() {
+        if (input.files.length) {
+            text.textContent = input.files[0].name;
+            drop.classList.add('has-file');
+        }
+    });
+
+    drop.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        drop.classList.add('drag-over');
+    });
+
+    drop.addEventListener('dragleave', function() {
+        drop.classList.remove('drag-over');
+    });
+
+    drop.addEventListener('drop', function(e) {
+        e.preventDefault();
+        drop.classList.remove('drag-over');
+        var file = e.dataTransfer.files[0];
+        if (file && file.name.toLowerCase().endsWith('.docx')) {
+            input.files = e.dataTransfer.files;
+            text.textContent = file.name;
+            drop.classList.add('has-file');
+        }
+    });
+})();
+</script>
 {% endblock %}

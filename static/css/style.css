@@ -2184,6 +2184,82 @@ a.doc-list-item--link:hover {
     font-size: 0.82rem;
 }
 
+/* ── Specimen Admin ── */
+
+.specimen-file-drop {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.75rem 1rem;
+    border: 1.5px dashed rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    color: #888;
+    font-size: 0.85rem;
+}
+
+.specimen-file-drop:hover,
+.specimen-file-drop.drag-over {
+    border-color: var(--primary);
+    background: rgba(198, 93, 26, 0.03);
+}
+
+.specimen-file-drop.has-file {
+    border-style: solid;
+    border-color: var(--primary);
+    color: #333;
+}
+
+.specimen-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.specimen-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: white;
+    border: 1px solid rgba(0, 0, 0, 0.07);
+    border-radius: 8px;
+}
+
+.specimen-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.specimen-name {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #222;
+}
+
+.specimen-date {
+    font-size: 0.78rem;
+    color: #888;
+}
+
+.specimen-delete-btn {
+    background: none;
+    border: 1px solid rgba(200, 50, 50, 0.25);
+    color: #c03030;
+    font-size: 0.78rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.specimen-delete-btn:hover {
+    background: rgba(200, 50, 50, 0.06);
+    border-color: rgba(200, 50, 50, 0.4);
+}
+
 /* ── Doc Differences ── */
 
 .diff-specimen-list {
