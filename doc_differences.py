@@ -50,6 +50,41 @@ def rank_specimens(upload_bytes, specimens):
     return results
 
 
+def _map_replace_block(spec_paras, upload_paras, j_start, diff_map):
+    """Within a replace block, match each upload paragraph to its best specimen match."""
+    used_spec = set()
+
+    for up_idx, up_text in enumerate(upload_paras):
+        best_sim = -1
+        best_spec_idx = None
+        for s_idx, spec_text in enumerate(spec_paras):
+            if s_idx in used_spec:
+                continue
+            sim = difflib.SequenceMatcher(None, spec_text, up_text).ratio()
+            if sim > best_sim:
+                best_sim = sim
+                best_spec_idx = s_idx
+
+        abs_idx = j_start + up_idx
+        if best_spec_idx is not None and best_sim > 0.4:
+            used_spec.add(best_spec_idx)
+            diff_map[abs_idx] = _word_level_diff(spec_paras[best_spec_idx], up_text)
+        else:
+            diff_map[abs_idx] = "Added — not in specimen"
+
+    unmatched = [spec_paras[i] for i in range(len(spec_paras)) if i not in used_spec]
+    if unmatched:
+        removed = " | ".join(unmatched)
+        if len(removed) > 300:
+            removed = removed[:300] + "..."
+        note = f"Removed from specimen: \"{removed}\""
+        first_idx = j_start
+        if first_idx in diff_map:
+            diff_map[first_idx] += f" | {note}"
+        else:
+            diff_map[first_idx] = note
+
+
 def _word_level_diff(specimen_para, upload_para):
     """Produce a concise description of word-level changes between two paragraphs."""
     spec_words = specimen_para.split()
@@ -101,9 +136,9 @@ def build_diff_docx(upload_bytes, specimen_bytes):
         if tag == "equal":
             continue
         elif tag == "replace":
-            for offset, idx in enumerate(range(j1, j2)):
-                spec_idx = i1 + min(offset, i2 - i1 - 1)
-                diff_map[idx] = _word_level_diff(specimen_blocks[spec_idx], upload_blocks[idx])
+            spec_range = specimen_blocks[i1:i2]
+            up_range = upload_blocks[j1:j2]
+            _map_replace_block(spec_range, up_range, j1, diff_map)
         elif tag == "insert":
             for idx in range(j1, j2):
                 diff_map[idx] = "Added — not in specimen"
