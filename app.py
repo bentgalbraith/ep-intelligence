@@ -39,7 +39,7 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=10)
 
 limiter = Limiter(get_remote_address, app=app)
 
-XAI_MODEL = os.environ.get("XAI_MODEL", "grok-4-1-fast-reasoning")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.6-terra")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 if RESEND_API_KEY:
@@ -50,10 +50,9 @@ STRIPE_PRICE_ID = os.environ.get("STRIPE_PRICE_ID", "")
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
 
-xai_client = OpenAI(
-    api_key=os.environ["XAI_API_KEY"],
-    base_url=os.environ.get("XAI_BASE_URL", "https://api.x.ai/v1"),
-    timeout=int(os.environ.get("XAI_TIMEOUT", "120")),
+openai_client = OpenAI(
+    api_key=os.environ["OPENAI_API_KEY"],
+    timeout=int(os.environ.get("OPENAI_TIMEOUT", "120")),
 )
 
 if tracker_db.DATABASE_URL:
@@ -431,8 +430,8 @@ def api_ep_extract():
 
     call_start = time.time()
     try:
-        response = xai_client.chat.completions.create(
-            model=XAI_MODEL,
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": system_content},
                 {"role": "user", "content": user_content},
@@ -440,7 +439,7 @@ def api_ep_extract():
             temperature=0,
         )
         log_ai_call(
-            provider="xai", model=XAI_MODEL, tool="ep_extract", status="success",
+            provider="openai", model=OPENAI_MODEL, tool="ep_extract", status="success",
             execution_ms=int((time.time() - call_start) * 1000),
             firm_id=firm_id,
             **extract_xai_usage(response),
@@ -460,7 +459,7 @@ def api_ep_extract():
         return jsonify({"error": "AI returned invalid JSON. Please try again."}), 500
     except Exception as e:
         log_ai_call(
-            provider="xai", model=XAI_MODEL, tool="ep_extract", status="error",
+            provider="openai", model=OPENAI_MODEL, tool="ep_extract", status="error",
             execution_ms=int((time.time() - call_start) * 1000),
             notes=traceback.format_exc(),
             firm_id=firm_id,
@@ -534,7 +533,7 @@ def _purge_stale(store):
 def _run_doc_separate(job_id, pdf_content, firm_id, firm_config):
     try:
         zip_buf, documents, page_texts, total_pages = separate_documents(
-            pdf_content, xai_client, firm_id=firm_id, firm_config=firm_config,
+            pdf_content, openai_client, firm_id=firm_id, firm_config=firm_config,
         )
         token = uuid.uuid4().hex
         with _jobs_lock:
@@ -664,7 +663,7 @@ def _run_doc_separate_redo(job_id, pdf_content, page_texts, total_pages,
                            previous_documents, feedback, firm_id, firm_config):
     try:
         zip_buf, documents = redo_with_feedback(
-            pdf_content, xai_client, page_texts, total_pages,
+            pdf_content, openai_client, page_texts, total_pages,
             previous_documents, feedback,
             firm_id=firm_id, firm_config=firm_config,
         )
@@ -752,7 +751,7 @@ def _run_prospect_summarize(job_id, pdf_contents, notes, firm_id, firm_config):
     try:
         prospect_schema = _get_prospect_schema(firm_config)
         extraction, ocr_text = extract_prospect_documents(
-            pdf_contents, xai_client, notes=notes,
+            pdf_contents, openai_client, notes=notes,
             firm_id=firm_id, firm_config=firm_config,
         )
         verify_quotes(extraction, ocr_text)

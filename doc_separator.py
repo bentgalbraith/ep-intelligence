@@ -231,7 +231,7 @@ def _ocr_pages(pdf_content, firm_id=None):
     return texts, total
 
 
-def _identify_documents(xai_client, page_texts, total_pages, model, firm_id=None, extra_rules=""):
+def _identify_documents(client, page_texts, total_pages, model, firm_id=None, extra_rules=""):
     """Ask Grok to identify document boundaries and metadata."""
     from ai_logger import log_ai_call, extract_xai_usage
 
@@ -244,30 +244,29 @@ def _identify_documents(xai_client, page_texts, total_pages, model, firm_id=None
     if extra_rules:
         system_prompt += f"\n\nAdditional rules from the firm:\n{extra_rules}"
 
-    grok_start = time.time()
+    call_start = time.time()
     try:
-        resp = xai_client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": pages_block},
             ],
             temperature=0,
-            max_tokens=524288,
         )
     except Exception:
         log_ai_call(
-            provider="xai", model=model, tool="doc_separator", status="error",
-            execution_ms=int((time.time() - grok_start) * 1000),
+            provider="openai", model=model, tool="doc_separator", status="error",
+            execution_ms=int((time.time() - call_start) * 1000),
             notes=traceback.format_exc(),
             firm_id=firm_id,
         )
         raise
-    grok_elapsed = time.time() - grok_start
+    call_elapsed = time.time() - call_start
 
     log_ai_call(
-        provider="xai", model=model, tool="doc_separator", status="success",
-        execution_ms=int(grok_elapsed * 1000),
+        provider="openai", model=model, tool="doc_separator", status="success",
+        execution_ms=int(call_elapsed * 1000),
         firm_id=firm_id,
         **extract_xai_usage(resp),
     )
@@ -275,8 +274,8 @@ def _identify_documents(xai_client, page_texts, total_pages, model, firm_id=None
     usage = resp.usage
     finish_reason = resp.choices[0].finish_reason
     log.info(
-        "Grok: %.1fs, %s/%s tokens (prompt/completion), finish_reason=%s",
-        grok_elapsed,
+        "OpenAI: %.1fs, %s/%s tokens (prompt/completion), finish_reason=%s",
+        call_elapsed,
         getattr(usage, "prompt_tokens", "?"),
         getattr(usage, "completion_tokens", "?"),
         finish_reason,
@@ -337,21 +336,19 @@ def _split_and_zip(pdf_content, documents, filename_fmt=None):
     return zip_buf
 
 
-def separate_documents(pdf_content, xai_client, model=None, firm_id=None, firm_config=None):
+def separate_documents(pdf_content, client, model=None, firm_id=None, firm_config=None):
     """OCR -> detect boundaries -> split -> zip.
 
     Returns (BytesIO zip, doc list, page_texts, total_pages).
     """
     total_start = time.time()
-    model = model or os.environ.get(
-        "XAI_DOC_SEPARATOR_MODEL", "grok-4-1-fast-non-reasoning"
-    )
+    model = model or os.environ.get("DOC_SEPARATOR_MODEL", "gpt-5.6-terra")
     firm_config = firm_config or {}
     log.info("Starting: model=%s, PDF=%d bytes", model, len(pdf_content))
 
     page_texts, total_pages = _ocr_pages(pdf_content, firm_id=firm_id)
     documents = _identify_documents(
-        xai_client, page_texts, total_pages, model,
+        client, page_texts, total_pages, model,
         firm_id=firm_id,
         extra_rules=firm_config.get("doc_separator_rules", ""),
     )
@@ -387,7 +384,7 @@ def _build_redo_prompt(previous_result, feedback, extra_rules=""):
     )
 
 
-def redo_with_feedback(pdf_content, xai_client, page_texts, total_pages,
+def redo_with_feedback(pdf_content, client, page_texts, total_pages,
                        previous_documents, feedback, model=None, firm_id=None, firm_config=None):
     """Re-run boundary detection with user feedback, skipping OCR.
 
@@ -396,9 +393,7 @@ def redo_with_feedback(pdf_content, xai_client, page_texts, total_pages,
     from ai_logger import log_ai_call, extract_xai_usage
 
     total_start = time.time()
-    model = model or os.environ.get(
-        "XAI_DOC_SEPARATOR_MODEL", "grok-4-1-fast-non-reasoning"
-    )
+    model = model or os.environ.get("DOC_SEPARATOR_MODEL", "gpt-5.6-terra")
     firm_config = firm_config or {}
     log.info("Redo with feedback: model=%s, feedback=%r", model, feedback[:200])
 
@@ -413,30 +408,29 @@ def redo_with_feedback(pdf_content, xai_client, page_texts, total_pages,
         txt = page_texts.get(pn, "").strip()
         pages_block += f"\n--- PAGE {pn} ---\n{txt}\n"
 
-    grok_start = time.time()
+    call_start = time.time()
     try:
-        resp = xai_client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": pages_block},
             ],
             temperature=0,
-            max_tokens=524288,
         )
     except Exception:
         log_ai_call(
-            provider="xai", model=model, tool="doc_separator_redo", status="error",
-            execution_ms=int((time.time() - grok_start) * 1000),
+            provider="openai", model=model, tool="doc_separator_redo", status="error",
+            execution_ms=int((time.time() - call_start) * 1000),
             notes=traceback.format_exc(),
             firm_id=firm_id,
         )
         raise
-    grok_elapsed = time.time() - grok_start
+    call_elapsed = time.time() - call_start
 
     log_ai_call(
-        provider="xai", model=model, tool="doc_separator_redo", status="success",
-        execution_ms=int(grok_elapsed * 1000),
+        provider="openai", model=model, tool="doc_separator_redo", status="success",
+        execution_ms=int(call_elapsed * 1000),
         firm_id=firm_id,
         **extract_xai_usage(resp),
     )
@@ -444,8 +438,8 @@ def redo_with_feedback(pdf_content, xai_client, page_texts, total_pages,
     usage = resp.usage
     finish_reason = resp.choices[0].finish_reason
     log.info(
-        "Redo Grok: %.1fs, %s/%s tokens (prompt/completion), finish_reason=%s",
-        grok_elapsed,
+        "Redo OpenAI: %.1fs, %s/%s tokens (prompt/completion), finish_reason=%s",
+        call_elapsed,
         getattr(usage, "prompt_tokens", "?"),
         getattr(usage, "completion_tokens", "?"),
         finish_reason,

@@ -13,14 +13,20 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 PROJECT = "ep_intelligence"
 
 MODEL_PRICING = {
-    "grok-4-1-fast-reasoning": {
-        "input": 0.20e-6,
-        "output": 0.50e-6,
-        "reasoning": 0.50e-6,
+    "gpt-5.6-sol": {
+        "input": 5.00e-6,
+        "output": 30.00e-6,
+        "reasoning": 30.00e-6,
     },
-    "grok-4-1-fast-non-reasoning": {
-        "input": 0.20e-6,
-        "output": 0.50e-6,
+    "gpt-5.6-terra": {
+        "input": 2.50e-6,
+        "output": 15.00e-6,
+        "reasoning": 15.00e-6,
+    },
+    "gpt-5.6-luna": {
+        "input": 1.00e-6,
+        "output": 6.00e-6,
+        "reasoning": 6.00e-6,
     },
 }
 
@@ -90,7 +96,7 @@ def log_ai_call(
 
 
 def extract_xai_usage(response):
-    """Pull token counts from an xAI/OpenAI response object."""
+    """Pull token counts from an OpenAI response object."""
     usage = response.usage
     if not usage:
         return {}

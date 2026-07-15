@@ -137,16 +137,14 @@ def _ocr_pdf(pdf_content, firm_id=None):
     return texts, total
 
 
-def extract_prospect_documents(pdf_contents, xai_client, notes="", model=None,
+def extract_prospect_documents(pdf_contents, client, notes="", model=None,
                                 firm_id=None, firm_config=None):
-    """OCR multiple PDFs, then ask Grok to extract structured data.
+    """OCR multiple PDFs, then ask OpenAI to extract structured data.
 
     Returns (extraction_dict, ocr_text).
     """
     total_start = time.time()
-    model = model or os.environ.get(
-        "XAI_PROSPECT_SUMMARIZER_MODEL", "grok-4-1-fast-reasoning"
-    )
+    model = model or os.environ.get("PROSPECT_SUMMARIZER_MODEL", "gpt-5.6-terra")
     firm_config = firm_config or {}
     log.info("Starting: model=%s, %d PDF(s)", model, len(pdf_contents))
 
@@ -173,9 +171,9 @@ def extract_prospect_documents(pdf_contents, xai_client, notes="", model=None,
     from ai_logger import log_ai_call, extract_xai_usage
     from doc_separator import _extract_json
 
-    grok_start = time.time()
+    call_start = time.time()
     try:
-        resp = xai_client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": system_content},
@@ -185,25 +183,25 @@ def extract_prospect_documents(pdf_contents, xai_client, notes="", model=None,
         )
     except Exception:
         log_ai_call(
-            provider="xai", model=model, tool="prospect_summarizer", status="error",
-            execution_ms=int((time.time() - grok_start) * 1000),
+            provider="openai", model=model, tool="prospect_summarizer", status="error",
+            execution_ms=int((time.time() - call_start) * 1000),
             notes=traceback.format_exc(),
             firm_id=firm_id,
         )
         raise
-    grok_elapsed = time.time() - grok_start
+    call_elapsed = time.time() - call_start
 
     log_ai_call(
-        provider="xai", model=model, tool="prospect_summarizer", status="success",
-        execution_ms=int(grok_elapsed * 1000),
+        provider="openai", model=model, tool="prospect_summarizer", status="success",
+        execution_ms=int(call_elapsed * 1000),
         firm_id=firm_id,
         **extract_xai_usage(resp),
     )
 
     usage = resp.usage
     log.info(
-        "Grok: %.1fs, %s/%s tokens (prompt/completion)",
-        grok_elapsed,
+        "OpenAI: %.1fs, %s/%s tokens (prompt/completion)",
+        call_elapsed,
         getattr(usage, "prompt_tokens", "?"),
         getattr(usage, "completion_tokens", "?"),
     )
