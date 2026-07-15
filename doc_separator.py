@@ -67,9 +67,10 @@ Rules:
 - Include cover sheets, TOCs, exhibit lists, exhibits, schedules, and addenda \
 with their parent document. They are not standalone documents.
 - Capitalize names properly.
-- Pages with scanned ID cards (which may be hard to identify via OCR) must not \
-be skipped. Name them using standard conventions with a specific document_type \
-like "Florida ID" or "Indiana Driver's License".
+- Pages with scanned ID cards (identified by OCR references to a state-issued ID, \
+driver's license, or passport) must not be skipped. Name them using standard \
+conventions with a specific document_type like "Florida ID" or "Indiana Driver's \
+License".
 - Uploads often contain documents for both a husband and a wife. Many documents \
 are specific to only one person — do not merge distinct documents pertaining to \
 two different people into one entry.
@@ -79,6 +80,11 @@ or advance directive.
 - A Certification of Trust (which often states that relevant portions of the trust \
 agreement are attached) plus any attached trust excerpts together form one \
 document — the Certification of Trust.
+- An Operating Agreement (including any Amended and Restated Operating Agreement) \
+and all of its schedules and exhibits form one single document — do not separate them.
+- Pages that are mostly blank or contain only stamps, seals, notary blocks, or \
+minimal markings are generally continuations of the immediately preceding \
+document — do not treat them as standalone documents.
 - For Transfer on Death Beneficiary Designations, include the name of the business \
 entity or account in the document_type (e.g. "Transfer on Death Beneficiary \
 Designation - Smith Family LLC"). The entity name is not the client's name and \
