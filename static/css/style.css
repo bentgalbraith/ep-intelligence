@@ -1830,6 +1830,24 @@ a.doc-list-item--link:hover {
     margin: 0;
 }
 
+.admin-login-subtext {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.8);
+    text-align: center;
+    line-height: 1.5;
+    margin-top: -0.8rem;
+}
+
+.admin-login-subtext a {
+    color: #ffffff;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.admin-login-subtext a:hover {
+    opacity: 0.85;
+}
+
 .admin-login-form {
     display: flex;
     flex-direction: column;

@@ -14,6 +14,7 @@
     <div class="admin-login-card">
         <img src="{{ url_for('static', filename='EPILogo_White.png') }}" alt="EP Intelligence" class="admin-login-logo">
         <h1 class="admin-login-header">Admin Login</h1>
+        <p class="admin-login-subtext">This is for administrative access only. If you're looking for the regular login page, <a href="{{ url_for('login') }}">click here</a>.</p>
         <form method="POST" action="{{ url_for('admin_login') }}" class="admin-login-form">
             <div class="admin-login-row">
                 <input type="password" name="password" placeholder="Admin Password" autocomplete="off" autofocus required>
