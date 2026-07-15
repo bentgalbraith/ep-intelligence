@@ -1,20 +1,28 @@
 {% extends "base.html" %}
 
-{% block title %}Admin — EP Intelligence{% endblock %}
+{% block title %}Admin Login — EP Intelligence{% endblock %}
 {% block body_class %}page-admin-login{% endblock %}
+
+{% block background %}
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="orb orb-3"></div>
+{% endblock %}
 
 {% block body %}
 <div class="admin-login-wrap">
     <div class="admin-login-card">
-        <div class="admin-login-header">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>
-            </svg>
-            <h1>Admin</h1>
-        </div>
+        <img src="{{ url_for('static', filename='EPILogo_White.png') }}" alt="EP Intelligence" class="admin-login-logo">
+        <h1 class="admin-login-header">Admin Login</h1>
         <form method="POST" action="{{ url_for('admin_login') }}" class="admin-login-form">
-            <input type="password" name="password" placeholder="Admin Password" autocomplete="off" autofocus required>
-            <button type="submit" class="btn-pill btn-sm">Sign In</button>
+            <div class="admin-login-row">
+                <input type="password" name="password" placeholder="Admin Password" autocomplete="off" autofocus required>
+                <button type="submit" class="admin-btn-submit" aria-label="Submit">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+                    </svg>
+                </button>
+            </div>
             {% if error %}
             <p class="admin-login-error">{{ error }}</p>
             {% endif %}

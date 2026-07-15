@@ -201,6 +201,25 @@ h1 {
     80% { transform: translateX(4px); }
 }
 
+@keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+@keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+
+.orb { position: absolute; border-radius: 50%; filter: blur(100px); opacity: 0.5; animation: float 7s ease-in-out infinite; }
+.orb-1 { width: 500px; height: 500px; background: #fff7ed; top: -200px; right: -150px; }
+.orb-2 { width: 450px; height: 450px; background: #fed7aa; bottom: -180px; left: -150px; animation-delay: -3.5s; }
+.orb-3 { width: 350px; height: 350px; background: #ffffff; top: 30%; left: 50%; animation-delay: -1.5s; }
+
+@keyframes float {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(40px, -30px) scale(1.08); }
+    66% { transform: translate(-30px, 25px) scale(0.92); }
+}
+
 /* ── Dashboard / App pages ── */
 
 .page-dashboard {
@@ -1771,7 +1790,10 @@ a.doc-list-item--link:hover {
     align-items: center;
     justify-content: center;
     height: 100vh;
-    background: #fafaf8;
+    background: linear-gradient(-45deg, #ea580c, #f97316, #c2410c, #fb923c, #d97706);
+    background-size: 400% 400%;
+    animation: gradientShift 10s ease infinite;
+    overflow: hidden;
 }
 
 .admin-login-wrap {
@@ -1785,23 +1807,27 @@ a.doc-list-item--link:hover {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 1.5rem;
-    padding: 2.5rem 3rem;
-    min-width: 340px;
+    gap: 1.8rem;
+    padding: 2rem;
+    max-width: 400px;
+    width: 100%;
+    opacity: 0;
+    transform: translateY(30px);
+    animation: fadeUp 1s ease forwards;
+}
+
+.admin-login-logo {
+    width: clamp(48px, 10vw, 72px);
+    height: auto;
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
 }
 
 .admin-login-header {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    color: #ea580c;
-}
-
-.admin-login-header h1 {
-    font-size: 1.3rem;
-    font-weight: 600;
-    color: #1a1a1a;
-    letter-spacing: 0.02em;
+    font-size: clamp(1.6rem, 4vw, 2.2rem);
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -0.02em;
+    margin: 0;
 }
 
 .admin-login-form {
@@ -1810,39 +1836,73 @@ a.doc-list-item--link:hover {
     align-items: center;
     gap: 0.8rem;
     width: 100%;
+    max-width: 360px;
+}
+
+.admin-login-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
 }
 
 .admin-login-form input {
-    width: 100%;
-    padding: 0.7rem 1.2rem;
+    flex: 1;
+    padding: 0.75rem 1.4rem;
     font-family: 'Inter', sans-serif;
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     font-weight: 400;
+    letter-spacing: 0.04em;
     color: #1a1a1a;
-    background: #fafaf8;
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 2px solid rgba(255, 255, 255, 0.6);
+    border-radius: 100px;
     outline: none;
     text-align: center;
-    letter-spacing: 0.06em;
-    transition: border-color 0.2s;
+    transition: all 0.3s ease;
 }
 
 .admin-login-form input::placeholder {
     color: rgba(0, 0, 0, 0.3);
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    font-size: 0.78rem;
+    font-size: 0.8rem;
 }
 
 .admin-login-form input:focus {
-    border-color: rgba(234, 88, 12, 0.4);
+    border-color: #ffffff;
+    background: #ffffff;
+    box-shadow: 0 0 30px rgba(255, 255, 255, 0.3);
+}
+
+.admin-btn-submit {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.admin-btn-submit:hover {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: #ffffff;
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
 }
 
 .admin-login-error {
-    font-size: 0.82rem;
+    font-size: 0.85rem;
     font-weight: 500;
-    color: #dc2626;
+    color: #ffffff;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.5rem 1.2rem;
+    border-radius: 100px;
     animation: shake 0.4s ease;
 }
 
