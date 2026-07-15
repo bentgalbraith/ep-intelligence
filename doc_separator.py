@@ -64,7 +64,7 @@ Rules:
 - Always include both start_page and end_page, even for single-page documents \
 (e.g. start_page: 5, end_page: 5).
 - Always include all six fields for every document — never omit any.
-- Include cover sheets, TOCs, and exhibit lists with their parent document.
+- Include cover sheets, TOCs, exhibit lists, and exhibits themselves with their parent document.
 - Capitalize names properly.
 - Pages with scanned ID cards (which may be hard to identify via OCR) must not \
 be skipped. Name them using standard conventions with a specific document_type \
@@ -78,6 +78,10 @@ or advance directive.
 - A Certification of Trust (which often states that relevant portions of the trust \
 agreement are attached) plus any attached trust excerpts together form one \
 document — the Certification of Trust.
+- For Transfer on Death Beneficiary Designations, include the name of the business \
+entity or account in the document_type (e.g. "Transfer on Death Beneficiary \
+Designation - Smith Family LLC"). The entity name is not the client's name and \
+must not be stripped.
 """
 
 
