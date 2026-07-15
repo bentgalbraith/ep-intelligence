@@ -75,7 +75,9 @@ Rules:
 - Pages with scanned ID cards (identified by OCR references to a state-issued ID, \
 driver's license, or passport) must not be skipped. Name them using standard \
 conventions with a specific document_type like "Florida ID" or "Indiana Driver's \
-License".
+License". However, do NOT label a page as an ID card unless the OCR text clearly \
+contains ID-related text. A mostly-blank page with only a stamp or seal is not \
+an ID card — it is part of the preceding document.
 - Uploads often contain documents for both a husband and a wife. Many documents \
 are specific to only one person — do not merge distinct documents pertaining to \
 two different people into one entry.
