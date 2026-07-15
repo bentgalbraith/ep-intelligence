@@ -179,7 +179,6 @@ def extract_prospect_documents(pdf_contents, client, notes="", model=None,
                 {"role": "system", "content": system_content},
                 {"role": "user", "content": user_content},
             ],
-            temperature=0,
         )
     except Exception:
         log_ai_call(

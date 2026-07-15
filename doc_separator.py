@@ -252,7 +252,6 @@ def _identify_documents(client, page_texts, total_pages, model, firm_id=None, ex
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": pages_block},
             ],
-            temperature=0,
         )
     except Exception:
         log_ai_call(
@@ -416,7 +415,6 @@ def redo_with_feedback(pdf_content, client, page_texts, total_pages,
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": pages_block},
             ],
-            temperature=0,
         )
     except Exception:
         log_ai_call(

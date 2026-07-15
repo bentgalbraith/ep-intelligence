@@ -436,7 +436,6 @@ def api_ep_extract():
                 {"role": "system", "content": system_content},
                 {"role": "user", "content": user_content},
             ],
-            temperature=0,
         )
         log_ai_call(
             provider="openai", model=OPENAI_MODEL, tool="ep_extract", status="success",
