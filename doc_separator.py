@@ -28,7 +28,13 @@ You will receive OCR text extracted page-by-page from a scanned PDF that contain
 multiple estate-planning documents merged into one file. Each page is labeled with \
 its page number.
 
-Identify every individual document within the scan. For each document provide:
+Identify every complete document within the scan. A "document" means the primary \
+instrument together with all of its parts — exhibits, schedules, addenda, \
+attachments, and any mostly-blank pages (stamps, seals, notary blocks) that \
+immediately follow it. These parts are NEVER listed as separate entries; they are \
+included in the page range of their parent document.
+
+For each document provide:
 1. start_page – first page number (1-based)
 2. end_page – last page number (1-based)
 3. document_type – a short Title Case label derived from the document's actual \
@@ -64,8 +70,7 @@ Rules:
 - Always include both start_page and end_page, even for single-page documents \
 (e.g. start_page: 5, end_page: 5).
 - Always include all six fields for every document — never omit any.
-- Include cover sheets, TOCs, exhibit lists, exhibits, schedules, and addenda \
-with their parent document. They are not standalone documents.
+- Include cover sheets and TOCs with their parent document.
 - Capitalize names properly.
 - Pages with scanned ID cards (identified by OCR references to a state-issued ID, \
 driver's license, or passport) must not be skipped. Name them using standard \
@@ -82,9 +87,6 @@ agreement are attached) plus any attached trust excerpts together form one \
 document — the Certification of Trust.
 - An Operating Agreement (including any Amended and Restated Operating Agreement) \
 and all of its schedules and exhibits form one single document — do not separate them.
-- Pages that are mostly blank or contain only stamps, seals, notary blocks, or \
-minimal markings are generally continuations of the immediately preceding \
-document — do not treat them as standalone documents.
 - For Transfer on Death Beneficiary Designations, include the name of the business \
 entity or account in the document_type (e.g. "Transfer on Death Beneficiary \
 Designation - Smith Family LLC"). The entity name is not the client's name and \
