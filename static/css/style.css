@@ -1771,7 +1771,7 @@ a.doc-list-item--link:hover {
     align-items: center;
     justify-content: center;
     height: 100vh;
-    background: #fff;
+    background: #fafaf8;
 }
 
 .admin-login-wrap {
@@ -1784,68 +1784,64 @@ a.doc-list-item--link:hover {
 .admin-login-card {
     display: flex;
     flex-direction: column;
-    gap: 1.8rem;
-    width: 100%;
-    max-width: 320px;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 2.5rem 3rem;
+    min-width: 340px;
 }
 
 .admin-login-header {
-    font-size: 1.1rem;
-    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: #ea580c;
+}
+
+.admin-login-header h1 {
+    font-size: 1.3rem;
+    font-weight: 600;
     color: #1a1a1a;
-    margin: 0;
+    letter-spacing: 0.02em;
 }
 
 .admin-login-form {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    align-items: center;
+    gap: 0.8rem;
     width: 100%;
 }
 
 .admin-login-form input {
     width: 100%;
-    padding: 0.65rem 0.85rem;
+    padding: 0.7rem 1.2rem;
     font-family: 'Inter', sans-serif;
     font-size: 0.85rem;
     font-weight: 400;
     color: #1a1a1a;
-    background: #fff;
-    border: 1px solid #d4d4d4;
-    border-radius: 6px;
+    background: #fafaf8;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
     outline: none;
-    transition: border-color 0.15s;
+    text-align: center;
+    letter-spacing: 0.06em;
+    transition: border-color 0.2s;
 }
 
 .admin-login-form input::placeholder {
-    color: #a3a3a3;
+    color: rgba(0, 0, 0, 0.3);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 0.78rem;
 }
 
 .admin-login-form input:focus {
-    border-color: #1a1a1a;
-}
-
-.admin-login-btn {
-    width: 100%;
-    padding: 0.65rem 1rem;
-    font-family: 'Inter', sans-serif;
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: #fff;
-    background: #1a1a1a;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.15s;
-}
-
-.admin-login-btn:hover {
-    background: #333;
+    border-color: rgba(234, 88, 12, 0.4);
 }
 
 .admin-login-error {
-    font-size: 0.8rem;
-    font-weight: 450;
+    font-size: 0.82rem;
+    font-weight: 500;
     color: #dc2626;
     animation: shake 0.4s ease;
 }
