@@ -64,7 +64,8 @@ Rules:
 - Always include both start_page and end_page, even for single-page documents \
 (e.g. start_page: 5, end_page: 5).
 - Always include all six fields for every document — never omit any.
-- Include cover sheets, TOCs, exhibit lists, and exhibits themselves with their parent document.
+- Include cover sheets, TOCs, exhibit lists, exhibits, schedules, and addenda \
+with their parent document. They are not standalone documents.
 - Capitalize names properly.
 - Pages with scanned ID cards (which may be hard to identify via OCR) must not \
 be skipped. Name them using standard conventions with a specific document_type \
@@ -82,6 +83,10 @@ document — the Certification of Trust.
 entity or account in the document_type (e.g. "Transfer on Death Beneficiary \
 Designation - Smith Family LLC"). The entity name is not the client's name and \
 must not be stripped.
+- For business entity documents (Operating Agreements, Articles of Organization, \
+etc.), client_first_name and client_last_name should be the primary member or \
+organizer — infer this from the document content or from other documents in the \
+same upload that reference the same entity.
 """
 
 
