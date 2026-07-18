@@ -1211,7 +1211,7 @@ def admin_login_log_csv():
         ])
     resp = make_response(output.getvalue())
     resp.headers["Content-Type"] = "text/csv"
-    resp.headers["Content-Disposition"] = "attachment; filename=login_log.csv"
+    resp.headers["Content-Disposition"] = f"attachment; filename=Login_Log_{time.strftime('%m-%d-%Y_%H%M%S')}.csv"
     return resp
 
 
