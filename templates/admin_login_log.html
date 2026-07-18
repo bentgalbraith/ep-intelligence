@@ -18,11 +18,6 @@
 <main class="admin-main">
     <div class="admin-header">
         <h2 class="admin-heading">Login Log</h2>
-        <a href="{{ url_for('admin_login_log_csv', firm=selected_firm, status=selected_status) }}" class="btn-icon" title="Download CSV">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-        </a>
     </div>
 
     <form method="get" class="login-log-filters">
@@ -38,6 +33,11 @@
             <option value="failure" {{ 'selected' if selected_status == 'failure' }}>Failure</option>
         </select>
         <button type="submit" class="btn-pill btn-sm">Filter</button>
+        <a href="{{ url_for('admin_login_log_csv', firm=selected_firm, status=selected_status) }}" class="btn-icon" title="Download CSV" style="margin-left:auto">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+        </a>
     </form>
 
     {% if attempts %}
