@@ -14,7 +14,7 @@ from functools import wraps
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask, Response, has_request_context, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, has_request_context, jsonify, make_response, redirect, render_template, request, session, url_for
 from flask_cors import cross_origin
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -1179,6 +1179,40 @@ def admin_login_log():
     firms = tracker_db.list_firms() if tracker_db.DATABASE_URL else []
     return render_template("admin_login_log.html", attempts=attempts, firms=firms,
                            selected_firm=firm_slug, selected_status=status)
+
+
+@app.route("/admin/login-log/csv")
+@admin_required
+def admin_login_log_csv():
+    firm_slug = request.args.get("firm", "")
+    status = request.args.get("status", "")
+    success_filter = None
+    if status == "success":
+        success_filter = True
+    elif status == "failure":
+        success_filter = False
+    attempts = tracker_db.get_login_attempts(
+        limit=10000,
+        firm_slug=firm_slug or None,
+        success=success_filter,
+    ) if tracker_db.DATABASE_URL else []
+
+    import csv
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Time", "IP Address", "Access Code", "Firm", "Result"])
+    for a in attempts:
+        writer.writerow([
+            a["attempted_at"].strftime("%Y-%m-%d %H:%M:%S"),
+            a["ip_address"],
+            a["access_code_used"],
+            a["firm_name"] or "",
+            "Success" if a["success"] else "Failed",
+        ])
+    resp = make_response(output.getvalue())
+    resp.headers["Content-Type"] = "text/csv"
+    resp.headers["Content-Disposition"] = "attachment; filename=login_log.csv"
+    return resp
 
 
 @app.route("/admin/firms/new", methods=["GET", "POST"])

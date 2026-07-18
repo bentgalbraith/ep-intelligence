@@ -1945,6 +1945,24 @@ a.doc-list-item--link:hover {
 .admin-heading {
     font-size: 1.2rem;
     font-weight: 600;
+
+}
+
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    color: #555;
+    transition: background 0.15s, color 0.15s;
+}
+
+.btn-icon:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: #1a1a1a;
+}
     color: #1a1a1a;
 }
 
