@@ -63,30 +63,54 @@ def rank_specimens(upload_bytes, specimens):
 
 
 def _map_replace_block(spec_paras, upload_paras, j_start, diff_map):
-    """Within a replace block, match each upload paragraph to its best specimen match."""
-    used_spec = set()
+    """Within a replace block, match each upload paragraph to its specimen counterpart.
 
+    Equal-length blocks are paired by index (positional alignment from the outer
+    SequenceMatcher). Unequal blocks use greedy similarity matching, then
+    force-pair any remaining unmatched paragraphs in order so short placeholder
+    fill-ins are not mislabeled as Added/Removed.
+    """
+    n_spec = len(spec_paras)
+    n_up = len(upload_paras)
+    pairs = {}  # up_idx -> spec_idx
+
+    if n_spec == n_up:
+        for i in range(n_up):
+            pairs[i] = i
+    else:
+        used_spec = set()
+        for up_idx, up_text in enumerate(upload_paras):
+            best_sim = -1
+            best_spec_idx = None
+            for s_idx, spec_text in enumerate(spec_paras):
+                if s_idx in used_spec:
+                    continue
+                sim = difflib.SequenceMatcher(
+                    None, _normalize(spec_text), _normalize(up_text)
+                ).ratio()
+                if sim > best_sim:
+                    best_sim = sim
+                    best_spec_idx = s_idx
+            if best_spec_idx is not None and best_sim > 0.4:
+                used_spec.add(best_spec_idx)
+                pairs[up_idx] = best_spec_idx
+
+        leftover_up = [i for i in range(n_up) if i not in pairs]
+        leftover_spec = [i for i in range(n_spec) if i not in used_spec]
+        for up_idx, s_idx in zip(leftover_up, leftover_spec):
+            pairs[up_idx] = s_idx
+
+    used_spec = set(pairs.values())
     for up_idx, up_text in enumerate(upload_paras):
-        best_sim = -1
-        best_spec_idx = None
-        for s_idx, spec_text in enumerate(spec_paras):
-            if s_idx in used_spec:
-                continue
-            sim = difflib.SequenceMatcher(None, _normalize(spec_text), _normalize(up_text)).ratio()
-            if sim > best_sim:
-                best_sim = sim
-                best_spec_idx = s_idx
-
         abs_idx = j_start + up_idx
-        if best_spec_idx is not None and best_sim > 0.4:
-            used_spec.add(best_spec_idx)
-            word_diff = _word_level_diff(spec_paras[best_spec_idx], up_text)
+        if up_idx in pairs:
+            word_diff = _word_level_diff(spec_paras[pairs[up_idx]], up_text)
             if word_diff:
                 diff_map[abs_idx] = word_diff
         else:
             diff_map[abs_idx] = "Added — not in specimen"
 
-    unmatched = [spec_paras[i] for i in range(len(spec_paras)) if i not in used_spec]
+    unmatched = [spec_paras[i] for i in range(n_spec) if i not in used_spec]
     if unmatched:
         removed = " | ".join(unmatched)
         if len(removed) > 300:
