@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Estate Tax Calculator — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <div class="navbar-left">
+        <a href="{{ url_for('dashboard') }}" class="navbar-brand">
+            <img src="{{ url_for('static', filename='EPILogo_Orange.png') }}" alt="" class="navbar-logo">
+            {{ firm_name or 'EP Intelligence' }}
+        </a>
+        <span class="navbar-sep">/</span>
+        <span class="navbar-page">Estate Tax Calculator</span>
+    </div>
+    <a href="{{ url_for('logout') }}" class="btn-pill btn-sm">Log Out</a>
+</nav>
+
+<main class="ep-layout">
+    <section class="ep-panel ep-form-panel">
+        <form class="ep-form" id="estate-tax-form">
+            <label class="field-label" for="total-assets">Total Assets</label>
+            <input class="field-textarea" id="total-assets" name="total_assets" type="number" min="0" step="0.01" placeholder="30000000" required>
+
+            <span class="field-label">Filing Status</span>
+            <div class="extract-field-options">
+                <label class="radio-option">
+                    <input type="radio" name="filing_status" value="individual" checked>
+                    Individual
+                </label>
+                <label class="radio-option">
+                    <input type="radio" name="filing_status" value="married">
+                    Married Couple
+                </label>
+            </div>
+
+            <label class="field-label" for="gifts-person-one">Lifetime Gifts Used — Individual 1</label>
+            <input class="field-textarea" id="gifts-person-one" name="gifts_person_one" type="number" min="0" step="0.01" value="0" required>
+
+            <div id="person-two-fields" hidden>
+                <label class="field-label" for="gifts-person-two">Lifetime Gifts Used — Individual 2</label>
+                <input class="field-textarea" id="gifts-person-two" name="gifts_person_two" type="number" min="0" step="0.01" value="0" disabled required>
+            </div>
+
+            <button type="submit" class="btn-pill btn-generate">Calculate</button>
+        </form>
+    </section>
+
+    <section class="ep-panel ep-result-panel" aria-live="polite">
+        <div class="result-empty" id="result-empty">Results will appear here</div>
+        <div class="result-content" id="result-content" style="display:none">
+            <p>Remaining Estate Tax Exemption: <strong id="remaining-exemption"></strong></p>
+            <p>Taxable Estate: <strong id="taxable-estate"></strong></p>
+            <h2>Estimated Estate Tax</h2>
+            <p id="estimated-tax" style="font-size: 2rem; font-weight: 600;"></p>
+            <p>This simplified estimate uses a $15 million exemption per person and a 40% tax rate. It does not include state estate taxes or other adjustments.</p>
+        </div>
+    </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    const EXEMPTION_PER_PERSON = 15000000;
+    const ESTATE_TAX_RATE = 0.40;
+    const form = document.getElementById('estate-tax-form');
+    const personTwoFields = document.getElementById('person-two-fields');
+    const personTwoGifts = document.getElementById('gifts-person-two');
+    const currency = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits: 0,
+    });
+
+    function isMarried() {
+        return form.elements.filing_status.value === 'married';
+    }
+
+    function updateFilingStatus() {
+        const married = isMarried();
+        personTwoFields.hidden = !married;
+        personTwoGifts.disabled = !married;
+    }
+
+    form.addEventListener('change', function (event) {
+        if (event.target.name === 'filing_status') updateFilingStatus();
+    });
+
+    form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        if (!form.reportValidity()) return;
+
+        const totalAssets = Number(form.elements.total_assets.value);
+        const giftsPersonOne = Number(form.elements.gifts_person_one.value);
+        const giftsPersonTwo = isMarried() ? Number(form.elements.gifts_person_two.value) : 0;
+        const remainingPersonOne = Math.max(0, EXEMPTION_PER_PERSON - giftsPersonOne);
+        const remainingPersonTwo = isMarried()
+            ? Math.max(0, EXEMPTION_PER_PERSON - giftsPersonTwo)
+            : 0;
+        const remainingExemption = remainingPersonOne + remainingPersonTwo;
+        const taxableEstate = Math.max(0, totalAssets - remainingExemption);
+        const estimatedTax = taxableEstate * ESTATE_TAX_RATE;
+
+        document.getElementById('remaining-exemption').textContent = currency.format(remainingExemption);
+        document.getElementById('taxable-estate').textContent = currency.format(taxableEstate);
+        document.getElementById('estimated-tax').textContent = currency.format(estimatedTax);
+        document.getElementById('result-empty').style.display = 'none';
+        document.getElementById('result-content').style.display = 'block';
+    });
+
+    updateFilingStatus();
+})();
+</script>
+{% endblock %}

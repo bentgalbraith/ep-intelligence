@@ -194,7 +194,7 @@ def tracker_required(f):
     return decorated
 
 
-_OPT_IN_TOOLS = {"doc_differences"}
+_OPT_IN_TOOLS = {"doc_differences", "estate_tax_calc"}
 
 
 def _is_tool_enabled(tool_key):
@@ -387,6 +387,17 @@ def dashboard():
 def logout():
     session.clear()
     return redirect(url_for("index"))
+
+
+# ---------------------------------------------------------------------------
+# Estate Tax Calculator
+# ---------------------------------------------------------------------------
+
+@app.route("/estate-tax-calculator")
+@login_required
+@tool_enabled("estate_tax_calc")
+def estate_tax_calculator():
+    return render_template("estate_tax_calc.html", firm_name=session.get("firm_name", ""))
 
 
 # ---------------------------------------------------------------------------
@@ -1391,6 +1402,7 @@ def _parse_config_from_form(form):
         "prospect_summarizer": bool(form.get("tool_prospect_summarizer")),
         "doc_differences": bool(form.get("tool_doc_differences")),
         "tracker": bool(form.get("tool_tracker")),
+        "estate_tax_calc": bool(form.get("tool_estate_tax_calc")),
     }
 
     for key in ["ep_schema", "prospect_schema", "tracker_default_steps"]:
