@@ -42,6 +42,9 @@
                 <input class="field-textarea" id="gifts-person-two" name="gifts_person_two" type="number" min="0" step="0.01" value="0" disabled required>
             </div>
 
+            <label class="field-label" for="annual-growth-rate">Annual Growth Rate (%)</label>
+            <input class="field-textarea" id="annual-growth-rate" name="annual_growth_rate" type="number" min="0" step="0.01" value="5" required>
+
             <button type="submit" class="btn-pill btn-generate">Calculate</button>
         </form>
     </section>
@@ -54,6 +57,21 @@
             <h2>Estimated Estate Tax</h2>
             <p id="estimated-tax" style="font-size: 2rem; font-weight: 600;"></p>
             <p>This simplified estimate uses a $15 million exemption per person and a 40% tax rate. It does not include state estate taxes or other adjustments.</p>
+
+            <h2>Future Growth</h2>
+            <p>Assuming <strong id="growth-rate-display"></strong> compound annual growth:</p>
+            <div class="tracker-table-wrap">
+                <table class="tracker-table">
+                    <thead>
+                        <tr>
+                            <th>Years From Now</th>
+                            <th>Total Assets</th>
+                            <th>Estate Tax</th>
+                        </tr>
+                    </thead>
+                    <tbody id="future-growth-rows"></tbody>
+                </table>
+            </div>
         </div>
     </section>
 </main>
@@ -94,6 +112,7 @@
         const totalAssets = Number(form.elements.total_assets.value);
         const giftsPersonOne = Number(form.elements.gifts_person_one.value);
         const giftsPersonTwo = isMarried() ? Number(form.elements.gifts_person_two.value) : 0;
+        const annualGrowthRate = Number(form.elements.annual_growth_rate.value);
         const remainingPersonOne = Math.max(0, EXEMPTION_PER_PERSON - giftsPersonOne);
         const remainingPersonTwo = isMarried()
             ? Math.max(0, EXEMPTION_PER_PERSON - giftsPersonTwo)
@@ -105,6 +124,28 @@
         document.getElementById('remaining-exemption').textContent = currency.format(remainingExemption);
         document.getElementById('taxable-estate').textContent = currency.format(taxableEstate);
         document.getElementById('estimated-tax').textContent = currency.format(estimatedTax);
+        document.getElementById('growth-rate-display').textContent = annualGrowthRate + '%';
+
+        const growthRows = document.getElementById('future-growth-rows');
+        growthRows.replaceChildren();
+        for (const years of [5, 10, 15, 20, 25, 30, 35, 40]) {
+            const futureAssets = totalAssets * Math.pow(1 + annualGrowthRate / 100, years);
+            const futureTaxableEstate = Math.max(0, futureAssets - remainingExemption);
+            const futureEstateTax = futureTaxableEstate * ESTATE_TAX_RATE;
+            const row = document.createElement('tr');
+
+            for (const value of [
+                years,
+                currency.format(futureAssets),
+                currency.format(futureEstateTax),
+            ]) {
+                const cell = document.createElement('td');
+                cell.textContent = value;
+                row.appendChild(cell);
+            }
+            growthRows.appendChild(row);
+        }
+
         document.getElementById('result-empty').style.display = 'none';
         document.getElementById('result-content').style.display = 'block';
     });
