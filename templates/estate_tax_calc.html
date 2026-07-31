@@ -1,9 +1,659 @@
 {% extends "base.html" %}
 
-{% block title %}Estate Tax Calculator — EP Intelligence{% endblock %}
-{% block body_class %}page-dashboard{% endblock %}
+{% block title %}Calculate Estate Tax — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard estate-tax-page{% endblock %}
 
 {% block body %}
+<style>
+    .estate-tax-page {
+        --tax-ink: #1d1d1b;
+        --tax-muted: #68645f;
+        --tax-orange: #ea580c;
+        --tax-orange-light: #fb923c;
+        --tax-cream: #f8f4ed;
+        --tax-card: #fffdf9;
+        --tax-line: rgba(29, 29, 27, 0.1);
+        background: var(--tax-cream);
+        color: var(--tax-ink);
+    }
+
+    .estate-tax-page .navbar {
+        background: rgba(255, 253, 249, 0.94);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+    }
+
+    .estate-tax-page [hidden] {
+        display: none !important;
+    }
+
+    .estate-tax-page .tax-sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    .tax-shell {
+        width: min(1180px, calc(100% - 48px));
+        margin: 0 auto;
+        padding: 118px 0 80px;
+    }
+
+    .tax-hero {
+        max-width: 790px;
+        margin-bottom: 34px;
+    }
+
+    .tax-eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 14px;
+        color: var(--tax-orange);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+    }
+
+    .tax-eyebrow::before {
+        width: 22px;
+        height: 2px;
+        background: currentColor;
+        content: "";
+    }
+
+    .tax-hero h1 {
+        max-width: 720px;
+        margin: 0;
+        font-size: clamp(2.7rem, 6vw, 5.7rem);
+        font-weight: 600;
+        letter-spacing: -0.065em;
+        line-height: 0.94;
+    }
+
+    .tax-hero p {
+        max-width: 650px;
+        margin: 22px 0 0;
+        color: var(--tax-muted);
+        font-size: 1.03rem;
+        line-height: 1.65;
+    }
+
+    .tax-card {
+        background: var(--tax-card);
+        border: 1px solid var(--tax-line);
+        border-radius: 24px;
+        box-shadow: 0 18px 60px rgba(57, 40, 27, 0.07);
+    }
+
+    .tax-input-card {
+        padding: clamp(24px, 4vw, 44px);
+    }
+
+    .tax-section-heading {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 30px;
+    }
+
+    .tax-section-heading h2 {
+        margin: 0;
+        font-size: clamp(1.45rem, 3vw, 2rem);
+        font-weight: 600;
+        letter-spacing: -0.035em;
+    }
+
+    .tax-section-heading p {
+        max-width: 570px;
+        margin: 7px 0 0;
+        color: var(--tax-muted);
+        font-size: 0.9rem;
+        line-height: 1.55;
+    }
+
+    .tax-assumption-pill {
+        flex: 0 0 auto;
+        padding: 8px 12px;
+        color: #9a3d0a;
+        background: #fff0e6;
+        border: 1px solid #ffd8bf;
+        border-radius: 999px;
+        font-size: 0.73rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .tax-fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 24px;
+    }
+
+    .tax-field {
+        min-width: 0;
+    }
+
+    .tax-field--wide {
+        grid-column: 1 / -1;
+    }
+
+    .tax-label,
+    .tax-legend {
+        display: block;
+        margin: 0 0 9px;
+        color: #4a4743;
+        font-size: 0.76rem;
+        font-weight: 650;
+        letter-spacing: 0.075em;
+        text-transform: uppercase;
+    }
+
+    .tax-input-wrap {
+        display: flex;
+        align-items: center;
+        min-height: 62px;
+        padding: 0 18px;
+        background: #ffffff;
+        border: 1px solid rgba(29, 29, 27, 0.14);
+        border-radius: 14px;
+        transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+    }
+
+    .tax-input-wrap:focus-within {
+        border-color: var(--tax-orange);
+        box-shadow: 0 0 0 4px rgba(234, 88, 12, 0.11);
+        transform: translateY(-1px);
+    }
+
+    .tax-prefix,
+    .tax-suffix {
+        color: #817c76;
+        font-size: 1.05rem;
+        font-weight: 500;
+    }
+
+    .tax-input {
+        width: 100%;
+        min-width: 0;
+        padding: 0 10px;
+        color: var(--tax-ink);
+        background: transparent;
+        border: 0;
+        outline: 0;
+        font: inherit;
+        font-size: 1.18rem;
+        font-weight: 550;
+        letter-spacing: -0.02em;
+    }
+
+    .tax-input::placeholder {
+        color: #bbb5ad;
+        font-weight: 400;
+    }
+
+    .tax-input[type="number"] {
+        appearance: textfield;
+    }
+
+    .tax-input[type="number"]::-webkit-inner-spin-button {
+        appearance: none;
+    }
+
+    .tax-segmented {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5px;
+        padding: 5px;
+        background: #f0ece6;
+        border-radius: 15px;
+    }
+
+    .tax-segmented label {
+        position: relative;
+        cursor: pointer;
+    }
+
+    .tax-segmented input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .tax-segmented span {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 52px;
+        padding: 10px 16px;
+        color: #6c6761;
+        border-radius: 11px;
+        font-size: 0.9rem;
+        font-weight: 550;
+        transition: color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+    }
+
+    .tax-segmented input:checked + span {
+        color: var(--tax-ink);
+        background: #ffffff;
+        box-shadow: 0 3px 14px rgba(48, 36, 27, 0.09);
+    }
+
+    .tax-segmented input:focus-visible + span {
+        outline: 3px solid rgba(234, 88, 12, 0.25);
+        outline-offset: 1px;
+    }
+
+    .tax-form-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        margin-top: 30px;
+        padding-top: 24px;
+        border-top: 1px solid var(--tax-line);
+    }
+
+    .tax-form-note {
+        max-width: 620px;
+        margin: 0;
+        color: #817c76;
+        font-size: 0.77rem;
+        line-height: 1.55;
+    }
+
+    .tax-calculate {
+        min-width: 170px;
+        min-height: 52px;
+        padding: 0 24px;
+        color: #ffffff;
+        background: var(--tax-orange);
+        border: 0;
+        border-radius: 999px;
+        box-shadow: 0 10px 24px rgba(234, 88, 12, 0.22);
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.85rem;
+        font-weight: 650;
+        transition: background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+    }
+
+    .tax-calculate:hover {
+        background: #c94908;
+        box-shadow: 0 13px 28px rgba(234, 88, 12, 0.29);
+        transform: translateY(-2px);
+    }
+
+    .tax-calculate:focus-visible {
+        outline: 4px solid rgba(234, 88, 12, 0.22);
+        outline-offset: 3px;
+    }
+
+    .tax-empty {
+        display: grid;
+        min-height: 230px;
+        margin-top: 24px;
+        place-items: center;
+        padding: 36px;
+        text-align: center;
+    }
+
+    .tax-empty-icon {
+        display: grid;
+        width: 54px;
+        height: 54px;
+        margin: 0 auto 16px;
+        color: var(--tax-orange);
+        background: #fff0e6;
+        border-radius: 50%;
+        place-items: center;
+    }
+
+    .tax-empty h2 {
+        margin: 0 0 7px;
+        font-size: 1.2rem;
+    }
+
+    .tax-empty p {
+        margin: 0;
+        color: var(--tax-muted);
+        font-size: 0.88rem;
+    }
+
+    .tax-results {
+        margin-top: 24px;
+        scroll-margin-top: 90px;
+        animation: taxReveal 420ms ease both;
+    }
+
+    @keyframes taxReveal {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .tax-headline {
+        position: relative;
+        overflow: hidden;
+        padding: clamp(30px, 6vw, 66px);
+        color: #ffffff;
+        background: var(--tax-ink);
+        border-radius: 24px;
+    }
+
+    .tax-headline::after {
+        position: absolute;
+        top: -90px;
+        right: -70px;
+        width: 310px;
+        height: 310px;
+        background: radial-gradient(circle, rgba(234, 88, 12, 0.45), rgba(234, 88, 12, 0) 68%);
+        content: "";
+        pointer-events: none;
+    }
+
+    .tax-headline-label {
+        position: relative;
+        z-index: 1;
+        margin: 0 0 13px;
+        color: #ffc39e;
+        font-size: 0.76rem;
+        font-weight: 650;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+    }
+
+    .tax-headline-value {
+        position: relative;
+        z-index: 1;
+        margin: 0;
+        font-size: clamp(3.1rem, 9vw, 7.4rem);
+        font-weight: 600;
+        letter-spacing: -0.07em;
+        line-height: 0.95;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .tax-headline-detail {
+        position: relative;
+        z-index: 1;
+        margin: 18px 0 0;
+        color: rgba(255, 255, 255, 0.64);
+        font-size: 0.92rem;
+    }
+
+    .tax-metrics {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        margin: 14px 0;
+    }
+
+    .tax-metric {
+        padding: 22px;
+    }
+
+    .tax-metric-label {
+        display: block;
+        margin-bottom: 9px;
+        color: var(--tax-muted);
+        font-size: 0.68rem;
+        font-weight: 650;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+    }
+
+    .tax-metric-value {
+        display: block;
+        font-size: clamp(1.25rem, 2.8vw, 1.75rem);
+        font-weight: 600;
+        letter-spacing: -0.04em;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .tax-visual,
+    .tax-growth {
+        margin-top: 14px;
+        padding: clamp(26px, 5vw, 48px);
+    }
+
+    .tax-visual-bar {
+        display: flex;
+        width: 100%;
+        height: 74px;
+        overflow: hidden;
+        background: #ebe6df;
+        border-radius: 15px;
+        box-shadow: inset 0 0 0 1px rgba(29, 29, 27, 0.05);
+    }
+
+    .tax-visual-segment {
+        width: 0;
+        min-width: 0;
+        transition: width 650ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tax-visual-segment--exempt {
+        background: var(--tax-orange);
+    }
+
+    .tax-visual-segment--tax {
+        background: var(--tax-ink);
+    }
+
+    .tax-visual-segment--retained {
+        background: #f5c5a7;
+    }
+
+    .tax-allocation-legend {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+        margin-top: 22px;
+    }
+
+    .tax-allocation-item {
+        min-width: 0;
+    }
+
+    .tax-allocation-name {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 7px;
+        color: var(--tax-muted);
+        font-size: 0.75rem;
+    }
+
+    .tax-swatch {
+        width: 9px;
+        height: 9px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+    }
+
+    .tax-allocation-value {
+        display: block;
+        overflow: hidden;
+        font-size: clamp(1rem, 2.2vw, 1.4rem);
+        font-weight: 600;
+        letter-spacing: -0.035em;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .tax-chart-legend {
+        display: flex;
+        gap: 20px;
+        margin: -10px 0 20px;
+        color: var(--tax-muted);
+        font-size: 0.75rem;
+    }
+
+    .tax-chart-wrap {
+        overflow: hidden;
+        padding: 12px 8px 0 0;
+        background: #fffdf9;
+        border: 1px solid var(--tax-line);
+        border-radius: 17px;
+    }
+
+    .tax-chart {
+        display: block;
+        width: 100%;
+        height: auto;
+        min-height: 260px;
+    }
+
+    .tax-chart text {
+        fill: #817c76;
+        font-family: Inter, sans-serif;
+        font-size: 11px;
+    }
+
+    .tax-chart .chart-grid {
+        stroke: rgba(29, 29, 27, 0.09);
+        stroke-width: 1;
+    }
+
+    .tax-chart .chart-area {
+        fill: rgba(234, 88, 12, 0.07);
+    }
+
+    .tax-chart .chart-assets,
+    .tax-chart .chart-tax {
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 3;
+        vector-effect: non-scaling-stroke;
+        animation: taxDrawLine 700ms ease both;
+    }
+
+    .tax-chart .chart-assets {
+        stroke: var(--tax-orange);
+    }
+
+    .tax-chart .chart-tax {
+        stroke: var(--tax-ink);
+    }
+
+    .tax-chart .chart-point-assets {
+        fill: var(--tax-orange);
+    }
+
+    .tax-chart .chart-point-tax {
+        fill: var(--tax-ink);
+    }
+
+    @keyframes taxDrawLine {
+        from { stroke-dasharray: 0 1; }
+        to { stroke-dasharray: 1 0; }
+    }
+
+    .tax-table-wrap {
+        margin-top: 22px;
+        overflow-x: auto;
+        border: 1px solid var(--tax-line);
+        border-radius: 16px;
+    }
+
+    .tax-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .tax-table th,
+    .tax-table td {
+        padding: 15px 18px;
+        border-bottom: 1px solid var(--tax-line);
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .tax-table th:first-child,
+    .tax-table td:first-child {
+        text-align: left;
+    }
+
+    .tax-table th {
+        color: var(--tax-muted);
+        background: #f5f1eb;
+        font-size: 0.68rem;
+        font-weight: 650;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .tax-table td {
+        font-size: 0.84rem;
+        font-weight: 500;
+    }
+
+    .tax-table tr:last-child td {
+        border-bottom: 0;
+    }
+
+    .tax-disclaimer {
+        max-width: 820px;
+        margin: 25px auto 0;
+        color: #817c76;
+        font-size: 0.74rem;
+        line-height: 1.55;
+        text-align: center;
+    }
+
+    @media (max-width: 760px) {
+        .tax-shell {
+            width: min(100% - 28px, 1180px);
+            padding-top: 96px;
+        }
+
+        .tax-fields,
+        .tax-metrics,
+        .tax-allocation-legend {
+            grid-template-columns: 1fr;
+        }
+
+        .tax-section-heading,
+        .tax-form-footer {
+            align-items: stretch;
+            flex-direction: column;
+        }
+
+        .tax-assumption-pill {
+            align-self: flex-start;
+        }
+
+        .tax-calculate {
+            width: 100%;
+        }
+
+        .tax-visual-bar {
+            height: 58px;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .estate-tax-page *,
+        .estate-tax-page *::before,
+        .estate-tax-page *::after {
+            scroll-behavior: auto !important;
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+        }
+    }
+</style>
+
 <nav class="navbar">
     <div class="navbar-left">
         <a href="{{ url_for('dashboard') }}" class="navbar-brand">
@@ -11,68 +661,181 @@
             {{ firm_name or 'EP Intelligence' }}
         </a>
         <span class="navbar-sep">/</span>
-        <span class="navbar-page">Estate Tax Calculator</span>
+        <span class="navbar-page">Calculate Estate Tax</span>
     </div>
     <a href="{{ url_for('logout') }}" class="btn-pill btn-sm">Log Out</a>
 </nav>
 
-<main class="ep-layout">
-    <section class="ep-panel ep-form-panel">
-        <form class="ep-form" id="estate-tax-form">
-            <label class="field-label" for="total-assets">Total Assets</label>
-            <input class="field-textarea" id="total-assets" name="total_assets" type="number" min="0" step="0.01" placeholder="30000000" required>
+<main class="tax-shell">
+    <header class="tax-hero">
+        <span class="tax-eyebrow">Estate planning tool</span>
+        <h1>See the estate tax picture clearly.</h1>
+        <p>Model a client’s current federal estate tax exposure and show how that exposure may change as their assets grow.</p>
+    </header>
 
-            <span class="field-label">Filing Status</span>
-            <div class="extract-field-options">
-                <label class="radio-option">
-                    <input type="radio" name="filing_status" value="individual" checked>
-                    Individual
-                </label>
-                <label class="radio-option">
-                    <input type="radio" name="filing_status" value="married">
-                    Married Couple
-                </label>
+    <section class="tax-card tax-input-card" aria-labelledby="scenario-heading">
+        <div class="tax-section-heading">
+            <div>
+                <h2 id="scenario-heading">Client scenario</h2>
+                <p>Enter the client’s current assets, filing status, prior taxable gifts, and expected annual growth.</p>
+            </div>
+            <span class="tax-assumption-pill">$15M exemption per person</span>
+        </div>
+
+        <form id="estate-tax-form" novalidate>
+            <div class="tax-fields">
+                <div class="tax-field">
+                    <label class="tax-label" for="total-assets">Total assets</label>
+                    <div class="tax-input-wrap">
+                        <span class="tax-prefix" aria-hidden="true">$</span>
+                        <input class="tax-input" id="total-assets" name="total_assets" type="text" inputmode="decimal" autocomplete="off" placeholder="30,000,000" aria-describedby="total-assets-help" required>
+                    </div>
+                    <span id="total-assets-help" hidden>Enter a non-negative dollar amount.</span>
+                </div>
+
+                <fieldset class="tax-field" style="border:0; margin:0; padding:0;">
+                    <legend class="tax-legend">Filing status</legend>
+                    <div class="tax-segmented">
+                        <label>
+                            <input type="radio" name="filing_status" value="individual" checked>
+                            <span>Individual</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="filing_status" value="married">
+                            <span>Married Couple</span>
+                        </label>
+                    </div>
+                </fieldset>
+
+                <div class="tax-field">
+                    <label class="tax-label" for="gifts-person-one">Lifetime gifts used — Individual 1</label>
+                    <div class="tax-input-wrap">
+                        <span class="tax-prefix" aria-hidden="true">$</span>
+                        <input class="tax-input" id="gifts-person-one" name="gifts_person_one" type="text" inputmode="decimal" autocomplete="off" value="0" required>
+                    </div>
+                </div>
+
+                <div class="tax-field" id="person-two-fields" hidden>
+                    <label class="tax-label" for="gifts-person-two">Lifetime gifts used — Individual 2</label>
+                    <div class="tax-input-wrap">
+                        <span class="tax-prefix" aria-hidden="true">$</span>
+                        <input class="tax-input" id="gifts-person-two" name="gifts_person_two" type="text" inputmode="decimal" autocomplete="off" value="0" disabled required>
+                    </div>
+                </div>
+
+                <div class="tax-field">
+                    <label class="tax-label" for="annual-growth-rate">Annual growth rate</label>
+                    <div class="tax-input-wrap">
+                        <input class="tax-input" id="annual-growth-rate" name="annual_growth_rate" type="number" min="0" step="0.1" value="5" required>
+                        <span class="tax-suffix" aria-hidden="true">%</span>
+                    </div>
+                </div>
             </div>
 
-            <label class="field-label" for="gifts-person-one">Lifetime Gifts Used — Individual 1</label>
-            <input class="field-textarea" id="gifts-person-one" name="gifts_person_one" type="number" min="0" step="0.01" value="0" required>
-
-            <div id="person-two-fields" hidden>
-                <label class="field-label" for="gifts-person-two">Lifetime Gifts Used — Individual 2</label>
-                <input class="field-textarea" id="gifts-person-two" name="gifts_person_two" type="number" min="0" step="0.01" value="0" disabled required>
+            <div class="tax-form-footer">
+                <p class="tax-form-note">Results update as you type. This simplified illustration applies a 40% federal estate tax rate after the available exemption.</p>
+                <button type="submit" class="tax-calculate">Calculate estate tax</button>
             </div>
-
-            <label class="field-label" for="annual-growth-rate">Annual Growth Rate (%)</label>
-            <input class="field-textarea" id="annual-growth-rate" name="annual_growth_rate" type="number" min="0" step="0.01" value="5" required>
-
-            <button type="submit" class="btn-pill btn-generate">Calculate</button>
         </form>
     </section>
 
-    <section class="ep-panel ep-result-panel" aria-live="polite">
-        <div class="result-empty" id="result-empty">Results will appear here</div>
-        <div class="result-content" id="result-content" style="display:none">
-            <p>Remaining Estate Tax Exemption: <strong id="remaining-exemption"></strong></p>
-            <p>Taxable Estate: <strong id="taxable-estate"></strong></p>
-            <h2>Estimated Estate Tax</h2>
-            <p id="estimated-tax" style="font-size: 2rem; font-weight: 600;"></p>
-            <p>This simplified estimate uses a $15 million exemption per person and a 40% tax rate. It does not include state estate taxes or other adjustments.</p>
+    <section class="tax-card tax-empty" id="result-empty">
+        <div>
+            <span class="tax-empty-icon" aria-hidden="true">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 19V9"/><path d="M10 19V5"/><path d="M16 19v-7"/><path d="M22 19H2"/>
+                </svg>
+            </span>
+            <h2 id="empty-heading">Enter total assets to begin</h2>
+            <p id="empty-description">The estate tax illustration and future-growth projections will appear here.</p>
+        </div>
+    </section>
 
-            <h2>Future Growth</h2>
-            <p>Assuming <strong id="growth-rate-display"></strong> compound annual growth:</p>
-            <div class="tracker-table-wrap">
-                <table class="tracker-table">
+    <section class="tax-results" id="result-content" hidden>
+        <div class="tax-headline">
+            <p class="tax-headline-label">Estimated federal estate tax today</p>
+            <p class="tax-headline-value" id="estimated-tax" aria-live="polite" aria-atomic="true">$0</p>
+            <p class="tax-headline-detail">Based on <strong id="headline-taxable-estate">$0</strong> above the available exemption, taxed at 40%.</p>
+        </div>
+
+        <div class="tax-metrics">
+            <article class="tax-card tax-metric">
+                <span class="tax-metric-label">Total assets</span>
+                <strong class="tax-metric-value" id="total-assets-result">$0</strong>
+            </article>
+            <article class="tax-card tax-metric">
+                <span class="tax-metric-label">Remaining exemption</span>
+                <strong class="tax-metric-value" id="remaining-exemption">$0</strong>
+            </article>
+            <article class="tax-card tax-metric">
+                <span class="tax-metric-label">Taxable estate</span>
+                <strong class="tax-metric-value" id="taxable-estate">$0</strong>
+            </article>
+        </div>
+
+        <section class="tax-card tax-visual" aria-labelledby="allocation-heading">
+            <div class="tax-section-heading">
+                <div>
+                    <h2 id="allocation-heading">Where your estate goes</h2>
+                    <p>The full bar represents the client’s current assets, divided into exempt assets, federal estate tax, and taxable assets retained after tax.</p>
+                </div>
+            </div>
+
+            <div class="tax-visual-bar" id="estate-allocation-bar" role="img" aria-label="Estate allocation">
+                <div class="tax-visual-segment tax-visual-segment--exempt" id="exempt-segment"></div>
+                <div class="tax-visual-segment tax-visual-segment--tax" id="tax-segment"></div>
+                <div class="tax-visual-segment tax-visual-segment--retained" id="retained-segment"></div>
+            </div>
+
+            <div class="tax-allocation-legend">
+                <div class="tax-allocation-item">
+                    <span class="tax-allocation-name"><i class="tax-swatch" style="background:#ea580c;" aria-hidden="true"></i>Exempt from estate tax</span>
+                    <strong class="tax-allocation-value" id="exempt-assets">$0</strong>
+                </div>
+                <div class="tax-allocation-item">
+                    <span class="tax-allocation-name"><i class="tax-swatch" style="background:#1d1d1b;" aria-hidden="true"></i>Federal estate tax</span>
+                    <strong class="tax-allocation-value" id="allocation-tax">$0</strong>
+                </div>
+                <div class="tax-allocation-item">
+                    <span class="tax-allocation-name"><i class="tax-swatch" style="background:#f5c5a7;" aria-hidden="true"></i>Taxable assets retained</span>
+                    <strong class="tax-allocation-value" id="retained-assets">$0</strong>
+                </div>
+            </div>
+        </section>
+
+        <section class="tax-card tax-growth" aria-labelledby="growth-heading">
+            <div class="tax-section-heading">
+                <div>
+                    <h2 id="growth-heading">Future growth</h2>
+                    <p>Projected asset value and federal estate tax over 40 years at <strong id="growth-rate-display">5%</strong> compound annual growth.</p>
+                </div>
+            </div>
+
+            <div class="tax-chart-legend" aria-hidden="true">
+                <span class="tax-allocation-name"><i class="tax-swatch" style="background:#ea580c;"></i>Total assets</span>
+                <span class="tax-allocation-name"><i class="tax-swatch" style="background:#1d1d1b;"></i>Estate tax</span>
+            </div>
+
+            <div class="tax-chart-wrap">
+                <svg class="tax-chart" id="future-growth-chart" viewBox="0 0 900 330" role="img" aria-label="Projected total assets and estate tax over 40 years"></svg>
+            </div>
+
+            <div class="tax-table-wrap">
+                <table class="tax-table">
+                    <caption class="tax-sr-only">Projected total assets and federal estate tax at five-year intervals</caption>
                     <thead>
                         <tr>
-                            <th>Years From Now</th>
-                            <th>Total Assets</th>
-                            <th>Estate Tax</th>
+                            <th>Years from now</th>
+                            <th>Total assets</th>
+                            <th>Estate tax</th>
                         </tr>
                     </thead>
                     <tbody id="future-growth-rows"></tbody>
                 </table>
             </div>
-        </div>
+        </section>
+
+        <p class="tax-disclaimer">This simplified estimate uses a $15 million exemption per person and a 40% federal estate tax rate. It does not include state estate taxes, deductions, portability requirements, future law changes, or other adjustments.</p>
     </section>
 </main>
 {% endblock %}
@@ -82,62 +845,190 @@
 (function () {
     const EXEMPTION_PER_PERSON = 15000000;
     const ESTATE_TAX_RATE = 0.40;
+    const PROJECTION_YEARS = [5, 10, 15, 20, 25, 30, 35, 40];
+    const SVG_NS = 'http://www.w3.org/2000/svg';
     const form = document.getElementById('estate-tax-form');
     const personTwoFields = document.getElementById('person-two-fields');
     const personTwoGifts = document.getElementById('gifts-person-two');
+    const resultEmpty = document.getElementById('result-empty');
+    const resultContent = document.getElementById('result-content');
+    const moneyInputs = Array.from(form.querySelectorAll('[inputmode="decimal"]'));
+    const animationFrames = new WeakMap();
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const currency = new Intl.NumberFormat('en-US', {
         style: 'currency',
         currency: 'USD',
         maximumFractionDigits: 0,
+    });
+    const number = new Intl.NumberFormat('en-US', {
+        maximumFractionDigits: 2,
+    });
+    const compactCurrency = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        notation: 'compact',
+        maximumFractionDigits: 1,
     });
 
     function isMarried() {
         return form.elements.filing_status.value === 'married';
     }
 
+    function parseMoney(value) {
+        const normalized = String(value).replace(/[$,\s]/g, '');
+        if (!normalized || !/^\d*\.?\d+$/.test(normalized)) return NaN;
+        return Number(normalized);
+    }
+
+    function validateMoneyInput(input) {
+        const value = parseMoney(input.value);
+        input.setCustomValidity(Number.isFinite(value) && value >= 0 ? '' : 'Enter a non-negative dollar amount.');
+        return value;
+    }
+
+    function formatMoneyInput(input) {
+        const value = validateMoneyInput(input);
+        if (Number.isFinite(value)) input.value = number.format(value);
+    }
+
     function updateFilingStatus() {
         const married = isMarried();
         personTwoFields.hidden = !married;
         personTwoGifts.disabled = !married;
+        scheduleCalculation();
     }
 
-    form.addEventListener('change', function (event) {
-        if (event.target.name === 'filing_status') updateFilingStatus();
-    });
+    function animateCurrency(element, nextValue) {
+        const previousValue = Number(element.dataset.value || 0);
+        element.dataset.value = String(nextValue);
+        const priorFrame = animationFrames.get(element);
+        if (priorFrame) cancelAnimationFrame(priorFrame);
 
-    form.addEventListener('submit', function (event) {
-        event.preventDefault();
-        if (!form.reportValidity()) return;
+        if (reduceMotion) {
+            element.textContent = currency.format(nextValue);
+            return;
+        }
 
-        const totalAssets = Number(form.elements.total_assets.value);
-        const giftsPersonOne = Number(form.elements.gifts_person_one.value);
-        const giftsPersonTwo = isMarried() ? Number(form.elements.gifts_person_two.value) : 0;
-        const annualGrowthRate = Number(form.elements.annual_growth_rate.value);
-        const remainingPersonOne = Math.max(0, EXEMPTION_PER_PERSON - giftsPersonOne);
-        const remainingPersonTwo = isMarried()
-            ? Math.max(0, EXEMPTION_PER_PERSON - giftsPersonTwo)
-            : 0;
-        const remainingExemption = remainingPersonOne + remainingPersonTwo;
-        const taxableEstate = Math.max(0, totalAssets - remainingExemption);
-        const estimatedTax = taxableEstate * ESTATE_TAX_RATE;
+        const startedAt = performance.now();
+        const duration = 420;
+        const change = nextValue - previousValue;
 
-        document.getElementById('remaining-exemption').textContent = currency.format(remainingExemption);
-        document.getElementById('taxable-estate').textContent = currency.format(taxableEstate);
-        document.getElementById('estimated-tax').textContent = currency.format(estimatedTax);
-        document.getElementById('growth-rate-display').textContent = annualGrowthRate + '%';
+        function frame(now) {
+            const progress = Math.min(1, (now - startedAt) / duration);
+            const eased = 1 - Math.pow(1 - progress, 3);
+            element.textContent = currency.format(previousValue + change * eased);
+            if (progress < 1) {
+                animationFrames.set(element, requestAnimationFrame(frame));
+            }
+        }
 
+        animationFrames.set(element, requestAnimationFrame(frame));
+    }
+
+    function setSegmentWidth(id, amount, total) {
+        const percent = total > 0 ? (amount / total) * 100 : 0;
+        document.getElementById(id).style.width = Math.max(0, Math.min(100, percent)) + '%';
+    }
+
+    function svgElement(name, attributes, text) {
+        const element = document.createElementNS(SVG_NS, name);
+        for (const [key, value] of Object.entries(attributes || {})) {
+            element.setAttribute(key, value);
+        }
+        if (text !== undefined) element.textContent = text;
+        return element;
+    }
+
+    function pathFromPoints(points) {
+        return points.map((point, index) =>
+            (index === 0 ? 'M' : 'L') + point.x.toFixed(2) + ' ' + point.y.toFixed(2)
+        ).join(' ');
+    }
+
+    function renderGrowthChart(projections) {
+        const svg = document.getElementById('future-growth-chart');
+        const width = 900;
+        const height = 330;
+        const margin = { top: 24, right: 28, bottom: 46, left: 72 };
+        const plotWidth = width - margin.left - margin.right;
+        const plotHeight = height - margin.top - margin.bottom;
+        const maxValue = Math.max(1, ...projections.flatMap(item => [item.assets, item.tax])) * 1.08;
+        const x = years => margin.left + (years / 40) * plotWidth;
+        const y = value => margin.top + plotHeight - (value / maxValue) * plotHeight;
+
+        svg.replaceChildren();
+
+        for (let index = 0; index <= 4; index++) {
+            const value = (maxValue / 4) * index;
+            const yPosition = y(value);
+            svg.appendChild(svgElement('line', {
+                class: 'chart-grid',
+                x1: margin.left,
+                x2: width - margin.right,
+                y1: yPosition,
+                y2: yPosition,
+            }));
+            svg.appendChild(svgElement('text', {
+                x: margin.left - 12,
+                y: yPosition + 4,
+                'text-anchor': 'end',
+            }, compactCurrency.format(value)));
+        }
+
+        for (const years of [0, 5, 10, 15, 20, 25, 30, 35, 40]) {
+            svg.appendChild(svgElement('text', {
+                x: x(years),
+                y: height - 17,
+                'text-anchor': 'middle',
+            }, years === 0 ? 'Today' : years + ' yr'));
+        }
+
+        const assetPoints = projections.map(item => ({ x: x(item.years), y: y(item.assets), item }));
+        const taxPoints = projections.map(item => ({ x: x(item.years), y: y(item.tax), item }));
+        const baseline = margin.top + plotHeight;
+        const areaPath = pathFromPoints(assetPoints) +
+            ' L' + assetPoints[assetPoints.length - 1].x + ' ' + baseline +
+            ' L' + assetPoints[0].x + ' ' + baseline + ' Z';
+
+        svg.appendChild(svgElement('path', { class: 'chart-area', d: areaPath }));
+        svg.appendChild(svgElement('path', {
+            class: 'chart-assets',
+            d: pathFromPoints(assetPoints),
+            pathLength: '1',
+        }));
+        svg.appendChild(svgElement('path', {
+            class: 'chart-tax',
+            d: pathFromPoints(taxPoints),
+            pathLength: '1',
+        }));
+
+        for (const [points, className, label] of [
+            [assetPoints, 'chart-point-assets', 'Total assets'],
+            [taxPoints, 'chart-point-tax', 'Estate tax'],
+        ]) {
+            for (const point of points) {
+                const circle = svgElement('circle', {
+                    class: className,
+                    cx: point.x,
+                    cy: point.y,
+                    r: '4',
+                });
+                circle.appendChild(svgElement('title', {}, label + ', year ' + point.item.years + ': ' + currency.format(label === 'Total assets' ? point.item.assets : point.item.tax)));
+                svg.appendChild(circle);
+            }
+        }
+    }
+
+    function renderGrowthTable(projections) {
         const growthRows = document.getElementById('future-growth-rows');
         growthRows.replaceChildren();
-        for (const years of [5, 10, 15, 20, 25, 30, 35, 40]) {
-            const futureAssets = totalAssets * Math.pow(1 + annualGrowthRate / 100, years);
-            const futureTaxableEstate = Math.max(0, futureAssets - remainingExemption);
-            const futureEstateTax = futureTaxableEstate * ESTATE_TAX_RATE;
-            const row = document.createElement('tr');
 
+        for (const projection of projections.filter(item => item.years > 0)) {
+            const row = document.createElement('tr');
             for (const value of [
-                years,
-                currency.format(futureAssets),
-                currency.format(futureEstateTax),
+                projection.years,
+                currency.format(projection.assets),
+                currency.format(projection.tax),
             ]) {
                 const cell = document.createElement('td');
                 cell.textContent = value;
@@ -145,11 +1036,117 @@
             }
             growthRows.appendChild(row);
         }
+    }
 
-        document.getElementById('result-empty').style.display = 'none';
-        document.getElementById('result-content').style.display = 'block';
+    function calculate(options) {
+        const settings = options || {};
+        const totalAssets = validateMoneyInput(form.elements.total_assets);
+        const giftsPersonOne = validateMoneyInput(form.elements.gifts_person_one);
+        const giftsPersonTwo = isMarried() ? validateMoneyInput(form.elements.gifts_person_two) : 0;
+        const annualGrowthRate = Number(form.elements.annual_growth_rate.value);
+        const growthRateIsValid = form.elements.annual_growth_rate.value.trim() !== '' &&
+            form.elements.annual_growth_rate.validity.valid;
+
+        if (
+            !Number.isFinite(totalAssets) ||
+            !Number.isFinite(giftsPersonOne) ||
+            !Number.isFinite(giftsPersonTwo) ||
+            !Number.isFinite(annualGrowthRate) ||
+            annualGrowthRate < 0 ||
+            !growthRateIsValid
+        ) {
+            resultContent.hidden = true;
+            resultEmpty.hidden = false;
+            const totalAssetsIsBlank = form.elements.total_assets.value.trim() === '';
+            document.getElementById('empty-heading').textContent = totalAssetsIsBlank
+                ? 'Enter total assets to begin'
+                : 'Complete the client scenario';
+            document.getElementById('empty-description').textContent = totalAssetsIsBlank
+                ? 'The estate tax illustration and future-growth projections will appear here.'
+                : 'Check the highlighted fields to refresh the illustration.';
+            if (settings.reportErrors) form.reportValidity();
+            return;
+        }
+
+        const remainingPersonOne = Math.max(0, EXEMPTION_PER_PERSON - giftsPersonOne);
+        const remainingPersonTwo = isMarried()
+            ? Math.max(0, EXEMPTION_PER_PERSON - giftsPersonTwo)
+            : 0;
+        const remainingExemption = remainingPersonOne + remainingPersonTwo;
+        const taxableEstate = Math.max(0, totalAssets - remainingExemption);
+        const estimatedTax = taxableEstate * ESTATE_TAX_RATE;
+        const exemptAssets = Math.min(totalAssets, remainingExemption);
+        const retainedAssets = Math.max(0, taxableEstate - estimatedTax);
+
+        resultEmpty.hidden = true;
+        resultContent.hidden = false;
+
+        for (const [id, value] of [
+            ['estimated-tax', estimatedTax],
+            ['headline-taxable-estate', taxableEstate],
+            ['total-assets-result', totalAssets],
+            ['remaining-exemption', remainingExemption],
+            ['taxable-estate', taxableEstate],
+            ['exempt-assets', exemptAssets],
+            ['allocation-tax', estimatedTax],
+            ['retained-assets', retainedAssets],
+        ]) {
+            animateCurrency(document.getElementById(id), value);
+        }
+
+        document.getElementById('growth-rate-display').textContent = annualGrowthRate + '%';
+        setSegmentWidth('exempt-segment', exemptAssets, totalAssets);
+        setSegmentWidth('tax-segment', estimatedTax, totalAssets);
+        setSegmentWidth('retained-segment', retainedAssets, totalAssets);
+        document.getElementById('estate-allocation-bar').setAttribute(
+            'aria-label',
+            currency.format(exemptAssets) + ' exempt, ' +
+            currency.format(estimatedTax) + ' federal estate tax, and ' +
+            currency.format(retainedAssets) + ' taxable assets retained after tax.'
+        );
+
+        const projections = [0, ...PROJECTION_YEARS].map(years => {
+            const assets = totalAssets * Math.pow(1 + annualGrowthRate / 100, years);
+            const tax = Math.max(0, assets - remainingExemption) * ESTATE_TAX_RATE;
+            return { years, assets, tax };
+        });
+        renderGrowthChart(projections);
+        renderGrowthTable(projections);
+
+        if (settings.scrollToResults) {
+            resultContent.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+        }
+    }
+
+    let calculationFrame = null;
+    function scheduleCalculation() {
+        if (calculationFrame) cancelAnimationFrame(calculationFrame);
+        calculationFrame = requestAnimationFrame(function () {
+            calculationFrame = null;
+            calculate();
+        });
+    }
+
+    moneyInputs.forEach(input => {
+        input.addEventListener('focus', function () {
+            input.value = input.value.replace(/,/g, '');
+        });
+        input.addEventListener('blur', function () {
+            formatMoneyInput(input);
+        });
+        input.addEventListener('input', scheduleCalculation);
     });
 
+    form.elements.annual_growth_rate.addEventListener('input', scheduleCalculation);
+    form.addEventListener('change', function (event) {
+        if (event.target.name === 'filing_status') updateFilingStatus();
+    });
+    form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        calculate({ reportErrors: true, scrollToResults: true });
+    });
+
+    moneyInputs.forEach(formatMoneyInput);
     updateFilingStatus();
 })();
 </script>
