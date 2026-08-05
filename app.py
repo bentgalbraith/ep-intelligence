@@ -1359,10 +1359,24 @@ def admin_specimen_upload(firm_id):
     if not firm:
         return redirect(url_for("admin_firms"))
     name = request.form.get("name", "").strip()
+    description = request.form.get("description", "").strip()
     f = request.files.get("docx")
     if not name or not f or not f.filename.lower().endswith(".docx"):
         return redirect(url_for("admin_specimens", firm_id=firm_id))
-    tracker_db.create_specimen_document(firm_id, name, f.read())
+    tracker_db.create_specimen_document(firm_id, name, f.read(), description=description)
+    return redirect(url_for("admin_specimens", firm_id=firm_id))
+
+
+@app.route("/admin/firms/<firm_id>/specimens/<doc_id>/edit", methods=["POST"])
+@admin_required
+def admin_specimen_edit(firm_id, doc_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
+    name = request.form.get("name", "").strip()
+    description = request.form.get("description", "").strip()
+    if name:
+        tracker_db.update_specimen_document(doc_id, name, description=description, firm_id=firm_id)
     return redirect(url_for("admin_specimens", firm_id=firm_id))
 
 

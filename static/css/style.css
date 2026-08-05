@@ -2313,16 +2313,23 @@ a.doc-list-item--link:hover {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 1rem;
     padding: 0.75rem 1rem;
     background: white;
     border: 1px solid rgba(0, 0, 0, 0.07);
     border-radius: 8px;
 }
 
+.specimen-row.is-editing {
+    flex-direction: column;
+    align-items: stretch;
+}
+
 .specimen-info {
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
+    min-width: 0;
 }
 
 .specimen-name {
@@ -2336,15 +2343,35 @@ a.specimen-name:hover {
     color: var(--primary);
 }
 
+.specimen-desc {
+    font-size: 0.8rem;
+    color: #666;
+    line-height: 1.35;
+}
+
 .specimen-date {
     font-size: 0.78rem;
     color: #888;
+}
+
+.specimen-edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    width: 100%;
+}
+
+.specimen-edit-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
 }
 
 .specimen-actions {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-shrink: 0;
 }
 
 .specimen-download-btn {

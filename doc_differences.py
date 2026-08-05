@@ -56,6 +56,7 @@ def rank_specimens(upload_bytes, specimens):
         results.append({
             "id": str(spec["id"]),
             "name": spec["name"],
+            "description": spec.get("description") or "",
             "similarity": round(sim * 100, 1),
         })
     results.sort(key=lambda x: x["similarity"], reverse=True)

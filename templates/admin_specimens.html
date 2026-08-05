@@ -27,6 +27,10 @@
                 <input class="admin-input" name="name" type="text" required placeholder="e.g. Revocable Trust - Married w/ Kids">
             </div>
             <div class="admin-field" style="margin-top:0.75rem">
+                <label class="admin-label">Description</label>
+                <textarea class="admin-input admin-textarea" name="description" rows="2" placeholder="Optional — shown on hover in the Document Differences tool"></textarea>
+            </div>
+            <div class="admin-field" style="margin-top:0.75rem">
                 <label class="admin-label">File (.docx) <span class="admin-req">*</span></label>
                 <div class="specimen-file-drop" id="file-drop">
                     <input type="file" name="docx" accept=".docx" required id="file-input" hidden>
@@ -45,12 +49,26 @@
         {% if specimens %}
         <div class="specimen-list">
             {% for doc in specimens %}
-            <div class="specimen-row">
-                <div class="specimen-info">
+            <div class="specimen-row" id="specimen-{{ doc.id }}">
+                <div class="specimen-info specimen-view">
                     <a href="{{ url_for('admin_specimen_download', firm_id=firm.id, doc_id=doc.id) }}" class="specimen-name" download>{{ doc.name }}</a>
+                    {% if doc.description %}
+                    <span class="specimen-desc">{{ doc.description }}</span>
+                    {% endif %}
                     <span class="specimen-date">{{ doc.created_at.strftime('%b %d, %Y') }}</span>
                 </div>
-                <div class="specimen-actions">
+                <form method="POST" action="{{ url_for('admin_specimen_edit', firm_id=firm.id, doc_id=doc.id) }}" class="specimen-edit-form" hidden>
+                    <div class="specimen-edit-fields">
+                        <input class="admin-input" name="name" type="text" required value="{{ doc.name }}">
+                        <textarea class="admin-input admin-textarea" name="description" rows="2" placeholder="Optional description">{{ doc.description or '' }}</textarea>
+                    </div>
+                    <div class="specimen-actions">
+                        <button type="submit" class="specimen-download-btn">Save</button>
+                        <button type="button" class="specimen-download-btn specimen-cancel-edit">Cancel</button>
+                    </div>
+                </form>
+                <div class="specimen-actions specimen-view-actions">
+                    <button type="button" class="specimen-download-btn specimen-edit-btn">Edit</button>
                     <a href="{{ url_for('admin_specimen_download', firm_id=firm.id, doc_id=doc.id) }}" class="specimen-download-btn" download>Download</a>
                     <form method="POST" action="{{ url_for('admin_specimen_delete', firm_id=firm.id, doc_id=doc.id) }}" onsubmit="return confirm('Delete specimen &quot;{{ doc.name }}&quot;?')">
                         <button type="submit" class="specimen-delete-btn">Delete</button>
@@ -100,6 +118,28 @@
             text.textContent = file.name;
             drop.classList.add('has-file');
         }
+    });
+
+    document.querySelectorAll('.specimen-row').forEach(function(row) {
+        var editBtn = row.querySelector('.specimen-edit-btn');
+        var cancelBtn = row.querySelector('.specimen-cancel-edit');
+        var view = row.querySelector('.specimen-view');
+        var viewActions = row.querySelector('.specimen-view-actions');
+        var form = row.querySelector('.specimen-edit-form');
+
+        editBtn.addEventListener('click', function() {
+            view.hidden = true;
+            viewActions.hidden = true;
+            form.hidden = false;
+            row.classList.add('is-editing');
+        });
+
+        cancelBtn.addEventListener('click', function() {
+            form.hidden = true;
+            view.hidden = false;
+            viewActions.hidden = false;
+            row.classList.remove('is-editing');
+        });
     });
 })();
 </script>

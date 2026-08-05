@@ -100,9 +100,10 @@
         for (let i = 0; i < rankings.length; i++) {
             const r = rankings[i];
             const checked = i === 0 ? 'checked' : '';
+            const titleAttr = r.description ? ` title="${escapeAttr(r.description)}"` : '';
             html += `<label class="diff-specimen-item">
                 <input type="radio" name="specimen" value="${escapeHtml(r.id)}" ${checked}>
-                <span class="diff-specimen-name">${escapeHtml(r.name)}</span>
+                <span class="diff-specimen-name"${titleAttr}>${escapeHtml(r.name)}</span>
                 <span class="diff-specimen-sim">${r.similarity}%</span>
             </label>`;
         }

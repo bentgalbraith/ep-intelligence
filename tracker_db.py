@@ -146,6 +146,10 @@ MIGRATIONS = [
         )""",
         "CREATE INDEX IF NOT EXISTS idx_specimen_documents_firm ON specimen_documents(firm_id)",
     ],
+    # v6: optional description on specimen documents
+    [
+        "ALTER TABLE specimen_documents ADD COLUMN IF NOT EXISTS description TEXT",
+    ],
 ]
 
 
@@ -536,7 +540,7 @@ def list_specimen_documents(firm_id):
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "SELECT id, firm_id, name, created_at FROM specimen_documents WHERE firm_id = %s ORDER BY name",
+                "SELECT id, firm_id, name, description, created_at FROM specimen_documents WHERE firm_id = %s ORDER BY name",
                 (firm_id,),
             )
             return cur.fetchall()
@@ -545,7 +549,7 @@ def list_specimen_documents(firm_id):
 def get_specimen_document(doc_id, firm_id=None):
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            sql = "SELECT id, firm_id, name, docx_data, created_at FROM specimen_documents WHERE id = %s"
+            sql = "SELECT id, firm_id, name, description, docx_data, created_at FROM specimen_documents WHERE id = %s"
             params = [doc_id]
             if firm_id:
                 sql += " AND firm_id = %s"
@@ -557,15 +561,29 @@ def get_specimen_document(doc_id, firm_id=None):
             return row
 
 
-def create_specimen_document(firm_id, name, docx_data):
+def create_specimen_document(firm_id, name, docx_data, description=None):
     doc_id = uuid.uuid4()
+    description = (description or "").strip() or None
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO specimen_documents (id, firm_id, name, docx_data) VALUES (%s, %s, %s, %s)",
-                (doc_id, firm_id, name, psycopg2.Binary(docx_data)),
+                "INSERT INTO specimen_documents (id, firm_id, name, docx_data, description) VALUES (%s, %s, %s, %s, %s)",
+                (doc_id, firm_id, name, psycopg2.Binary(docx_data), description),
             )
     return str(doc_id)
+
+
+def update_specimen_document(doc_id, name, description=None, firm_id=None):
+    description = (description or "").strip() or None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            sql = "UPDATE specimen_documents SET name = %s, description = %s WHERE id = %s"
+            params = [name, description, doc_id]
+            if firm_id:
+                sql += " AND firm_id = %s"
+                params.append(firm_id)
+            cur.execute(sql, params)
+            return cur.rowcount > 0
 
 
 def delete_specimen_document(doc_id):
