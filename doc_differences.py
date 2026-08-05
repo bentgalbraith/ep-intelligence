@@ -2,10 +2,8 @@
 
 import difflib
 import io
-import re
 
 from docx import Document
-from docx.shared import Pt, RGBColor
 
 _QUOTE_MAP = str.maketrans({
     "\u2018": "'", "\u2019": "'",  # curly single quotes
@@ -163,9 +161,9 @@ def _word_level_diff(specimen_para, upload_para):
 
 
 def build_diff_docx(upload_bytes, specimen_bytes):
-    """Build a .docx with comments highlighting differences from the specimen.
+    """Annotate the uploaded .docx with comments highlighting differences from the specimen.
 
-    Returns a BytesIO containing the annotated .docx.
+    Returns a BytesIO containing the original document with comments added in place.
     """
     upload_doc = Document(io.BytesIO(upload_bytes))
     specimen_blocks = extract_text_blocks(specimen_bytes)
@@ -203,52 +201,23 @@ def build_diff_docx(upload_bytes, specimen_bytes):
                 nearest = min(j1, len(upload_blocks) - 1)
                 diff_map[nearest] = note
 
-    out_doc = Document()
-    style = out_doc.styles["Normal"]
-    style.font.name = "Calibri"
-    style.font.size = Pt(11)
-
     upload_block_idx = 0
     for para in upload_doc.paragraphs:
         text = para.text.strip()
         if not text:
-            out_doc.add_paragraph("")
             continue
 
-        new_para = out_doc.add_paragraph()
-        _copy_para_format(para, new_para)
-        runs = []
-        for run in para.runs:
-            new_run = new_para.add_run(run.text)
-            _copy_run_format(run, new_run)
-            runs.append(new_run)
-
-        if upload_block_idx in diff_map and runs:
-            comment_text = diff_map[upload_block_idx]
-            if len(comment_text) > 1000:
-                comment_text = comment_text[:1000] + "..."
-            out_doc.add_comment(runs=runs, text=comment_text, author="Difference")
+        if upload_block_idx in diff_map:
+            runs = list(para.runs)
+            if runs:
+                comment_text = diff_map[upload_block_idx]
+                if len(comment_text) > 1000:
+                    comment_text = comment_text[:1000] + "..."
+                upload_doc.add_comment(runs=runs, text=comment_text, author="Difference")
 
         upload_block_idx += 1
 
     buf = io.BytesIO()
-    out_doc.save(buf)
+    upload_doc.save(buf)
     buf.seek(0)
     return buf
-
-
-def _copy_para_format(src, dst):
-    """Copy basic paragraph formatting."""
-    if src.paragraph_format.alignment is not None:
-        dst.paragraph_format.alignment = src.paragraph_format.alignment
-
-
-def _copy_run_format(src, dst):
-    """Copy basic run formatting."""
-    dst.bold = src.bold
-    dst.italic = src.italic
-    dst.underline = src.underline
-    if src.font.size:
-        dst.font.size = src.font.size
-    if src.font.name:
-        dst.font.name = src.font.name

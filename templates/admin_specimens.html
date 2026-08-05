@@ -57,10 +57,16 @@
                     {% endif %}
                     <span class="specimen-date">{{ doc.created_at.strftime('%b %d, %Y') }}</span>
                 </div>
-                <form method="POST" action="{{ url_for('admin_specimen_edit', firm_id=firm.id, doc_id=doc.id) }}" class="specimen-edit-form" hidden>
+                <form method="POST" action="{{ url_for('admin_specimen_edit', firm_id=firm.id, doc_id=doc.id) }}" class="specimen-edit-form">
                     <div class="specimen-edit-fields">
-                        <input class="admin-input" name="name" type="text" required value="{{ doc.name }}">
-                        <textarea class="admin-input admin-textarea" name="description" rows="2" placeholder="Optional description">{{ doc.description or '' }}</textarea>
+                        <div class="admin-field">
+                            <label class="admin-label">Name <span class="admin-req">*</span></label>
+                            <input class="admin-input" name="name" type="text" required value="{{ doc.name }}">
+                        </div>
+                        <div class="admin-field">
+                            <label class="admin-label">Description</label>
+                            <textarea class="admin-input admin-textarea" name="description" rows="4" placeholder="Optional description">{{ doc.description or '' }}</textarea>
+                        </div>
                     </div>
                     <div class="specimen-actions">
                         <button type="submit" class="specimen-download-btn">Save</button>
@@ -123,21 +129,14 @@
     document.querySelectorAll('.specimen-row').forEach(function(row) {
         var editBtn = row.querySelector('.specimen-edit-btn');
         var cancelBtn = row.querySelector('.specimen-cancel-edit');
-        var view = row.querySelector('.specimen-view');
-        var viewActions = row.querySelector('.specimen-view-actions');
-        var form = row.querySelector('.specimen-edit-form');
 
         editBtn.addEventListener('click', function() {
-            view.hidden = true;
-            viewActions.hidden = true;
-            form.hidden = false;
             row.classList.add('is-editing');
+            var nameInput = row.querySelector('.specimen-edit-form input[name="name"]');
+            if (nameInput) nameInput.focus();
         });
 
         cancelBtn.addEventListener('click', function() {
-            form.hidden = true;
-            view.hidden = false;
-            viewActions.hidden = false;
             row.classList.remove('is-editing');
         });
     });
