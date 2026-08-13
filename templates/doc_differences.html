@@ -100,10 +100,17 @@
         for (let i = 0; i < rankings.length; i++) {
             const r = rankings[i];
             const checked = i === 0 ? 'checked' : '';
-            const titleAttr = r.description ? ` title="${escapeAttr(r.description)}"` : '';
+            const descIcon = r.description
+                ? `<span class="tip-icon" data-tip="${escapeAttr(r.description)}">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+                    </svg>
+                </span>`
+                : '';
             html += `<label class="diff-specimen-item">
                 <input type="radio" name="specimen" value="${escapeHtml(r.id)}" ${checked}>
-                <span class="diff-specimen-name"${titleAttr}>${escapeHtml(r.name)}</span>
+                <span class="diff-specimen-name">${escapeHtml(r.name)}</span>
+                ${descIcon}
                 <span class="diff-specimen-sim">${r.similarity}%</span>
             </label>`;
         }
@@ -157,6 +164,46 @@
             btnLabel.textContent = 'Download Differences';
             spinner.hidden = true;
         }
+    });
+
+    const tip = document.createElement('div');
+    tip.className = 'global-tooltip';
+    document.body.appendChild(tip);
+    let hideTimer = null;
+    let activeIcon = null;
+
+    document.addEventListener('mouseover', (e) => {
+        const icon = e.target.closest('.tip-icon');
+        if (!icon || !icon.dataset.tip) return;
+
+        clearTimeout(hideTimer);
+        activeIcon = icon;
+        tip.innerHTML = icon.dataset.tip;
+        tip.style.opacity = '1';
+
+        const rect = icon.getBoundingClientRect();
+        const tipWidth = tip.offsetWidth;
+        const tipHeight = tip.offsetHeight;
+
+        let left = rect.left + rect.width / 2 - tipWidth / 2;
+        left = Math.max(8, Math.min(left, window.innerWidth - tipWidth - 8));
+
+        let top = rect.top - tipHeight - 6;
+        if (top < 8) top = rect.bottom + 6;
+
+        tip.style.left = left + 'px';
+        tip.style.top = top + 'px';
+    });
+
+    document.addEventListener('mouseout', (e) => {
+        const icon = e.target.closest('.tip-icon');
+        if (!icon || icon !== activeIcon) return;
+        if (icon.contains(e.relatedTarget)) return;
+
+        hideTimer = setTimeout(() => {
+            tip.style.opacity = '0';
+            activeIcon = null;
+        }, 80);
     });
 </script>
 {% endblock %}
