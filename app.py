@@ -400,6 +400,7 @@ def estate_tax_calculator():
     return render_template("estate_tax_calc.html", firm_name=session.get("firm_name", ""))
 
 
+
 # ---------------------------------------------------------------------------
 # Drafting Notes
 # ---------------------------------------------------------------------------
