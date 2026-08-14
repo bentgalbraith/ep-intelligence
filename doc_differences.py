@@ -30,10 +30,13 @@ def extract_text_blocks(docx_bytes):
 
 
 def compute_similarity(blocks_a, blocks_b):
-    """Compute similarity ratio between two documents' text blocks (0.0–1.0)."""
-    text_a = _normalize("\n".join(blocks_a))
-    text_b = _normalize("\n".join(blocks_b))
-    return difflib.SequenceMatcher(None, text_a, text_b).ratio()
+    """Compute similarity ratio between two documents' text blocks (0.0–1.0).
+
+    Uses paragraph-level SequenceMatcher (each paragraph is a token) for speed.
+    """
+    norm_a = [_normalize(b) for b in blocks_a]
+    norm_b = [_normalize(b) for b in blocks_b]
+    return difflib.SequenceMatcher(None, norm_a, norm_b).ratio()
 
 
 def rank_specimens(upload_bytes, specimens):
