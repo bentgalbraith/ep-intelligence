@@ -943,11 +943,12 @@ def api_doc_differences_export():
         _notify_tool_error("Document Differences", str(e))
         return jsonify({"error": str(e)}), 500
 
+    from urllib.parse import quote
     filename = f"{upload_name} vs. {specimen['name']}.docx"
     return Response(
         buf.getvalue(),
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
 
 
