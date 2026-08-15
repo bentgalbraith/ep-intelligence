@@ -2429,6 +2429,8 @@ a.specimen-name:hover {
     flex-direction: column;
     gap: 0.35rem;
     margin-top: 0.5rem;
+    max-height: 320px;
+    overflow-y: auto;
 }
 
 .diff-specimen-item {
