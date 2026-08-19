@@ -27,8 +27,7 @@
     .sig-label { display: block; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #666; margin-bottom: 0.3rem; }
     .sig-value { font-size: 0.88rem; padding-bottom: 0.25rem; border-bottom: 1px solid rgba(0,0,0,0.18); }
     .sig-block input[type="text"],
-    .sig-block input[type="email"],
-    .sig-block input[type="tel"] {
+    .sig-block input[type="email"] {
       width: 100%; padding: 0.65rem 0.8rem; font-family: inherit; font-size: 0.88rem; color: #1a1a1a;
       background: #fff; border: 1px solid rgba(0,0,0,0.18); outline: none; border-radius: 8px;
     }
@@ -96,6 +95,8 @@
 
     <p>This letter confirms the engagement of Estate Planning Intelligence LLC (&ldquo;EPI&rdquo;) by Texas Trust Law (the &ldquo;Firm&rdquo;) to design, develop, host, and maintain custom software tools for the Firm&rsquo;s estate planning practice.</p>
 
+    <p>EPI will develop one custom tool at a time. The Firm pays $700 per month while a tool is under development, then $50 per month for each completed tool beginning the month after it is completed. The Firm also pays the AI usage costs attributable to its use of the tools. EPI will invoice monthly.</p>
+
     <p>This engagement is governed by the EPI Custom Tool Development &amp; Access Agreement, last updated {{ agreement_version }} (the &ldquo;Agreement&rdquo;), available at <a href="{{ url_for('custom_tool_agreement') }}" target="_blank">ep-intelligence.com/custom-tool-agreement</a>. The Agreement is incorporated into this letter by reference. The Firm&rsquo;s execution of this letter constitutes acceptance of the Agreement. The Effective Date is the date the Firm submits this letter.</p>
 
     <p>Please complete the signature block below.</p>
@@ -118,10 +119,6 @@
             <span class="sig-label">Email</span>
             <div class="sig-value">{{ email }}</div>
         </div>
-        <div class="sig-row">
-            <span class="sig-label">Phone</span>
-            <div class="sig-value">{{ phone or '—' }}</div>
-        </div>
         <p>The signer reviewed and agreed to the Agreement and represented authority to bind Texas Trust Law.</p>
         {% else %}
         <form method="POST" action="{{ url_for('ttl_engagement') }}">
@@ -139,10 +136,6 @@
             <div class="sig-row">
                 <label class="sig-label" for="email">Email</label>
                 <input id="email" type="email" name="email" value="{{ request.form.get('email', '') }}" required autocomplete="email">
-            </div>
-            <div class="sig-row">
-                <label class="sig-label" for="phone">Phone (optional)</label>
-                <input id="phone" type="tel" name="phone" value="{{ request.form.get('phone', '') }}" autocomplete="tel">
             </div>
             <label class="agreement-check">
                 <input type="checkbox" name="agree" required>

@@ -266,7 +266,6 @@ def ttl_engagement():
     signer_name = request.form.get("signer_name", "").strip()
     title = request.form.get("title", "").strip()
     email = request.form.get("email", "").strip()
-    phone = request.form.get("phone", "").strip()
     agreed = request.form.get("agree") == "on"
 
     if not all([signer_name, title, email, agreed]):
@@ -289,7 +288,6 @@ def ttl_engagement():
         f"<p><strong>Signer:</strong> {_e(signer_name)}</p>"
         f"<p><strong>Title:</strong> {_e(title)}</p>"
         f"<p><strong>Email:</strong> {_e(email)}</p>"
-        f"<p><strong>Phone:</strong> {_e(phone) or '(not provided)'}</p>"
         f"<p><strong>Agreement version:</strong> {_e(CUSTOM_TOOL_AGREEMENT_VERSION)}</p>"
         f"<p><strong>Accepted at:</strong> {_e(accepted_at)}</p>"
         f"<p><strong>IP address:</strong> {_e(ip_address)}</p>"
@@ -340,7 +338,6 @@ def ttl_engagement():
         signer_name=signer_name,
         title=title,
         email=email,
-        phone=phone,
         accepted_at=accepted_at,
     )
 
