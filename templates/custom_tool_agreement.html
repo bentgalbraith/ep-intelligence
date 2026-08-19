@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+  <title>EPI Custom Tool Development &amp; Access Agreement — EP Intelligence</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='EPILogo_Orange.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #fafaf8; color: #1a1a1a; }
+    main { max-width: 720px; margin: 0 auto; padding: 4rem 2rem 5rem; }
+    .agreement-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 2rem; }
+    h1 { font-size: 1.6rem; font-weight: 600; color: #1a1a1a; letter-spacing: 0.01em; text-align: left; }
+    h2 { font-size: 1.05rem; font-weight: 600; color: #1a1a1a; margin-top: 2rem; margin-bottom: 0.75rem; }
+    p { font-size: 0.88rem; font-weight: 400; color: #1a1a1a; line-height: 1.75; margin-bottom: 0.75rem; }
+    ul { margin: 0.5rem 0 0.75rem 1.5rem; padding: 0; }
+    li { font-size: 0.88rem; font-weight: 400; color: #1a1a1a; line-height: 1.75; margin-bottom: 0.3rem; }
+    .btn-print {
+      flex-shrink: 0; padding: 0.45rem 1.4rem; font-family: 'Inter', sans-serif; font-size: 0.75rem;
+      font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: #1a1a1a;
+      background: rgba(255,255,255,0.6); border: 1px solid rgba(0,0,0,0.12); border-radius: 100px;
+      cursor: pointer; transition: all 0.4s cubic-bezier(0.23,1,0.32,1); margin-top: 0.3rem;
+    }
+    .btn-print:hover { background: rgba(234,88,12,0.1); border-color: rgba(234,88,12,0.5); color: #ea580c; }
+    @media print { .btn-print { display: none; } main { padding-top: 0; } }
+    @media (max-width: 640px) { main { padding: 2.5rem 1.25rem 4rem; } h1 { font-size: 1.3rem; } }
+  </style>
+</head>
+<body>
+<main>
+    <div class="agreement-header">
+        <h1>EPI Custom Tool Development &amp; Access Agreement</h1>
+        <button class="btn-print" onclick="window.print()">Print Agreement</button>
+    </div>
+    <p>Last updated: August 19, 2026</p>
+
+    <p>This EPI Custom Tool Development &amp; Access Agreement (this &ldquo;Agreement&rdquo;) is entered into by and between Estate Planning Intelligence LLC, a Texas limited liability company (&ldquo;EPI&rdquo;), and the law firm or legal organization accepting this Agreement (the &ldquo;Firm&rdquo;). EPI and the Firm may each be referred to as a &ldquo;Party&rdquo; and collectively as the &ldquo;Parties.&rdquo;</p>
+
+    <p>This Agreement is effective as of the date the Firm accepts it (the &ldquo;Effective Date&rdquo;).</p>
+
+    <p>This Agreement governs EPI&rsquo;s design and development of software tools built for the Firm and the Firm&rsquo;s access to those tools. It is separate from EPI&rsquo;s general program agreement. If the Firm also participates in EPI&rsquo;s general program under a separate agreement, that agreement continues to govern the Firm&rsquo;s access to EPI&rsquo;s general program tools.</p>
+
+    <h2>1. Custom Tool Development and Access</h2>
+
+    <p>EPI will design, develop, host, and maintain software tools, AI-enabled workflows, document automation tools, document analysis tools, drafting-support tools, and related functionality built for the Firm&rsquo;s practice (each, a &ldquo;Custom Tool,&rdquo; and collectively, the &ldquo;Custom Tools&rdquo;).</p>
+
+    <p>Before development of a Custom Tool begins, the Parties will agree in writing on its intended scope, functionality, and any assumptions the Parties consider material. Email confirmation is sufficient. The Parties may revise an agreed scope by mutual written agreement.</p>
+
+    <p>Subject to the Firm&rsquo;s compliance with this Agreement and timely payment of applicable fees, EPI grants the Firm a limited, non-exclusive, non-transferable right to access and use the Custom Tools during the term of this Agreement solely for the Firm&rsquo;s internal operations.</p>
+
+    <p>EPI will also invite the Firm to provide feedback, test in-development functionality, and participate in product and workflow discussions relating to the Custom Tools.</p>
+
+    <h2>2. Development Process; Nature of the Custom Tools</h2>
+
+    <p>EPI will develop one Custom Tool at a time unless the Parties agree in writing to concurrent development. A Custom Tool is &ldquo;under development&rdquo; from the date the Parties agree on its scope until EPI notifies the Firm in writing that it is complete.</p>
+
+    <p>When EPI notifies the Firm in writing that a Custom Tool is complete and available for the Firm&rsquo;s ongoing use, that Custom Tool becomes a &ldquo;Completed Tool.&rdquo;</p>
+
+    <p>The Firm acknowledges that a Custom Tool under development may be experimental, incomplete, or subject to substantial change, and that development timelines are estimates rather than commitments unless the Parties agree otherwise in writing.</p>
+
+    <p>EPI may modify, update, improve, or replace a Custom Tool at any time, provided that EPI will not materially reduce the core functionality of a Completed Tool without the Firm&rsquo;s consent, except where reasonably necessary for legal, security, compliance, or third-party-provider reasons. If EPI discontinues a Completed Tool, the provisions of Sections 18 and 19 apply.</p>
+
+    <h2>3. Authorized Users</h2>
+
+    <p>The Firm may permit its attorneys, employees, contractors, and other personnel working for or on behalf of the Firm to access and use the Custom Tools, provided that each such user is using the Custom Tools solely for the Firm&rsquo;s internal business purposes and is subject to the Firm&rsquo;s supervision and control.</p>
+
+    <p>The Firm is responsible for all access to and use of the Custom Tools by its authorized users. The Firm may not share login credentials, access links, accounts, or access to the Custom Tools with any person or entity outside the Firm.</p>
+
+    <p>The Firm may not resell, sublicense, distribute, rent, lease, or otherwise make the Custom Tools available to third parties.</p>
+
+    <h2>4. Fees, Billing, and Payment</h2>
+
+    <p><strong>Development fee.</strong> The Firm shall pay EPI $700 per month for each month in which a Custom Tool is under development. This fee covers one Custom Tool under development at a time. Concurrent development requires the Parties&rsquo; written agreement and may be subject to an additional fee disclosed before the Firm incurs it.</p>
+
+    <p><strong>Completed Tool fee.</strong> The Firm shall pay EPI $50 per month for each Completed Tool. If a Custom Tool becomes a Completed Tool during a billing period, the $50 monthly fee for that tool begins with the next billing period. The fee continues for as long as EPI provides the Firm access to that Completed Tool.</p>
+
+    <p><strong>AI usage costs.</strong> The Firm shall pay the third-party AI model, inference, and document-processing costs (including optical character recognition and similar processing) attributable to the Firm&rsquo;s use of the Custom Tools (&ldquo;AI Usage Costs&rdquo;). EPI will determine AI Usage Costs in good faith based on EPI&rsquo;s usage records and applicable third-party provider pricing. EPI will provide a reasonable summary of AI Usage Costs on the Firm&rsquo;s request. EPI will not apply a markup to AI Usage Costs unless EPI discloses the markup to the Firm in writing in advance.</p>
+
+    <p>EPI continues to absorb ordinary web hosting and infrastructure costs associated with the Firm&rsquo;s use of the Custom Tools.</p>
+
+    <p><strong>Billing.</strong> EPI will invoice the Firm monthly. Each invoice will include the development fee (if a Custom Tool is under development during the applicable billing period), Completed Tool fees then payable under this Section 4, and AI Usage Costs for the preceding period. The invoice itself constitutes EPI&rsquo;s communication of AI Usage Costs for that period.</p>
+
+    <p>EPI will issue invoices through Stripe or another billing system designated by EPI. Each invoice is due within fifteen (15) days of the invoice date, unless a longer period is stated on the invoice. The Firm may pay by card, ACH, or any other payment method EPI makes available on the invoice.</p>
+
+    <p>Unless otherwise stated by EPI in writing, each billing period is a calendar month.</p>
+
+    <p>If an invoice is not paid when due, or if payment is declined, reversed, disputed through a chargeback, or otherwise not timely received, EPI may suspend or terminate the Firm&rsquo;s access to the Custom Tools. EPI may also require the Firm to update its payment information before access is restored.</p>
+
+    <p>If no Custom Tool is under development during a monthly billing period, no development fee is payable for that period. The Firm may pause development at any time by written notice to EPI, effective as of the next monthly billing period.</p>
+
+    <h2>5. Cancellation and Termination</h2>
+
+    <p>This Agreement is month-to-month.</p>
+
+    <p>Either Party may cancel this Agreement at any time by written notice, effective at the end of the then-current billing period. If the Firm cancels, the Firm will retain access through the end of that billing period unless EPI determines that earlier termination is necessary due to breach, nonpayment, chargeback, credential sharing, security risk, unlawful use, unauthorized use, violation of confidentiality obligations, infringement of EPI&rsquo;s rights, or use of the Custom Tools to build, assist, or improve a competing product or service.</p>
+
+    <p>Cancellation does not relieve the Firm of the obligation to pay unpaid invoices, fees for the then-current billing period, or AI Usage Costs incurred before the effective date of cancellation.</p>
+
+    <p>Fees paid by the Firm are not refundable if the Firm cancels, except as expressly provided in this Agreement or otherwise agreed by EPI in writing.</p>
+
+    <p>If EPI terminates this Agreement for any reason other than the Firm&rsquo;s breach, misuse, nonpayment, chargeback, security risk, or violation of this Agreement, EPI will refund the development fee and Completed Tool fees paid by the Firm for the then-current billing period, to the extent those fees were paid and the corresponding period has not elapsed. AI Usage Costs already incurred are not refundable. EPI will process such refund to the original payment method, or by another reasonable method if that is not practicable, within 10 business days after termination.</p>
+
+    <p>EPI may suspend or terminate the Firm&rsquo;s access immediately if EPI reasonably believes that the Firm or any authorized user has:</p>
+
+    <ul>
+        <li>breached this Agreement;</li>
+        <li>failed to pay amounts owed;</li>
+        <li>initiated an improper chargeback or payment dispute;</li>
+        <li>shared credentials, accounts, access links, or access to the Custom Tools with unauthorized persons;</li>
+        <li>created or contributed to a security risk;</li>
+        <li>used the Custom Tools for unlawful, unauthorized, deceptive, abusive, harmful, or infringing purposes;</li>
+        <li>violated confidentiality obligations;</li>
+        <li>infringed or misused EPI&rsquo;s intellectual property or proprietary rights;</li>
+        <li>used or attempted to use the Custom Tools to build, assist, or improve a competing product or service;</li>
+        <li>interfered with, disrupted, overloaded, or attempted to gain unauthorized access to the Custom Tools or EPI&rsquo;s systems; or</li>
+        <li>engaged in conduct that materially interferes with EPI&rsquo;s operations, systems, security, or ability to provide the Custom Tools.</li>
+    </ul>
+
+    <p>Upon termination or expiration of this Agreement, the Firm&rsquo;s right to access and use the Custom Tools will end, subject to Section 19.</p>
+
+    <h2>6. Support and Advisory Access</h2>
+
+    <p>During the term of this Agreement, the Firm may contact EPI for support, product input, workflow discussions, feedback, and advisory access relating to the Custom Tools by call, text, or email.</p>
+
+    <p>EPI intends to provide a high level of access and responsiveness. However, EPI does not guarantee immediate response times. EPI&rsquo;s normal business hours are Monday through Friday, 9:00 a.m. to 5:00 p.m. Central Time, excluding major federal holidays. Requests received outside normal business hours may not receive a response until normal business hours resume.</p>
+
+    <p>Support and advisory access are intended to help the Firm use and provide feedback on the Custom Tools. They do not constitute legal advice, malpractice advice, ethics advice, or professional responsibility advice.</p>
+
+    <h2>7. Attorney Responsibility; No Legal Advice by EPI</h2>
+
+    <p>The Firm acknowledges and agrees that EPI is a software, workflow, automation, and technology provider. EPI does not provide legal services to the Firm&rsquo;s clients, does not practice law, does not provide legal advice, and does not create an attorney-client relationship with the Firm&rsquo;s clients.</p>
+
+    <p>The Firm is solely responsible for all legal advice, legal analysis, professional judgment, client communications, document review, drafting decisions, tax analysis, estate planning strategy, ethics compliance, client consent, supervision of personnel, and final work product.</p>
+
+    <p>EPI recommends that the Firm independently reviews, verifies, revises, and approves all outputs, summaries, drafts, recommendations, analyses, workflows, or other materials generated, supported, or facilitated by the Custom Tools before relying on them, sending them to a client, filing them, executing them, or otherwise using them in legal work.</p>
+
+    <p>The Custom Tools are not a substitute for attorney judgment, attorney review, client-specific analysis, or competent legal representation.</p>
+
+    <h2>8. AI Outputs</h2>
+
+    <p>The Firm acknowledges that AI is a new and constantly-evolving technology, and that AI-enabled tools may produce outputs that are inaccurate, incomplete, outdated, inconsistent, misleading, or unsuitable for a particular client or matter.</p>
+
+    <p>The Firm is solely responsible for evaluating whether any output is accurate, complete, appropriate, legally sufficient, ethically permissible, and suitable for the Firm&rsquo;s intended use.</p>
+
+    <p>The Firm shall not represent to any client, court, regulator, bar authority, or other third party that EPI has reviewed, approved, or certified any legal work product unless EPI has expressly agreed to that representation in writing.</p>
+
+    <h2>9. Professional Responsibility and Client Consent</h2>
+
+    <p>The Firm is solely responsible for determining whether and how its use of the Custom Tools complies with applicable rules of professional conduct, confidentiality duties, supervisory obligations, client consent requirements, privilege considerations, engagement terms, and internal firm policies.</p>
+
+    <p>The Firm is solely responsible for obtaining any client consent, authorization, disclosure, waiver, or engagement-letter language that the Firm determines is necessary or appropriate in connection with use of the Custom Tools.</p>
+
+    <p>The Firm shall not upload, process, or submit any information through the Custom Tools unless the Firm has the legal and ethical right to do so.</p>
+
+    <h2>10. Firm Data, Client Materials, and Usage Metadata</h2>
+
+    <p>As between the Parties, the Firm retains ownership of documents, transcripts, client materials, client data, matter information, prompts, inputs, outputs, and other substantive content submitted by or on behalf of the Firm through the Custom Tools (&ldquo;Firm Content&rdquo;).</p>
+
+    <p>EPI does not claim ownership of Firm Content.</p>
+
+    <p>EPI does not use Firm Content except as reasonably necessary to develop, provide, maintain, troubleshoot, secure, improve, and support the Custom Tools. EPI does not otherwise review Firm Content for the purpose of providing legal analysis, legal advice, or legal services.</p>
+
+    <p>EPI may collect and maintain usage records, system logs, diagnostic data, error reports, timestamps, tool usage records, upload activity records, processing activity records, billing records, and similar metadata relating to the Firm&rsquo;s use of the Custom Tools (&ldquo;Usage Metadata&rdquo;). For example, EPI may record that a Firm user used a particular tool at a particular date and time, encountered an error, or triggered a particular system event.</p>
+
+    <p>EPI may use Usage Metadata to operate, maintain, secure, debug, improve, analyze, and support the Custom Tools; monitor usage; enforce this Agreement; calculate, verify, or administer fees and AI Usage Costs; and maintain business records.</p>
+
+    <p>EPI does not currently store Firm Content except where necessary for the operation or functionality of a particular Custom Tool. EPI may store Firm Content where reasonably necessary to develop, provide, operate, or maintain a particular Custom Tool or workflow. If EPI stores Firm Content, EPI will use commercially reasonable efforts to store it only for as long as reasonably necessary for the applicable functionality or business purpose.</p>
+
+    <p>The Firm may request deletion of Firm Content by contacting EPI at ben@ep-intelligence.com. EPI will use commercially reasonable efforts to delete Firm Content in response to such request, subject to legal, technical, security, backup, billing, audit, and dispute-resolution limitations.</p>
+
+    <h2>11. Privilege and Work Product</h2>
+
+    <p>EPI acknowledges that Firm Content may include materials that the Firm considers confidential, privileged, attorney work product, subject to professional confidentiality duties, or otherwise protected.</p>
+
+    <p>EPI will treat Firm Content as confidential in accordance with this Agreement. EPI&rsquo;s role is to provide technology, software, workflow, automation, processing, development, and support services to the Firm.</p>
+
+    <p>The Parties do not intend for the Firm&rsquo;s submission of Firm Content to the Custom Tools to waive any attorney-client privilege, work-product protection, professional confidentiality protection, or similar protection that may apply to Firm Content.</p>
+
+    <p>The Firm remains solely responsible for determining whether use of the Custom Tools is appropriate for any particular client, matter, document, communication, jurisdiction, or privilege context, and for obtaining any client consent, disclosure, authorization, or waiver the Firm determines is necessary or appropriate.</p>
+
+    <h2>12. Third-Party Providers and AI Models</h2>
+
+    <p>The Firm acknowledges that EPI may use third-party providers, processors, hosting services, infrastructure providers, database providers, OCR providers, AI model providers, API providers, and integration partners to develop and provide the Custom Tools.</p>
+
+    <p>Such providers may include leading AI model providers, OCR providers, hosting providers, data infrastructure providers, and related technology providers, including providers such as OpenAI, Anthropic, xAI, Google, Google Document AI, Render, PostgreSQL-related hosting or database services, and other similar providers selected by EPI.</p>
+
+    <p>EPI will not knowingly route Firm Content through AI model providers that use customer inputs or outputs submitted through the Custom Tools to train their models, unless EPI obtains the Firm&rsquo;s consent.</p>
+
+    <p>The Firm acknowledges that third-party services may be subject to their own availability, performance, security, data handling, pricing, and service terms. EPI is not responsible for outages, interruptions, failures, limitations, price changes, or other changes caused by third-party providers, except to the extent EPI has expressly agreed otherwise in writing.</p>
+
+    <h2>13. Security</h2>
+
+    <p>EPI will use commercially reasonable administrative, technical, and organizational safeguards designed to protect Firm Content and the Custom Tools.</p>
+
+    <p>EPI&rsquo;s current approach is to avoid storing Firm Content unless storage is reasonably necessary for the functionality of a particular Custom Tool. Where EPI stores or transmits Firm Content, EPI will use commercially reasonable encryption, access controls, and security practices appropriate for the nature of the Custom Tools.</p>
+
+    <p>The Firm acknowledges that no software platform, AI tool, internet transmission, cloud service, or electronic storage system can be guaranteed to be completely secure or error-free.</p>
+
+    <p>The Firm is responsible for maintaining the confidentiality and security of its own devices, accounts, credentials, systems, users, internal permissions, client authorizations, and Firm-side workflows.</p>
+
+    <p>The Firm shall promptly notify EPI at ben@ep-intelligence.com if it becomes aware of any unauthorized access, credential compromise, suspected security incident, or misuse involving the Custom Tools.</p>
+
+    <h2>14. Security Incident Notification</h2>
+
+    <p>If EPI confirms unauthorized access to or unauthorized disclosure of Firm Content stored or processed by EPI in connection with the Custom Tools (a &ldquo;Security Incident&rdquo;), EPI will notify the Firm without undue delay after confirmation of the incident.</p>
+
+    <p>EPI&rsquo;s notice will be sent to the Firm&rsquo;s email address on file and will include, to the extent known and reasonably available at the time of notice, a description of the nature of the incident, the categories of Firm Content involved, the approximate timing of the incident, steps EPI has taken or plans to take in response, and any recommended steps for the Firm.</p>
+
+    <p>EPI will reasonably cooperate with the Firm in connection with the Firm&rsquo;s evaluation of the incident, including by providing additional information reasonably available to EPI as it becomes known. EPI&rsquo;s provision of notice under this section is not an admission of fault, liability, or violation of law.</p>
+
+    <p>This section does not apply to incidents caused by the Firm, its authorized users, the Firm&rsquo;s systems, the Firm&rsquo;s credentials, the Firm&rsquo;s third-party providers, or other circumstances outside EPI&rsquo;s reasonable control, except to the extent Firm Content stored or processed by EPI in connection with the Custom Tools is confirmed to have been subject to unauthorized access or unauthorized disclosure.</p>
+
+    <h2>15. Confidentiality</h2>
+
+    <p>Each Party may receive or access confidential, proprietary, nonpublic, or sensitive information of the other Party in connection with this Agreement (&ldquo;Confidential Information&rdquo;).</p>
+
+    <p>EPI&rsquo;s Confidential Information includes the Custom Tools, software, source code, tools, workflows, prompts, product designs, product roadmap, business plans, pricing, technical information, nonpublic features, documentation, methods, processes, and other proprietary materials.</p>
+
+    <p>The Firm&rsquo;s Confidential Information includes Firm Content and nonpublic information about the Firm&rsquo;s clients, matters, operations, and workflows.</p>
+
+    <p>Each Party shall use the other Party&rsquo;s Confidential Information only as necessary to perform or receive the benefits of this Agreement. Each Party shall use reasonable care to protect the other Party&rsquo;s Confidential Information from unauthorized access, use, or disclosure.</p>
+
+    <p>Confidential Information does not include information that the receiving Party can demonstrate: (a) is or becomes publicly available without breach of this Agreement; (b) was already known to the receiving Party without confidentiality obligations; (c) is independently developed without use of the disclosing Party&rsquo;s Confidential Information; or (d) is lawfully received from a third party without confidentiality obligations.</p>
+
+    <p>A Party may disclose Confidential Information if required by law, subpoena, court order, regulatory requirement, or similar process, provided that, to the extent legally permitted, the receiving Party gives the disclosing Party prompt notice and reasonable cooperation in seeking confidential treatment.</p>
+
+    <h2>16. Restrictions</h2>
+
+    <p>The Firm shall not, and shall not permit any authorized user or third party to:</p>
+
+    <ul>
+        <li>share access to the Custom Tools, accounts, credentials, or access links with any person outside the Firm;</li>
+        <li>use the Custom Tools to develop, train, test, or assist a competing product or service;</li>
+        <li>reverse engineer, decompile, disassemble, copy, scrape, crawl, index, or attempt to derive source code, system designs, or underlying methods from the Custom Tools, except as expressly permitted under Section 19;</li>
+        <li>resell, sublicense, lease, rent, distribute, publish, or otherwise commercialize the Custom Tools or access to the Custom Tools;</li>
+        <li>use the Custom Tools for any unlawful, harmful, deceptive, infringing, abusive, or unauthorized purpose;</li>
+        <li>interfere with, disrupt, overload, or attempt to gain unauthorized access to the Custom Tools or EPI&rsquo;s systems;</li>
+        <li>remove, obscure, or alter any proprietary notices;</li>
+        <li>upload malicious code, malware, or other harmful materials;</li>
+        <li>submit Firm Content that the Firm does not have the legal or ethical right to submit; or</li>
+        <li>use the Custom Tools in a manner that violates applicable law, professional responsibility obligations, or this Agreement.</li>
+    </ul>
+
+    <h2>17. Ownership; Feedback; No Exclusivity</h2>
+
+    <p>EPI owns and retains all right, title, and interest in and to the Custom Tools, including all software, source code, tools, workflows, templates, interfaces, automations, designs, processes, methods, derivatives, and related intellectual property. The Firm&rsquo;s payment of fees under this Agreement pays for the development, hosting, maintenance, and use of the Custom Tools, and does not transfer ownership of the Custom Tools or any EPI intellectual property to the Firm.</p>
+
+    <p>The Firm retains ownership of its own pre-existing materials, Firm Content, client documents, internal firm documents, proprietary firm work product, and internal firm know-how, subject to EPI&rsquo;s rights to develop, operate, and provide the Custom Tools under this Agreement.</p>
+
+    <p>The Firm may provide ideas, suggestions, comments, criticisms, requests, workflows, product input, feature ideas, testing observations, or other feedback regarding the Custom Tools (&ldquo;Feedback&rdquo;).</p>
+
+    <p>EPI may freely incorporate, modify, commercialize, and otherwise utilize Feedback without restriction, compensation, attribution, approval, accounting, or other obligation to the Firm. EPI owns all EPI tools, features, improvements, workflows, modifications, derivatives, products, and services developed from or related to Feedback.</p>
+
+    <p>For clarity, Feedback does not include Firm Content, client materials, or proprietary firm documents submitted through the Custom Tools for processing.</p>
+
+    <p>The Custom Tools are not exclusive to the Firm. Unless the Parties agree otherwise in writing, EPI may develop, offer, license, and commercialize the same or similar tools, features, workflows, and functionality for other firms and for its own products. The Firm does not receive any exclusivity over EPI, the Custom Tools, any tool, workflow, feature, market, client type, or product category.</p>
+
+    <h2>18. Continuity Plan</h2>
+
+    <p>EPI will maintain a written contingency plan designed so that the Firm does not lose the ability to use the Completed Tools if EPI becomes unable or unwilling to continue providing them, including as a result of death, incapacity, disability, accident, insolvency, or cessation of operations.</p>
+
+    <p>At a minimum, EPI&rsquo;s contingency plan will provide for:</p>
+
+    <ul>
+        <li>maintaining a current copy of the source code for the Custom Tools, together with configuration details and reasonable deployment documentation, in a durable and retrievable location;</li>
+        <li>standing written instructions directing EPI&rsquo;s designated representative, successor, or legal representative to deliver the materials described in Section 19 to the Firm upon a Release Event;</li>
+        <li>maintaining current notice and contact information for the Firm; and</li>
+        <li>reviewing and updating the plan at least annually and upon any material change to the Custom Tools or EPI&rsquo;s circumstances.</li>
+    </ul>
+
+    <p>EPI will confirm in writing, on the Firm&rsquo;s reasonable request, that the contingency plan is in place and current. EPI is not required to disclose confidential or security-sensitive details of the plan.</p>
+
+    <p>EPI will use commercially reasonable efforts to give the Firm at least 30 days&rsquo; advance written notice before voluntarily discontinuing the Firm&rsquo;s access to any Completed Tool.</p>
+
+    <h2>19. Source Code Release</h2>
+
+    <p>A &ldquo;Release Event&rdquo; occurs if:</p>
+
+    <ul>
+        <li>EPI voluntarily discontinues the Firm&rsquo;s access to one or more Completed Tools, or terminates this Agreement, for any reason other than the Firm&rsquo;s breach, misuse, nonpayment, chargeback, security risk, or violation of this Agreement;</li>
+        <li>EPI ceases operations, dissolves, becomes insolvent, makes a general assignment for the benefit of creditors, or becomes subject to a bankruptcy or receivership proceeding that is not dismissed within 60 days; or</li>
+        <li>EPI becomes unable to provide or maintain the Completed Tools for more than 30 consecutive days, including as a result of the death, incapacity, or disability of EPI&rsquo;s principal.</li>
+    </ul>
+
+    <p>A Release Event does not include the Firm&rsquo;s voluntary cancellation of this Agreement, or EPI&rsquo;s suspension or termination of the Firm&rsquo;s access under Section 5 for the Firm&rsquo;s breach, misuse, nonpayment, chargeback, security risk, or violation of this Agreement.</p>
+
+    <p>Within 30 days after a Release Event, EPI (or EPI&rsquo;s designated representative, successor, or legal representative) will deliver to the Firm a copy of the source code for the affected Completed Tools, together with configuration details and reasonable deployment documentation in EPI&rsquo;s possession, sufficient to allow a reasonably skilled developer to deploy and operate those Completed Tools (the &ldquo;Released Materials&rdquo;). Delivery may be made by any reasonable secure method.</p>
+
+    <p>Upon a Release Event, EPI grants the Firm a perpetual, irrevocable, worldwide, royalty-free, non-exclusive, non-transferable license to use, host, operate, modify, and maintain the Released Materials solely for the Firm&rsquo;s internal business operations, including the right to engage contractors who are bound by written confidentiality obligations to do so on the Firm&rsquo;s behalf.</p>
+
+    <p>The Firm does not acquire ownership of the Released Materials or of any EPI intellectual property. The Firm shall not resell, sublicense, distribute, publish, open-source, or otherwise commercialize the Released Materials or offer them as a product or service to any third party, and shall not use the Released Materials to develop, train, test, or assist a competing product or service. The Firm shall continue to treat the Released Materials as EPI&rsquo;s Confidential Information.</p>
+
+    <p>The Released Materials do not include third-party software, models, APIs, services, or components that EPI is not permitted to transfer. The Firm is responsible for obtaining its own accounts, licenses, subscriptions, API keys, hosting, and third-party services necessary to operate the Released Materials, and for all costs of doing so.</p>
+
+    <p>The Released Materials are provided &ldquo;as is,&rdquo; without warranty of any kind. Following delivery, EPI has no obligation to host, support, maintain, update, or troubleshoot the Released Materials or the affected Completed Tools, and no further fees are payable by the Firm for those Completed Tools. The Firm is solely responsible for its own deployment, hosting, security, configuration, and use of the Released Materials.</p>
+
+    <p>This section survives termination or expiration of this Agreement.</p>
+
+    <h2>20. Firm Indemnification</h2>
+
+    <p>The Firm shall defend, indemnify, and hold harmless EPI and its owners, managers, officers, employees, contractors, agents, representatives, successors, and assigns from and against any third-party claims, demands, actions, investigations, damages, liabilities, losses, costs, and expenses, including reasonable attorneys&rsquo; fees, arising out of or relating to:</p>
+
+    <ul>
+        <li>the Firm&rsquo;s or its authorized users&rsquo; misuse of the Custom Tools;</li>
+        <li>Firm Content, including any allegation that Firm Content was submitted, processed, used, or disclosed without proper authorization;</li>
+        <li>the Firm&rsquo;s legal advice, legal services, estate planning work, client communications, documents, strategies, recommendations, or work product created, reviewed, supported, or informed by use of the Custom Tools;</li>
+        <li>any claim by a client or former client of the Firm arising out of or relating to the Firm&rsquo;s use of the Custom Tools, Firm Content submitted to or processed through the Custom Tools, outputs used by the Firm, or legal work product, advice, communications, or services created, reviewed, supported, or informed by use of the Custom Tools;</li>
+        <li>the Firm&rsquo;s failure to review, verify, revise, or approve outputs before use;</li>
+        <li>the Firm&rsquo;s violation of applicable law, professional responsibility obligations, confidentiality duties, client consent requirements, or internal firm policies in connection with use of the Custom Tools;</li>
+        <li>the Firm&rsquo;s breach of this Agreement;</li>
+        <li>the Firm&rsquo;s unauthorized sharing of credentials, outputs, access, Released Materials, or Confidential Information;</li>
+        <li>the Firm&rsquo;s deployment, hosting, modification, or operation of the Released Materials following a Release Event; or</li>
+        <li>the Firm&rsquo;s use of the Custom Tools or the Released Materials to build, assist, evaluate, or improve a competing product or service.</li>
+    </ul>
+
+    <h2>21. EPI IP Indemnification</h2>
+
+    <p>EPI shall defend and indemnify the Firm from and against third-party claims alleging that the Firm&rsquo;s authorized use of the Custom Tools, as provided by EPI and used in accordance with this Agreement, infringes or misappropriates that third party&rsquo;s United States intellectual property rights.</p>
+
+    <p>EPI&rsquo;s obligations under this section do not apply to claims arising out of or relating to:</p>
+
+    <ul>
+        <li>Firm Content;</li>
+        <li>the Firm&rsquo;s or its authorized users&rsquo; misuse of the Custom Tools;</li>
+        <li>use of the Custom Tools in violation of this Agreement;</li>
+        <li>functionality, specifications, designs, materials, or requirements provided or directed by the Firm;</li>
+        <li>modifications to the Custom Tools or the Released Materials not made by EPI;</li>
+        <li>combination of the Custom Tools with products, services, systems, data, content, or processes not provided by EPI, where the claim would not have arisen without such combination;</li>
+        <li>third-party providers, third-party models, third-party APIs, third-party integrations, or third-party services not owned by EPI;</li>
+        <li>the Firm&rsquo;s legal work, legal advice, client communications, documents, or work product; or</li>
+        <li>use of the Custom Tools after EPI has instructed the Firm to stop the allegedly infringing use.</li>
+    </ul>
+
+    <p>If a Custom Tool becomes or, in EPI&rsquo;s reasonable opinion, is likely to become the subject of an infringement or misappropriation claim, EPI may, in its discretion: (i) procure for the Firm the right to continue using the affected portion of the Custom Tool; (ii) modify or replace the affected portion of the Custom Tool to avoid the claim; or (iii) suspend or terminate the affected portion of the Custom Tool.</p>
+
+    <p>This section states EPI&rsquo;s sole obligation, and the Firm&rsquo;s sole remedy, for third-party intellectual property infringement or misappropriation claims relating to the Custom Tools.</p>
+
+    <h2>22. Warranty Disclaimer</h2>
+
+    <p>The Custom Tools are provided &ldquo;as is&rdquo; and &ldquo;as available.&rdquo;</p>
+
+    <p>To the maximum extent permitted by law, EPI disclaims all warranties, whether express, implied, statutory, or otherwise, including warranties of merchantability, fitness for a particular purpose, title, accuracy, availability, reliability, and error-free operation.</p>
+
+    <p>EPI does not warrant that the Custom Tools will be uninterrupted, error-free, accurate, complete, legally sufficient, suitable for any particular client or matter, or compliant with any particular professional responsibility obligation.</p>
+
+    <p>EPI does not warrant that AI outputs, summaries, drafts, analyses, recommendations, or other materials generated by the Custom Tools will be accurate, complete, current, or suitable for the Firm&rsquo;s intended use.</p>
+
+    <p>The Firm is responsible for independently reviewing, verifying, revising, and approving all outputs before use.</p>
+
+    <h2>23. Limitation of Liability</h2>
+
+    <p>To the maximum extent permitted by law, neither Party will be liable to the other Party for any indirect, incidental, special, consequential, exemplary, punitive, enhanced, or similar damages, or for lost profits, lost revenue, lost business opportunities, loss of goodwill, reputational harm, loss of data, business interruption, or cost of substitute services, even if the Party has been advised of the possibility of such damages.</p>
+
+    <p>To the maximum extent permitted by law, EPI&rsquo;s total aggregate liability arising out of or relating to this Agreement, the Custom Tools, or the Parties&rsquo; relationship will not exceed the amounts actually paid by the Firm to EPI under this Agreement during the twelve months immediately preceding the event giving rise to the claim.</p>
+
+    <p>Notwithstanding the foregoing, for claims arising from EPI&rsquo;s breach of its confidentiality obligations under Section 15, a Security Incident caused by EPI&rsquo;s failure to use the commercially reasonable safeguards required by Section 13, or EPI&rsquo;s failure to deliver the Released Materials as required by Section 19, EPI&rsquo;s total aggregate liability will not exceed the amounts actually paid by the Firm to EPI under this Agreement during the twenty-four months immediately preceding the event giving rise to the claim.</p>
+
+    <p>The limitations in this section do not apply to the Firm&rsquo;s payment obligations, the Firm&rsquo;s misuse of EPI intellectual property, the Firm&rsquo;s breach of the restrictions in this Agreement, the Firm&rsquo;s indemnification obligations, either Party&rsquo;s intentional misconduct, or either Party&rsquo;s gross negligence.</p>
+
+    <h2>24. Publicity</h2>
+
+    <p>EPI may not use the Firm&rsquo;s name, logo, client names, testimonials, or identifying information in marketing, publicity, case studies, website materials, announcements, or sales materials without the Firm&rsquo;s prior written consent.</p>
+
+    <h2>25. Notices</h2>
+
+    <p>Notices under this Agreement may be provided by email or by mail.</p>
+
+    <p>Notices to EPI must be sent to:</p>
+
+    <p>Estate Planning Intelligence LLC<br>91 Red River Street #1810, Austin, TX 78701<br>Email: ben@ep-intelligence.com</p>
+
+    <p>Notices to the Firm may be sent to the mailing address, email address, or other notice address provided by the Firm, or any updated address provided by the Firm to EPI. The Firm shall keep its notice address current so that EPI can provide the notices contemplated by Sections 18 and 19.</p>
+
+    <p>Email notices are deemed given when sent, unless the sender receives an automated delivery failure notice. Mailed notices are deemed given three (3) business days after being deposited with the U.S. Postal Service, postage prepaid, or on the date of delivery if sent by nationally recognized overnight courier or other trackable delivery service.</p>
+
+    <h2>26. Electronic Acceptance</h2>
+
+    <p>The Firm may accept this Agreement electronically, including by executing EPI&rsquo;s engagement letter, by electronic signature, or by written confirmation by email.</p>
+
+    <p>By checking the agreement checkbox on EPI&rsquo;s engagement letter, submitting the engagement letter, signing electronically, confirming acceptance by email, or otherwise accepting this Agreement, the individual accepting on behalf of the Firm represents and warrants that he or she has authority to bind the Firm to this Agreement.</p>
+
+    <p>The Firm agrees that electronic acceptance has the same legal effect as a handwritten signature.</p>
+
+    <p>EPI may maintain records of the Firm&rsquo;s electronic acceptance, including signer name, firm name, title, email address, timestamp, IP address, user agent, payment status, and the version of the Agreement accepted.</p>
+
+    <h2>27. Updates to this Agreement</h2>
+
+    <p>EPI may update this Agreement from time to time.</p>
+
+    <p>EPI will provide notice of material updates by email, through the Custom Tools, or through EPI&rsquo;s onboarding, billing, or account-management systems.</p>
+
+    <p>Unless an update is required sooner for legal, security, compliance, or urgent operational reasons, material updates will take effect at the start of the Firm&rsquo;s next billing period or 30 days after notice, whichever is later.</p>
+
+    <p>If the Firm does not agree to a material update, the Firm may cancel before the update takes effect. Continued use of the Custom Tools after the effective date of an updated Agreement constitutes acceptance of the updated Agreement.</p>
+
+    <p>Material updates will not apply retroactively to a billing period already paid for by the Firm, except to the extent reasonably necessary for legal, security, compliance, or urgent operational reasons.</p>
+
+    <p>EPI will not modify the fees stated in Section 4, or reduce the Firm&rsquo;s rights under Sections 18 and 19, without the Firm&rsquo;s consent.</p>
+
+    <p>Non-material updates, clarifications, corrections, or administrative changes may take effect upon notice or posting.</p>
+
+    <h2>28. Governing Law and Venue</h2>
+
+    <p>This Agreement is governed by the laws of the State of Texas, without regard to conflict-of-law principles.</p>
+
+    <p>The Parties agree that any dispute arising out of or relating to this Agreement, the Custom Tools, or the Parties&rsquo; relationship shall be brought exclusively in the state or federal courts located in Travis County, Texas. Each Party consents to the personal jurisdiction and venue of such courts.</p>
+
+    <h2>29. Miscellaneous</h2>
+
+    <p>This Agreement constitutes the entire agreement between the Parties regarding the Custom Tools and supersedes all prior or contemporaneous agreements, discussions, proposals, understandings, or representations regarding the Custom Tools.</p>
+
+    <p>The Firm may not assign this Agreement without EPI&rsquo;s prior written consent, except that the Firm may assign this Agreement to a successor to substantially all of its practice with notice to EPI. EPI may assign this Agreement in connection with a merger, acquisition, reorganization, sale of assets, change of control, or transfer of the Custom Tools or related business, provided that the assignee assumes EPI&rsquo;s obligations under Sections 18 and 19.</p>
+
+    <p>If any provision of this Agreement is held invalid, illegal, or unenforceable, the remaining provisions will remain in full force and effect.</p>
+
+    <p>No waiver of any provision of this Agreement will be effective unless in writing. No failure or delay in enforcing any right will constitute a waiver.</p>
+
+    <p>Headings are for convenience only and do not affect interpretation.</p>
+
+    <p>The provisions of this Agreement that by their nature should survive termination shall survive, including provisions concerning confidentiality, privilege and work product, ownership, feedback, restrictions, the continuity plan, source code release, indemnification, warranty disclaimers, limitation of liability, notices, governing law, venue, and miscellaneous terms.</p>
+</main>
+</body>
+</html>

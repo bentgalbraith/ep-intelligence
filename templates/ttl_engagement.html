@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+  <title>Engagement Letter — Texas Trust Law — EP Intelligence</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='EPILogo_Orange.png') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #fafaf8; color: #1a1a1a; }
+    main { max-width: 720px; margin: 0 auto; padding: 4rem 2rem 5rem; }
+    .letter-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 2rem; }
+    .letterhead { display: flex; align-items: center; gap: 0.75rem; }
+    .letterhead img { width: 40px; height: auto; }
+    .letterhead-name { font-size: 0.85rem; font-weight: 600; color: #1a1a1a; }
+    .letterhead-meta { font-size: 0.75rem; font-weight: 400; color: #666; line-height: 1.5; margin-top: 0.15rem; }
+    h1 { font-size: 1.35rem; font-weight: 600; color: #1a1a1a; letter-spacing: 0.01em; margin-bottom: 1.5rem; }
+    p { font-size: 0.88rem; font-weight: 400; color: #1a1a1a; line-height: 1.75; margin-bottom: 0.75rem; }
+    .date { margin-bottom: 1.5rem; }
+    a { color: #ea580c; }
+    .sig-block { margin-top: 2.25rem; padding-top: 1.5rem; border-top: 1px solid rgba(0,0,0,0.1); }
+    .sig-block h2 { font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; }
+    .sig-row { margin-bottom: 0.9rem; }
+    .sig-label { display: block; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #666; margin-bottom: 0.3rem; }
+    .sig-value { font-size: 0.88rem; padding-bottom: 0.25rem; border-bottom: 1px solid rgba(0,0,0,0.18); }
+    .sig-block input[type="text"],
+    .sig-block input[type="email"],
+    .sig-block input[type="tel"] {
+      width: 100%; padding: 0.45rem 0; font-family: inherit; font-size: 0.88rem; color: #1a1a1a;
+      background: transparent; border: none; border-bottom: 1px solid rgba(0,0,0,0.18); outline: none; border-radius: 0;
+    }
+    .sig-block input:focus { border-bottom-color: #ea580c; }
+    .agreement-check {
+      display: flex; align-items: flex-start; gap: 0.6rem; text-align: left; cursor: pointer; margin: 1.25rem 0 1rem;
+    }
+    .agreement-check input[type="checkbox"] {
+      appearance: none; -webkit-appearance: none; width: 18px; height: 18px;
+      border: 1.5px solid rgba(0,0,0,0.35); border-radius: 4px; background: #fff;
+      cursor: pointer; flex-shrink: 0; margin-top: 2px; position: relative;
+    }
+    .agreement-check input[type="checkbox"]:checked { border-color: #ea580c; background: #ea580c; }
+    .agreement-check input[type="checkbox"]:checked::after {
+      content: '\2713'; position: absolute; top: -1px; left: 2px; font-size: 13px; font-weight: 700; color: #fff;
+    }
+    .agreement-check span { font-size: 0.82rem; line-height: 1.55; color: #1a1a1a; }
+    .btn-row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-top: 0.5rem; }
+    .btn-submit, .btn-print {
+      padding: 0.5rem 1.5rem; font-family: inherit; font-size: 0.75rem; font-weight: 400;
+      letter-spacing: 0.08em; text-transform: uppercase; color: #1a1a1a;
+      background: rgba(255,255,255,0.6); border: 1px solid rgba(0,0,0,0.12); border-radius: 100px;
+      cursor: pointer; transition: all 0.4s cubic-bezier(0.23,1,0.32,1);
+    }
+    .btn-submit:hover, .btn-print:hover { background: rgba(234,88,12,0.1); border-color: rgba(234,88,12,0.5); color: #ea580c; }
+    .form-error {
+      font-size: 0.85rem; color: #9a3412; background: rgba(234,88,12,0.08);
+      padding: 0.55rem 0.9rem; border-radius: 8px; margin-bottom: 1rem;
+    }
+    .accepted-banner {
+      font-size: 0.85rem; color: #1a1a1a; background: rgba(234,88,12,0.08);
+      padding: 0.7rem 1rem; border-radius: 8px; margin-bottom: 1.5rem;
+    }
+    @media print {
+      .btn-submit, .btn-print, .form-error { display: none; }
+      main { padding-top: 0; }
+    }
+    @media (max-width: 640px) { main { padding: 2.5rem 1.25rem 4rem; } h1 { font-size: 1.2rem; } }
+  </style>
+</head>
+<body>
+<main>
+    <div class="letter-header">
+        <div class="letterhead">
+            <img src="{{ url_for('static', filename='EPILogo_Orange.png') }}" alt="EP Intelligence">
+            <div>
+                <div class="letterhead-name">Estate Planning Intelligence LLC</div>
+                <div class="letterhead-meta">91 Red River Street #1810, Austin, TX 78701<br>ben@ep-intelligence.com</div>
+            </div>
+        </div>
+        {% if accepted %}
+        <button class="btn-print" onclick="window.print()">Print</button>
+        {% endif %}
+    </div>
+
+    {% if accepted %}
+    <p class="accepted-banner">Accepted on {{ accepted_at }}. A confirmation has been sent to {{ email }}.</p>
+    {% endif %}
+
+    <p class="date">{% if accepted %}{{ accepted_at }}{% else %}{{ agreement_version }}{% endif %}</p>
+
+    <p>Texas Trust Law</p>
+
+    <h1>Engagement Letter — Custom Tool Development</h1>
+
+    <p>Dear Texas Trust Law:</p>
+
+    <p>This letter confirms the engagement of Estate Planning Intelligence LLC (&ldquo;EPI&rdquo;) by Texas Trust Law (the &ldquo;Firm&rdquo;) to design, develop, host, and maintain custom software tools for the Firm&rsquo;s estate planning practice.</p>
+
+    <p>This engagement is governed by the EPI Custom Tool Development &amp; Access Agreement, last updated {{ agreement_version }} (the &ldquo;Agreement&rdquo;), available at <a href="{{ url_for('custom_tool_agreement') }}" target="_blank">ep-intelligence.com/custom-tool-agreement</a>. The Agreement is incorporated into this letter by reference. The Firm&rsquo;s execution of this letter constitutes acceptance of the Agreement. The Effective Date is the date the Firm submits this letter.</p>
+
+    <p>Please complete the signature block below.</p>
+
+    <p>Sincerely,<br>Estate Planning Intelligence LLC</p>
+
+    <div class="sig-block">
+        <h2>Accepted and agreed on behalf of Texas Trust Law</h2>
+
+        {% if accepted %}
+        <div class="sig-row">
+            <span class="sig-label">Name</span>
+            <div class="sig-value">{{ signer_name }}</div>
+        </div>
+        <div class="sig-row">
+            <span class="sig-label">Title</span>
+            <div class="sig-value">{{ title }}</div>
+        </div>
+        <div class="sig-row">
+            <span class="sig-label">Email</span>
+            <div class="sig-value">{{ email }}</div>
+        </div>
+        <div class="sig-row">
+            <span class="sig-label">Phone</span>
+            <div class="sig-value">{{ phone or '—' }}</div>
+        </div>
+        <p>The signer reviewed and agreed to the Agreement and represented authority to bind Texas Trust Law.</p>
+        {% else %}
+        <form method="POST" action="{{ url_for('ttl_engagement') }}">
+            {% if error %}
+            <p class="form-error">{{ error }}</p>
+            {% endif %}
+            <div class="sig-row">
+                <label class="sig-label" for="signer_name">Name</label>
+                <input id="signer_name" type="text" name="signer_name" value="{{ request.form.get('signer_name', '') }}" required autocomplete="name">
+            </div>
+            <div class="sig-row">
+                <label class="sig-label" for="title">Title</label>
+                <input id="title" type="text" name="title" value="{{ request.form.get('title', '') }}" required autocomplete="organization-title" placeholder="e.g. Managing Partner">
+            </div>
+            <div class="sig-row">
+                <label class="sig-label" for="email">Email</label>
+                <input id="email" type="email" name="email" value="{{ request.form.get('email', '') }}" required autocomplete="email">
+            </div>
+            <div class="sig-row">
+                <label class="sig-label" for="phone">Phone (optional)</label>
+                <input id="phone" type="tel" name="phone" value="{{ request.form.get('phone', '') }}" autocomplete="tel">
+            </div>
+            <label class="agreement-check">
+                <input type="checkbox" name="agree" required>
+                <span>I have reviewed and agree to the <a href="{{ url_for('custom_tool_agreement') }}" target="_blank">EPI Custom Tool Development &amp; Access Agreement</a>. I represent that I am authorized to legally bind Texas Trust Law.</span>
+            </label>
+            <div class="btn-row">
+                <button type="submit" class="btn-submit">Accept Engagement</button>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+</main>
+</body>
+</html>

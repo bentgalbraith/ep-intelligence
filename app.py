@@ -1,4 +1,5 @@
 import collections
+import html
 import io
 import json
 import os
@@ -8,7 +9,7 @@ import traceback
 import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 from dotenv import load_dotenv
@@ -242,6 +243,106 @@ def index():
 @app.route("/agreement")
 def agreement():
     return render_template("agreement.html")
+
+
+@app.route("/custom-tool-agreement")
+def custom_tool_agreement():
+    return render_template("custom_tool_agreement.html")
+
+
+CUSTOM_TOOL_AGREEMENT_VERSION = "August 19, 2026"
+TTL_FIRM_NAME = "Texas Trust Law"
+
+
+@app.route("/engagement/texas-trust-law", methods=["GET", "POST"])
+@limiter.limit("5/minute")
+def ttl_engagement():
+    if request.method == "GET":
+        return render_template(
+            "ttl_engagement.html",
+            agreement_version=CUSTOM_TOOL_AGREEMENT_VERSION,
+        )
+
+    signer_name = request.form.get("signer_name", "").strip()
+    title = request.form.get("title", "").strip()
+    email = request.form.get("email", "").strip()
+    phone = request.form.get("phone", "").strip()
+    agreed = request.form.get("agree") == "on"
+
+    if not all([signer_name, title, email, agreed]):
+        return render_template(
+            "ttl_engagement.html",
+            agreement_version=CUSTOM_TOOL_AGREEMENT_VERSION,
+            error="Please complete all required fields and accept the Agreement.",
+        )
+
+    accepted_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    ip_address = request.remote_addr or ""
+    user_agent = request.headers.get("User-Agent", "")
+
+    def _e(value):
+        return html.escape(value or "")
+
+    record = (
+        f"<h2>Custom Tool Engagement Accepted</h2>"
+        f"<p><strong>Firm:</strong> {_e(TTL_FIRM_NAME)}</p>"
+        f"<p><strong>Signer:</strong> {_e(signer_name)}</p>"
+        f"<p><strong>Title:</strong> {_e(title)}</p>"
+        f"<p><strong>Email:</strong> {_e(email)}</p>"
+        f"<p><strong>Phone:</strong> {_e(phone) or '(not provided)'}</p>"
+        f"<p><strong>Agreement version:</strong> {_e(CUSTOM_TOOL_AGREEMENT_VERSION)}</p>"
+        f"<p><strong>Accepted at:</strong> {_e(accepted_at)}</p>"
+        f"<p><strong>IP address:</strong> {_e(ip_address)}</p>"
+        f"<p><strong>User agent:</strong> {_e(user_agent)}</p>"
+        f"<p>The signer checked the box agreeing to the EPI Custom Tool Development "
+        f"&amp; Access Agreement and represented authority to bind the Firm.</p>"
+    )
+
+    if RESEND_API_KEY:
+        try:
+            resend.Emails.send({
+                "from": "EP Intelligence <notifications@ep-intelligence.com>",
+                "to": ["ben@ep-intelligence.com"],
+                "subject": f"Engagement accepted: {TTL_FIRM_NAME} — {signer_name}",
+                "html": record,
+            })
+        except Exception:
+            traceback.print_exc()
+            return render_template(
+                "ttl_engagement.html",
+                agreement_version=CUSTOM_TOOL_AGREEMENT_VERSION,
+                error="We could not record your acceptance. Please try again or email ben@ep-intelligence.com.",
+            )
+        try:
+            resend.Emails.send({
+                "from": "EP Intelligence <notifications@ep-intelligence.com>",
+                "to": [email],
+                "subject": f"Engagement letter — {TTL_FIRM_NAME} / Estate Planning Intelligence LLC",
+                "html": (
+                    f"<p>This confirms that {_e(signer_name)}, {_e(title)}, accepted the "
+                    f"EPI Custom Tool Development &amp; Access Agreement "
+                    f"({_e(CUSTOM_TOOL_AGREEMENT_VERSION)}) on behalf of {_e(TTL_FIRM_NAME)} "
+                    f"on {_e(accepted_at)}.</p>"
+                    f"<p>A copy of the Agreement is at "
+                    f"<a href=\"https://ep-intelligence.com/custom-tool-agreement\">"
+                    f"ep-intelligence.com/custom-tool-agreement</a>.</p>"
+                ),
+            })
+        except Exception:
+            traceback.print_exc()
+    else:
+        app.logger.warning("RESEND_API_KEY not set — engagement acceptance email not sent")
+
+    return render_template(
+        "ttl_engagement.html",
+        agreement_version=CUSTOM_TOOL_AGREEMENT_VERSION,
+        accepted=True,
+        signer_name=signer_name,
+        title=title,
+        email=email,
+        phone=phone,
+        accepted_at=accepted_at,
+    )
 
 
 @app.route("/waitlist", methods=["GET", "POST"])
