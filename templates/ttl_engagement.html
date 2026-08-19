@@ -29,10 +29,10 @@
     .sig-block input[type="text"],
     .sig-block input[type="email"],
     .sig-block input[type="tel"] {
-      width: 100%; padding: 0.45rem 0; font-family: inherit; font-size: 0.88rem; color: #1a1a1a;
-      background: transparent; border: none; border-bottom: 1px solid rgba(0,0,0,0.18); outline: none; border-radius: 0;
+      width: 100%; padding: 0.65rem 0.8rem; font-family: inherit; font-size: 0.88rem; color: #1a1a1a;
+      background: #fff; border: 1px solid rgba(0,0,0,0.18); outline: none; border-radius: 8px;
     }
-    .sig-block input:focus { border-bottom-color: #ea580c; }
+    .sig-block input:focus { border-color: #ea580c; box-shadow: 0 0 0 3px rgba(234,88,12,0.12); }
     .agreement-check {
       display: flex; align-items: flex-start; gap: 0.6rem; text-align: left; cursor: pointer; margin: 1.25rem 0 1rem;
     }
@@ -90,11 +90,9 @@
 
     <p class="date">{% if accepted %}{{ accepted_at }}{% else %}{{ agreement_version }}{% endif %}</p>
 
-    <p>Texas Trust Law</p>
+    <p>Texas Trust Law<br>1601 Rio Grande, Suite 550<br>Austin, Texas 78701</p>
 
-    <h1>Engagement Letter — Custom Tool Development</h1>
-
-    <p>Dear Texas Trust Law:</p>
+    <h1>Engagement Letter</h1>
 
     <p>This letter confirms the engagement of Estate Planning Intelligence LLC (&ldquo;EPI&rdquo;) by Texas Trust Law (the &ldquo;Firm&rdquo;) to design, develop, host, and maintain custom software tools for the Firm&rsquo;s estate planning practice.</p>
 
@@ -136,7 +134,7 @@
             </div>
             <div class="sig-row">
                 <label class="sig-label" for="title">Title</label>
-                <input id="title" type="text" name="title" value="{{ request.form.get('title', '') }}" required autocomplete="organization-title" placeholder="e.g. Managing Partner">
+                <input id="title" type="text" name="title" value="{{ request.form.get('title', '') }}" required autocomplete="organization-title">
             </div>
             <div class="sig-row">
                 <label class="sig-label" for="email">Email</label>
