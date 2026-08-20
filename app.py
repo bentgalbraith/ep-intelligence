@@ -21,7 +21,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from openai import OpenAI
 
-from ai_logger import log_ai_call, extract_xai_usage
+from ai_logger import log_ai_call, extract_xai_usage, completion_details
 from doc_separator import separate_documents, redo_with_feedback, _extract_json
 from ep_export import build_export_csv, build_questionnaire_docx
 from prospect_summarizer import extract_prospect_documents, build_summary_docx, PROSPECT_SCHEMA
@@ -539,6 +539,8 @@ def api_ep_extract():
         user_content += f"\n\nADDITIONAL NOTES:\n{notes}"
 
     call_start = time.time()
+    raw = ""
+    details = None
     try:
         response = openai_client.chat.completions.create(
             model=OPENAI_MODEL,
@@ -547,25 +549,20 @@ def api_ep_extract():
                 {"role": "user", "content": user_content},
             ],
         )
+        raw = response.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        details = completion_details(response, raw)
+        extraction = _extract_json(raw)
+        verify_quotes(extraction, transcript)
         log_ai_call(
             provider="openai", model=OPENAI_MODEL, tool="ep_extract", status="success",
             execution_ms=int((time.time() - call_start) * 1000),
             firm_id=firm_id,
             **extract_xai_usage(response),
         )
-        raw = response.choices[0].message.content.strip()
-
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-
-        extraction = _extract_json(raw)
-        verify_quotes(extraction, transcript)
         extraction["schema"] = ep_schema["sections"]
         return jsonify(extraction)
-    except json.JSONDecodeError as e:
-        app.logger.error("JSON parse error: %s\nRaw response: %s", e, raw[:500])
-        _notify_tool_error("Drafting Notes", str(e), firm_id=firm_id)
-        return jsonify({"error": "AI returned invalid JSON. Please try again."}), 500
     except Exception as e:
         log_ai_call(
             provider="openai", model=OPENAI_MODEL, tool="ep_extract", status="error",
@@ -573,8 +570,13 @@ def api_ep_extract():
             notes=traceback.format_exc(),
             firm_id=firm_id,
         )
+        if details:
+            e.details = details
         app.logger.error("EP extract error: %s", e)
-        _notify_tool_error("Drafting Notes", str(e), firm_id=firm_id)
+        _notify_tool_error("Drafting Notes", str(e), firm_id=firm_id,
+                           details=getattr(e, "details", None))
+        if isinstance(e, (json.JSONDecodeError, ValueError)) and "JSON" in str(e):
+            return jsonify({"error": "AI returned invalid JSON. Please try again."}), 500
         return jsonify({"error": str(e)}), 500
 
 
@@ -661,7 +663,8 @@ def _run_doc_separate(job_id, pdf_content, firm_id, firm_config):
         app.logger.error("Doc separator error (job %s): %s", job_id, e)
         _notify_tool_error("Document Separator", str(e), firm_id=firm_id,
                            firm_name=_jobs[job_id].get("firm_name"),
-                           firm_slug=_jobs[job_id].get("firm_slug"))
+                           firm_slug=_jobs[job_id].get("firm_slug"),
+                           details=getattr(e, "details", None))
         with _jobs_lock:
             _jobs[job_id].update({"status": "error", "error": str(e)})
 
@@ -793,7 +796,8 @@ def _run_doc_separate_redo(job_id, pdf_content, page_texts, total_pages,
         app.logger.error("Doc separator redo error (job %s): %s", job_id, e)
         _notify_tool_error("Document Separator (Redo)", str(e), firm_id=firm_id,
                            firm_name=_jobs[job_id].get("firm_name"),
-                           firm_slug=_jobs[job_id].get("firm_slug"))
+                           firm_slug=_jobs[job_id].get("firm_slug"),
+                           details=getattr(e, "details", None))
         with _jobs_lock:
             _jobs[job_id].update({"status": "error", "error": str(e)})
 
@@ -871,7 +875,8 @@ def _run_prospect_summarize(job_id, pdf_contents, notes, firm_id, firm_config):
         app.logger.error("Prospect summarizer error (job %s): %s", job_id, e)
         _notify_tool_error("Prospect Summarizer", str(e), firm_id=firm_id,
                            firm_name=_jobs[job_id].get("firm_name"),
-                           firm_slug=_jobs[job_id].get("firm_slug"))
+                           firm_slug=_jobs[job_id].get("firm_slug"),
+                           details=getattr(e, "details", None))
         with _jobs_lock:
             _jobs[job_id].update({"status": "error", "error": str(e)})
 
@@ -1603,7 +1608,8 @@ def _send_error_alert(e):
         app.logger.warning("Failed to send 500 alert email", exc_info=True)
 
 
-def _notify_tool_error(tool_name, error, firm_id=None, firm_name=None, firm_slug=None):
+def _notify_tool_error(tool_name, error, firm_id=None, firm_name=None, firm_slug=None,
+                       details=None):
     """Send alert for tool errors that don't trigger the 500 error handler."""
     if not RESEND_API_KEY or not _can_send_alert():
         return
@@ -1615,14 +1621,33 @@ def _notify_tool_error(tool_name, error, firm_id=None, firm_name=None, firm_slug
     tb = traceback.format_exc()
     req_url = f"{request.method} {request.url}" if has_request_context() else "background job"
 
+    def _e(value):
+        return html.escape(str(value) if value is not None else "")
+
+    details_html = ""
+    if details:
+        rows = []
+        for key, value in details.items():
+            if value is None or value == "":
+                continue
+            if key in ("response_start", "response_end"):
+                rows.append(
+                    f"<p><strong>{_e(key)}:</strong></p>"
+                    f"<pre style=\"font-size:12px;white-space:pre-wrap;\">{_e(value)}</pre>"
+                )
+            else:
+                rows.append(f"<p><strong>{_e(key)}:</strong> {_e(value)}</p>")
+        if rows:
+            details_html = "<h3>Model diagnostics</h3>" + "".join(rows) + "<hr>"
+
     body = (
-        f"<h2>Tool Error: {tool_name}</h2>"
+        f"<h2>Tool Error: {_e(tool_name)}</h2>"
         f"<p><strong>Time:</strong> {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}</p>"
-        f"<p><strong>URL:</strong> {req_url}</p>"
-        f"<p><strong>Firm:</strong> {firm_name} ({firm_slug})</p>"
-        f"<p><strong>Error:</strong> {error}</p>"
-        f"<hr>"
-        f"<pre style=\"font-size:12px;white-space:pre-wrap;\">{tb}</pre>"
+        f"<p><strong>URL:</strong> {_e(req_url)}</p>"
+        f"<p><strong>Firm:</strong> {_e(firm_name)} ({_e(firm_slug)})</p>"
+        f"<p><strong>Error:</strong> {_e(error)}</p>"
+        f"{details_html}"
+        f"<pre style=\"font-size:12px;white-space:pre-wrap;\">{_e(tb)}</pre>"
     )
 
     try:

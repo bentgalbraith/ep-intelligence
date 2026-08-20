@@ -233,7 +233,7 @@ def _ocr_pages(pdf_content, firm_id=None):
 
 def _identify_documents(client, page_texts, total_pages, model, firm_id=None, extra_rules=""):
     """Ask Grok to identify document boundaries and metadata."""
-    from ai_logger import log_ai_call, extract_xai_usage
+    from ai_logger import log_ai_call, extract_xai_usage, completion_details
 
     pages_block = ""
     for pn in range(1, total_pages + 1):
@@ -263,13 +263,6 @@ def _identify_documents(client, page_texts, total_pages, model, firm_id=None, ex
         raise
     call_elapsed = time.time() - call_start
 
-    log_ai_call(
-        provider="openai", model=model, tool="doc_separator", status="success",
-        execution_ms=int(call_elapsed * 1000),
-        firm_id=firm_id,
-        **extract_xai_usage(resp),
-    )
-
     usage = resp.usage
     finish_reason = resp.choices[0].finish_reason
     log.info(
@@ -290,7 +283,25 @@ def _identify_documents(client, page_texts, total_pages, model, firm_id=None, ex
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
-    parsed = _extract_json(raw)
+    try:
+        parsed = _extract_json(raw)
+    except Exception as e:
+        log_ai_call(
+            provider="openai", model=model, tool="doc_separator", status="error",
+            execution_ms=int(call_elapsed * 1000),
+            notes=f"JSON parse failed; finish_reason={finish_reason}\n{traceback.format_exc()}",
+            firm_id=firm_id,
+            **extract_xai_usage(resp),
+        )
+        e.details = completion_details(resp, raw)
+        raise
+
+    log_ai_call(
+        provider="openai", model=model, tool="doc_separator", status="success",
+        execution_ms=int(call_elapsed * 1000),
+        firm_id=firm_id,
+        **extract_xai_usage(resp),
+    )
 
     if "documents" in parsed:
         docs = parsed["documents"]
@@ -300,9 +311,11 @@ def _identify_documents(client, page_texts, total_pages, model, firm_id=None, ex
         log.info("Parsed %d documents", len(parsed))
         return parsed
 
-    raise ValueError(
+    err = ValueError(
         f"Unexpected JSON structure (keys: {list(parsed.keys())}): {raw[:500]}"
     )
+    err.details = completion_details(resp, raw)
+    raise err
 
 
 def _build_filename(doc_info, fmt=None):
@@ -389,7 +402,7 @@ def redo_with_feedback(pdf_content, client, page_texts, total_pages,
 
     Returns (BytesIO zip, doc list).
     """
-    from ai_logger import log_ai_call, extract_xai_usage
+    from ai_logger import log_ai_call, extract_xai_usage, completion_details
 
     total_start = time.time()
     model = model or os.environ.get("DOC_SEPARATOR_MODEL", "gpt-5.6-terra")
@@ -426,13 +439,6 @@ def redo_with_feedback(pdf_content, client, page_texts, total_pages,
         raise
     call_elapsed = time.time() - call_start
 
-    log_ai_call(
-        provider="openai", model=model, tool="doc_separator_redo", status="success",
-        execution_ms=int(call_elapsed * 1000),
-        firm_id=firm_id,
-        **extract_xai_usage(resp),
-    )
-
     usage = resp.usage
     finish_reason = resp.choices[0].finish_reason
     log.info(
@@ -452,15 +458,35 @@ def redo_with_feedback(pdf_content, client, page_texts, total_pages,
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
-    parsed = _extract_json(raw)
+    try:
+        parsed = _extract_json(raw)
+    except Exception as e:
+        log_ai_call(
+            provider="openai", model=model, tool="doc_separator_redo", status="error",
+            execution_ms=int(call_elapsed * 1000),
+            notes=f"JSON parse failed; finish_reason={finish_reason}\n{traceback.format_exc()}",
+            firm_id=firm_id,
+            **extract_xai_usage(resp),
+        )
+        e.details = completion_details(resp, raw)
+        raise
+
+    log_ai_call(
+        provider="openai", model=model, tool="doc_separator_redo", status="success",
+        execution_ms=int(call_elapsed * 1000),
+        firm_id=firm_id,
+        **extract_xai_usage(resp),
+    )
     if "documents" in parsed:
         documents = parsed["documents"]
     elif isinstance(parsed, list):
         documents = parsed
     else:
-        raise ValueError(
+        err = ValueError(
             f"Unexpected JSON structure (keys: {list(parsed.keys())}): {raw[:500]}"
         )
+        err.details = completion_details(resp, raw)
+        raise err
 
     log.info("Redo parsed %d documents", len(documents))
     filename_fmt = firm_config.get("doc_filename_format")

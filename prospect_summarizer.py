@@ -168,7 +168,7 @@ def extract_prospect_documents(pdf_contents, client, notes="", model=None,
     firm_context = firm_config.get("firm_context", "")
     system_content = _build_extraction_prompt(firm_context) + schema_text
 
-    from ai_logger import log_ai_call, extract_xai_usage
+    from ai_logger import log_ai_call, extract_xai_usage, completion_details
     from doc_separator import _extract_json
 
     call_start = time.time()
@@ -190,26 +190,40 @@ def extract_prospect_documents(pdf_contents, client, notes="", model=None,
         raise
     call_elapsed = time.time() - call_start
 
-    log_ai_call(
-        provider="openai", model=model, tool="prospect_summarizer", status="success",
-        execution_ms=int(call_elapsed * 1000),
-        firm_id=firm_id,
-        **extract_xai_usage(resp),
-    )
-
     usage = resp.usage
+    finish_reason = resp.choices[0].finish_reason
     log.info(
-        "OpenAI: %.1fs, %s/%s tokens (prompt/completion)",
+        "OpenAI: %.1fs, %s/%s tokens (prompt/completion), finish_reason=%s",
         call_elapsed,
         getattr(usage, "prompt_tokens", "?"),
         getattr(usage, "completion_tokens", "?"),
+        finish_reason,
     )
 
     raw = resp.choices[0].message.content.strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
-    extraction = _extract_json(raw)
+    details = completion_details(resp, raw)
+    try:
+        extraction = _extract_json(raw)
+    except Exception as e:
+        log_ai_call(
+            provider="openai", model=model, tool="prospect_summarizer", status="error",
+            execution_ms=int(call_elapsed * 1000),
+            notes=f"JSON parse failed; finish_reason={finish_reason}\n{traceback.format_exc()}",
+            firm_id=firm_id,
+            **extract_xai_usage(resp),
+        )
+        e.details = details
+        raise
+
+    log_ai_call(
+        provider="openai", model=model, tool="prospect_summarizer", status="success",
+        execution_ms=int(call_elapsed * 1000),
+        firm_id=firm_id,
+        **extract_xai_usage(resp),
+    )
 
     total_elapsed = time.time() - total_start
     log.info("Complete: %.1fs total", total_elapsed)

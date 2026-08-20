@@ -111,3 +111,26 @@ def extract_xai_usage(response):
         result["reasoning_tokens"] = getattr(details, "reasoning_tokens", None)
 
     return result
+
+
+def completion_details(response, raw=""):
+    """Diagnostics for error emails: finish_reason, tokens, response snippet."""
+    choice = response.choices[0] if response and getattr(response, "choices", None) else None
+    finish = getattr(choice, "finish_reason", None) if choice else None
+    usage = extract_xai_usage(response) if response else {}
+    details = {
+        "finish_reason": finish or "(none)",
+        "input_tokens": usage.get("input_tokens"),
+        "output_tokens": usage.get("output_tokens"),
+        "reasoning_tokens": usage.get("reasoning_tokens"),
+        "response_chars": len(raw or ""),
+    }
+    if finish == "length":
+        details["likely_cause"] = "Output truncated (hit token limit)"
+    elif raw:
+        details["likely_cause"] = "Model returned invalid JSON"
+    if raw:
+        details["response_start"] = raw[:500]
+        if len(raw) > 500:
+            details["response_end"] = raw[-300:]
+    return details
