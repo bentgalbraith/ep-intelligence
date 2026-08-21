@@ -73,10 +73,6 @@
       width: 100%;
     }
 
-    .login-row-solo input {
-      width: 100%;
-    }
-
     .login-row input {
       flex: 1;
       padding: 0.75rem 1.4rem;
@@ -104,6 +100,31 @@
       border-color: #ffffff;
       background: #ffffff;
       box-shadow: 0 0 30px rgba(255, 255, 255, 0.3);
+    }
+
+    .login-row input.is-locked,
+    .login-row input.is-locked:focus {
+      background: rgba(255, 255, 255, 0.4);
+      color: rgba(0, 0, 0, 0.35);
+      border-color: rgba(255, 255, 255, 0.35);
+      box-shadow: none;
+      pointer-events: none;
+    }
+
+    .login-btn-slot {
+      flex-shrink: 0;
+      width: 44px;
+      height: 44px;
+    }
+
+    .login-employee-row {
+      display: none;
+      width: 100%;
+    }
+
+    .login-form.is-employee-step .login-employee-row {
+      display: flex;
+      animation: fadeUp 0.4s ease;
     }
 
     .btn-submit {
@@ -178,51 +199,119 @@
   <div class="container">
     <img src="{{ url_for('static', filename='EPILogo_White.png') }}" alt="EP Intelligence" class="landing-logo">
     <h1>Estate Planning Intelligence</h1>
-    <form class="login-form" method="POST" action="{{ url_for('login') }}">
-      <div class="login-row{% if require_employee %} login-row-solo{% endif %}">
+    <form class="login-form{% if require_employee %} is-employee-step{% endif %}" method="POST" action="{{ url_for('login') }}" id="login-form">
+      <div class="login-row">
         <input
           type="password"
           name="access_code"
+          id="access-code"
           placeholder="Access Code"
           autocomplete="off"
-          {% if not require_employee %}autofocus required{% endif %}
+          {% if require_employee %}readonly class="is-locked"{% else %}autofocus required{% endif %}
         >
-        {% if not require_employee %}
-        <button type="submit" class="btn-submit" aria-label="Submit">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-          </svg>
-        </button>
-        {% endif %}
+        <div class="login-btn-slot">
+          <button type="submit" class="btn-submit" id="btn-access" aria-label="Submit"{% if require_employee %} hidden{% endif %}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+            </svg>
+          </button>
+        </div>
       </div>
-      {% if require_employee %}
-      <div class="login-row">
+      <div class="login-row login-employee-row">
         <input
           type="text"
           name="employee_id"
+          id="employee-id"
           placeholder="Employee ID"
           autocomplete="off"
           autocapitalize="off"
           spellcheck="false"
-          autofocus
-          required
+          {% if require_employee %}autofocus required{% endif %}
         >
-        <button type="submit" class="btn-submit" aria-label="Submit">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-          </svg>
-        </button>
+        <div class="login-btn-slot">
+          <button type="submit" class="btn-submit" id="btn-employee" aria-label="Submit"{% if not require_employee %} hidden{% endif %}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+            </svg>
+          </button>
+        </div>
       </div>
-      {% endif %}
-      {% if error %}
-      <p class="login-error">{{ error }}</p>
-      {% endif %}
+      <p class="login-error" id="login-error"{% if not error %} hidden{% endif %}>{{ error or '' }}</p>
     </form>
   </div>
 <script>
-document.querySelector('.login-form').addEventListener('submit', function() {
-    this.querySelector('.btn-submit').classList.add('is-loading');
-});
+(function() {
+    var form = document.getElementById('login-form');
+    var accessInput = document.getElementById('access-code');
+    var employeeInput = document.getElementById('employee-id');
+    var btnAccess = document.getElementById('btn-access');
+    var btnEmployee = document.getElementById('btn-employee');
+    var errorEl = document.getElementById('login-error');
+
+    function showError(msg) {
+        errorEl.textContent = msg || '';
+        errorEl.hidden = !msg;
+        if (msg) {
+            errorEl.style.animation = 'none';
+            errorEl.offsetHeight;
+            errorEl.style.animation = 'shake 0.4s ease';
+        }
+    }
+
+    function setLoading(btn, loading) {
+        btn.classList.toggle('is-loading', loading);
+    }
+
+    function enterEmployeeStep() {
+        form.classList.add('is-employee-step');
+        accessInput.readOnly = true;
+        accessInput.required = false;
+        accessInput.classList.add('is-locked');
+        btnAccess.hidden = true;
+        setLoading(btnAccess, false);
+        btnEmployee.hidden = false;
+        employeeInput.required = true;
+        employeeInput.focus();
+    }
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var onEmployeeStep = form.classList.contains('is-employee-step');
+        var btn = onEmployeeStep ? btnEmployee : btnAccess;
+        showError('');
+        setLoading(btn, true);
+
+        fetch(form.action, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: new FormData(form)
+        }).then(function(res) {
+            return res.json().then(function(data) {
+                return { ok: res.ok, data: data };
+            });
+        }).then(function(result) {
+            var data = result.data || {};
+            if (data.redirect) {
+                window.location = data.redirect;
+                return;
+            }
+            if (data.require_employee && !onEmployeeStep) {
+                enterEmployeeStep();
+            }
+            if (data.error) {
+                showError(data.error);
+                setLoading(btn, false);
+                return;
+            }
+            if (!data.require_employee) {
+                setLoading(btn, false);
+            }
+        }).catch(function() {
+            showError('Something went wrong. Please try again.');
+            setLoading(btn, false);
+        });
+    });
+})();
 </script>
 </body>
 </html>

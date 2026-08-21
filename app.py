@@ -506,7 +506,7 @@ def create_checkout_session():
 def login():
     if session.get("authenticated"):
         if _employee_session_valid():
-            return redirect(url_for("dashboard"))
+            return _login_response(redirect_to=url_for("dashboard"))
         _clear_firm_session()
 
     error = None
@@ -529,78 +529,91 @@ def login():
                         firm_slug=None,
                         success=False,
                     )
-                error = "Invalid access code"
-                require_employee = False
+                return _login_response(error="Invalid access code")
         elif session.get("pending_firm_id"):
             firm = tracker_db.get_firm(session.get("pending_firm_id"))
             if not firm:
                 _clear_pending_login()
-                error = "Invalid access code"
-                require_employee = False
+                return _login_response(error="Invalid access code")
         else:
-            error = "Invalid access code"
-            require_employee = False
+            return _login_response(error="Invalid access code")
 
-        if firm:
-            if not firm.get("require_employee_login"):
-                _clear_pending_login()
-                if tracker_db.DATABASE_URL:
-                    tracker_db.log_login_attempt(
-                        ip_address=request.remote_addr or "",
-                        access_code_used=code,
-                        firm_name=firm["name"],
-                        firm_slug=firm["slug"],
-                        success=True,
-                    )
-                session.permanent = True
-                session["authenticated"] = True
-                session["firm_id"] = str(firm["id"])
-                session["firm_name"] = firm["name"]
-                session["firm_slug"] = firm["slug"]
-                session.pop("employee_id", None)
-                session.pop("employee_code", None)
-                session.pop("employee_name", None)
-                return redirect(url_for("dashboard"))
+        if not firm.get("require_employee_login"):
+            _clear_pending_login()
+            if tracker_db.DATABASE_URL:
+                tracker_db.log_login_attempt(
+                    ip_address=request.remote_addr or "",
+                    access_code_used=code,
+                    firm_name=firm["name"],
+                    firm_slug=firm["slug"],
+                    success=True,
+                )
+            session.permanent = True
+            session["authenticated"] = True
+            session["firm_id"] = str(firm["id"])
+            session["firm_name"] = firm["name"]
+            session["firm_slug"] = firm["slug"]
+            session.pop("employee_id", None)
+            session.pop("employee_code", None)
+            session.pop("employee_name", None)
+            return _login_response(redirect_to=url_for("dashboard"))
 
-            if not employee_code:
-                session["pending_firm_id"] = str(firm["id"])
-                require_employee = True
-            else:
-                employee = tracker_db.get_employee_by_code(str(firm["id"]), employee_code)
-                if not employee:
-                    session["pending_firm_id"] = str(firm["id"])
-                    if tracker_db.DATABASE_URL:
-                        tracker_db.log_login_attempt(
-                            ip_address=request.remote_addr or "",
-                            access_code_used="",
-                            firm_name=firm["name"],
-                            firm_slug=firm["slug"],
-                            success=False,
-                        )
-                    error = "Invalid employee ID"
-                    require_employee = True
-                else:
-                    _clear_pending_login()
-                    if tracker_db.DATABASE_URL:
-                        tracker_db.log_login_attempt(
-                            ip_address=request.remote_addr or "",
-                            access_code_used=code,
-                            firm_name=firm["name"],
-                            firm_slug=firm["slug"],
-                            success=True,
-                            employee_id_code=employee["employee_id_code"],
-                            employee_name=employee["name"],
-                        )
-                    session.permanent = True
-                    session["authenticated"] = True
-                    session["firm_id"] = str(firm["id"])
-                    session["firm_name"] = firm["name"]
-                    session["firm_slug"] = firm["slug"]
-                    session["employee_id"] = str(employee["id"])
-                    session["employee_code"] = employee["employee_id_code"]
-                    session["employee_name"] = employee["name"]
-                    return redirect(url_for("dashboard"))
+        if not employee_code:
+            session["pending_firm_id"] = str(firm["id"])
+            return _login_response(require_employee=True)
 
+        employee = tracker_db.get_employee_by_code(str(firm["id"]), employee_code)
+        if not employee:
+            session["pending_firm_id"] = str(firm["id"])
+            if tracker_db.DATABASE_URL:
+                tracker_db.log_login_attempt(
+                    ip_address=request.remote_addr or "",
+                    access_code_used="",
+                    firm_name=firm["name"],
+                    firm_slug=firm["slug"],
+                    success=False,
+                )
+            return _login_response(error="Invalid employee ID", require_employee=True)
+
+        _clear_pending_login()
+        if tracker_db.DATABASE_URL:
+            tracker_db.log_login_attempt(
+                ip_address=request.remote_addr or "",
+                access_code_used=code,
+                firm_name=firm["name"],
+                firm_slug=firm["slug"],
+                success=True,
+                employee_id_code=employee["employee_id_code"],
+                employee_name=employee["name"],
+            )
+        session.permanent = True
+        session["authenticated"] = True
+        session["firm_id"] = str(firm["id"])
+        session["firm_name"] = firm["name"]
+        session["firm_slug"] = firm["slug"]
+        session["employee_id"] = str(employee["id"])
+        session["employee_code"] = employee["employee_id_code"]
+        session["employee_name"] = employee["name"]
+        return _login_response(redirect_to=url_for("dashboard"))
+
+    return _login_response(error=error, require_employee=require_employee)
+
+
+def _login_wants_json():
+    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+
+def _login_response(error=None, require_employee=False, redirect_to=None):
+    if _login_wants_json():
+        if redirect_to:
+            return jsonify({"ok": True, "redirect": redirect_to})
+        payload = {"ok": error is None, "require_employee": require_employee}
+        if error:
+            payload["error"] = error
+            return jsonify(payload), 401
+        return jsonify(payload)
+    if redirect_to:
+        return redirect(redirect_to)
     return render_template("login.html", error=error, require_employee=require_employee)
 
 
@@ -1682,7 +1695,7 @@ def _parse_employee_csv(file_storage):
     return rows
 
 
-def _admin_employees_page(firm, error=None, success=None):
+def _admin_employees_page(firm, error=None, success=None, add_mode="add"):
     employees = tracker_db.list_employees(firm["id"])
     return render_template(
         "admin_employees.html",
@@ -1690,6 +1703,7 @@ def _admin_employees_page(firm, error=None, success=None):
         employees=employees,
         error=error,
         success=success,
+        add_mode=add_mode,
     )
 
 
@@ -1739,12 +1753,12 @@ def admin_employee_upload(firm_id):
         return redirect(url_for("admin_firms"))
     f = request.files.get("csv")
     if not f or not f.filename:
-        return _admin_employees_page(firm, error="Please choose a CSV file.")
+        return _admin_employees_page(firm, error="Please choose a CSV file.", add_mode="csv")
     try:
         rows = _parse_employee_csv(f)
         count = tracker_db.upsert_employees(firm_id, rows)
     except ValueError as e:
-        return _admin_employees_page(firm, error=str(e))
+        return _admin_employees_page(firm, error=str(e), add_mode="csv")
     return redirect(url_for("admin_employees", firm_id=firm_id, imported=count))
 
 

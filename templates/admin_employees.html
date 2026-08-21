@@ -3,6 +3,8 @@
 {% block title %}Employees — {{ firm.name }} — Admin — EP Intelligence{% endblock %}
 {% block body_class %}page-dashboard{% endblock %}
 
+{% set add_mode = add_mode | default('add') %}
+
 {% block body %}
 <nav class="navbar">
     <div class="navbar-left">
@@ -33,32 +35,43 @@
     {% endif %}
 
     <section class="admin-section">
-        <h3 class="admin-section-title">Add Employee</h3>
-        <p class="admin-hint">IDs are case-sensitive and must be unique within this firm.</p>
-        <form method="POST" action="{{ url_for('admin_employee_add', firm_id=firm.id) }}" class="admin-form">
-            <div class="admin-field-row">
-                <div class="admin-field">
-                    <label class="admin-label">ID <span class="admin-req">*</span></label>
-                    <input class="admin-input" name="employee_id" type="text" required autocomplete="off" spellcheck="false" placeholder="jdoe@doelaw.com">
-                </div>
-                <div class="admin-field">
-                    <label class="admin-label">Name <span class="admin-req">*</span></label>
-                    <input class="admin-input" name="name" type="text" required autocomplete="off" placeholder="Jane Doe">
-                </div>
-            </div>
-            <button type="submit" class="btn-pill btn-sm btn-admin-save">Add Employee</button>
-        </form>
-    </section>
+        <h3 class="admin-section-title">Add Employees</h3>
+        <div class="admin-mode-switch" role="tablist">
+            <button type="button" class="admin-mode-btn{% if add_mode != 'csv' %} is-active{% endif %}" id="mode-add" role="tab" aria-selected="{{ 'true' if add_mode != 'csv' else 'false' }}">Add one</button>
+            <span class="admin-mode-sep">·</span>
+            <button type="button" class="admin-mode-btn{% if add_mode == 'csv' %} is-active{% endif %}" id="mode-csv" role="tab" aria-selected="{{ 'true' if add_mode == 'csv' else 'false' }}">Upload CSV</button>
+        </div>
 
-    <section class="admin-section">
-        <h3 class="admin-section-title">Bulk Upload</h3>
-        <p class="admin-hint">CSV with exactly two columns: <code>id</code> and <code>name</code>. Existing IDs are updated; nothing is deleted.</p>
-        <form method="POST" action="{{ url_for('admin_employee_upload', firm_id=firm.id) }}" enctype="multipart/form-data" class="admin-form">
-            <div class="admin-field">
-                <input class="admin-input" type="file" name="csv" accept=".csv,text/csv" required>
-            </div>
-            <button type="submit" class="btn-pill btn-sm btn-admin-save" style="margin-top:0.75rem">Upload CSV</button>
-        </form>
+        <div id="panel-add" {% if add_mode == 'csv' %}hidden{% endif %}>
+            <p class="admin-hint">IDs are case-sensitive and must be unique within this firm.</p>
+            <form method="POST" action="{{ url_for('admin_employee_add', firm_id=firm.id) }}" class="admin-form">
+                <div class="admin-field-row">
+                    <div class="admin-field">
+                        <label class="admin-label">ID <span class="admin-req">*</span></label>
+                        <input class="admin-input" name="employee_id" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. johndoe" {% if add_mode != 'csv' %}required{% endif %}>
+                    </div>
+                    <div class="admin-field">
+                        <label class="admin-label">Name <span class="admin-req">*</span></label>
+                        <input class="admin-input" name="name" type="text" autocomplete="off" placeholder="e.g. John Doe" {% if add_mode != 'csv' %}required{% endif %}>
+                    </div>
+                </div>
+                <button type="submit" class="btn-pill btn-sm btn-admin-save">Add Employee</button>
+            </form>
+        </div>
+
+        <div id="panel-csv" {% if add_mode != 'csv' %}hidden{% endif %}>
+            <p class="admin-hint">CSV with exactly two columns: <code>id</code> and <code>name</code>. Existing IDs are updated; nothing is deleted.</p>
+            <form method="POST" action="{{ url_for('admin_employee_upload', firm_id=firm.id) }}" enctype="multipart/form-data" class="admin-form">
+                <div class="specimen-file-drop" id="file-drop">
+                    <input type="file" name="csv" accept=".csv,text/csv" id="file-input" hidden {% if add_mode == 'csv' %}required{% endif %}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/>
+                    </svg>
+                    <span id="file-drop-text">Choose a .csv file or drag it here</span>
+                </div>
+                <button type="submit" class="btn-pill btn-sm btn-admin-save" style="margin-top:0.75rem">Upload CSV</button>
+            </form>
+        </div>
     </section>
 
     <section class="admin-section">
@@ -93,4 +106,60 @@
         {% endif %}
     </section>
 </main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    var addBtn = document.getElementById('mode-add');
+    var csvBtn = document.getElementById('mode-csv');
+    var addPanel = document.getElementById('panel-add');
+    var csvPanel = document.getElementById('panel-csv');
+    var drop = document.getElementById('file-drop');
+    var input = document.getElementById('file-input');
+    var text = document.getElementById('file-drop-text');
+
+    function setMode(mode) {
+        var isCsv = mode === 'csv';
+        addPanel.hidden = isCsv;
+        csvPanel.hidden = !isCsv;
+        addBtn.classList.toggle('is-active', !isCsv);
+        csvBtn.classList.toggle('is-active', isCsv);
+        addBtn.setAttribute('aria-selected', String(!isCsv));
+        csvBtn.setAttribute('aria-selected', String(isCsv));
+        addPanel.querySelectorAll('input').forEach(function(el) { el.required = !isCsv; });
+        input.required = isCsv;
+    }
+
+    addBtn.addEventListener('click', function() { setMode('add'); });
+    csvBtn.addEventListener('click', function() { setMode('csv'); });
+
+    drop.addEventListener('click', function() { input.click(); });
+
+    input.addEventListener('change', function() {
+        if (input.files.length) {
+            text.textContent = input.files[0].name;
+            drop.classList.add('has-file');
+        }
+    });
+
+    drop.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        drop.classList.add('drag-over');
+    });
+    drop.addEventListener('dragleave', function() {
+        drop.classList.remove('drag-over');
+    });
+    drop.addEventListener('drop', function(e) {
+        e.preventDefault();
+        drop.classList.remove('drag-over');
+        var file = e.dataTransfer.files[0];
+        if (file && file.name.toLowerCase().endsWith('.csv')) {
+            input.files = e.dataTransfer.files;
+            text.textContent = file.name;
+            drop.classList.add('has-file');
+        }
+    });
+})();
+</script>
 {% endblock %}

@@ -2004,6 +2004,39 @@ a.doc-list-item--link:hover {
     margin-bottom: 1.5rem;
 }
 
+.admin-mode-switch {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    margin-bottom: 0.75rem;
+}
+
+.admin-mode-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+    transition: color 0.15s;
+}
+
+.admin-mode-btn:hover {
+    color: #ea580c;
+}
+
+.admin-mode-btn.is-active {
+    color: #1a1a1a;
+    font-weight: 600;
+}
+
+.admin-mode-sep {
+    color: rgba(0, 0, 0, 0.18);
+    font-size: 0.8rem;
+}
+
 .admin-form {
     display: flex;
     flex-direction: column;
