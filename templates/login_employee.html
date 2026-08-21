@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Employee ID — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <span class="navbar-brand"><img src="{{ url_for('static', filename='EPILogo_Orange.png') }}" alt="" class="navbar-logo">{{ firm_name or 'EP Intelligence' }}</span>
+    <a href="{{ url_for('login') }}" class="btn-pill btn-sm">Back</a>
+</nav>
+<main class="employee-login">
+    <h2 class="dashboard-heading">Enter your employee ID</h2>
+    <form method="POST" action="{{ url_for('login_employee') }}" class="employee-login-form">
+        <input
+            class="admin-input"
+            type="text"
+            name="employee_id"
+            placeholder="Employee ID"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            autofocus
+            required
+        >
+        {% if error %}
+        <p class="employee-login-error">{{ error }}</p>
+        {% endif %}
+        <button type="submit" class="btn-pill btn-sm btn-admin-save">Continue</button>
+    </form>
+</main>
+{% endblock %}

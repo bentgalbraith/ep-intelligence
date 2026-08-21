@@ -203,13 +203,14 @@ def _clear_firm_session():
     for key in (
         "authenticated", "firm_id", "firm_name", "firm_slug",
         "tracker_authenticated", "employee_id", "employee_code", "employee_name",
-        "pending_firm_id",
+        "pending_firm_id", "pending_firm_name",
     ):
         session.pop(key, None)
 
 
 def _clear_pending_login():
     session.pop("pending_firm_id", None)
+    session.pop("pending_firm_name", None)
 
 
 def _employee_session_valid():
@@ -506,75 +507,27 @@ def create_checkout_session():
 def login():
     if session.get("authenticated"):
         if _employee_session_valid():
-            return _login_response(redirect_to=url_for("dashboard"))
+            return redirect(url_for("dashboard"))
         _clear_firm_session()
 
-    error = None
-    require_employee = bool(session.get("pending_firm_id"))
+    if request.method == "GET":
+        _clear_pending_login()
+        return render_template("login.html", error=None)
 
-    if request.method == "POST":
-        code = request.form.get("access_code", "")
-        employee_code = request.form.get("employee_id", "").strip()
-        firm = None
+    code = request.form.get("access_code", "")
+    firm = tracker_db.lookup_firm_by_access_code(code) if code else None
+    if not firm:
+        if tracker_db.DATABASE_URL:
+            tracker_db.log_login_attempt(
+                ip_address=request.remote_addr or "",
+                access_code_used=code,
+                firm_name=None,
+                firm_slug=None,
+                success=False,
+            )
+        return render_template("login.html", error="Invalid access code")
 
-        if code:
-            firm = tracker_db.lookup_firm_by_access_code(code)
-            if not firm:
-                _clear_pending_login()
-                if tracker_db.DATABASE_URL:
-                    tracker_db.log_login_attempt(
-                        ip_address=request.remote_addr or "",
-                        access_code_used=code,
-                        firm_name=None,
-                        firm_slug=None,
-                        success=False,
-                    )
-                return _login_response(error="Invalid access code")
-        elif session.get("pending_firm_id"):
-            firm = tracker_db.get_firm(session.get("pending_firm_id"))
-            if not firm:
-                _clear_pending_login()
-                return _login_response(error="Invalid access code")
-        else:
-            return _login_response(error="Invalid access code")
-
-        if not firm.get("require_employee_login"):
-            _clear_pending_login()
-            if tracker_db.DATABASE_URL:
-                tracker_db.log_login_attempt(
-                    ip_address=request.remote_addr or "",
-                    access_code_used=code,
-                    firm_name=firm["name"],
-                    firm_slug=firm["slug"],
-                    success=True,
-                )
-            session.permanent = True
-            session["authenticated"] = True
-            session["firm_id"] = str(firm["id"])
-            session["firm_name"] = firm["name"]
-            session["firm_slug"] = firm["slug"]
-            session.pop("employee_id", None)
-            session.pop("employee_code", None)
-            session.pop("employee_name", None)
-            return _login_response(redirect_to=url_for("dashboard"))
-
-        if not employee_code:
-            session["pending_firm_id"] = str(firm["id"])
-            return _login_response(require_employee=True)
-
-        employee = tracker_db.get_employee_by_code(str(firm["id"]), employee_code)
-        if not employee:
-            session["pending_firm_id"] = str(firm["id"])
-            if tracker_db.DATABASE_URL:
-                tracker_db.log_login_attempt(
-                    ip_address=request.remote_addr or "",
-                    access_code_used="",
-                    firm_name=firm["name"],
-                    firm_slug=firm["slug"],
-                    success=False,
-                )
-            return _login_response(error="Invalid employee ID", require_employee=True)
-
+    if not firm.get("require_employee_login"):
         _clear_pending_login()
         if tracker_db.DATABASE_URL:
             tracker_db.log_login_attempt(
@@ -583,38 +536,81 @@ def login():
                 firm_name=firm["name"],
                 firm_slug=firm["slug"],
                 success=True,
-                employee_id_code=employee["employee_id_code"],
-                employee_name=employee["name"],
             )
         session.permanent = True
         session["authenticated"] = True
         session["firm_id"] = str(firm["id"])
         session["firm_name"] = firm["name"]
         session["firm_slug"] = firm["slug"]
-        session["employee_id"] = str(employee["id"])
-        session["employee_code"] = employee["employee_id_code"]
-        session["employee_name"] = employee["name"]
-        return _login_response(redirect_to=url_for("dashboard"))
+        session.pop("employee_id", None)
+        session.pop("employee_code", None)
+        session.pop("employee_name", None)
+        return redirect(url_for("dashboard"))
 
-    return _login_response(error=error, require_employee=require_employee)
-
-
-def _login_wants_json():
-    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    session["pending_firm_id"] = str(firm["id"])
+    session["pending_firm_name"] = firm["name"]
+    return redirect(url_for("login_employee"))
 
 
-def _login_response(error=None, require_employee=False, redirect_to=None):
-    if _login_wants_json():
-        if redirect_to:
-            return jsonify({"ok": True, "redirect": redirect_to})
-        payload = {"ok": error is None, "require_employee": require_employee}
-        if error:
-            payload["error"] = error
-            return jsonify(payload), 401
-        return jsonify(payload)
-    if redirect_to:
-        return redirect(redirect_to)
-    return render_template("login.html", error=error, require_employee=require_employee)
+@app.route("/login/employee", methods=["GET", "POST"])
+@limiter.limit("10/minute")
+def login_employee():
+    if session.get("authenticated"):
+        if _employee_session_valid():
+            return redirect(url_for("dashboard"))
+        _clear_firm_session()
+
+    pending_id = session.get("pending_firm_id")
+    if not pending_id:
+        return redirect(url_for("login"))
+
+    firm = tracker_db.get_firm(pending_id)
+    if not firm or not firm.get("require_employee_login"):
+        _clear_pending_login()
+        return redirect(url_for("login"))
+
+    firm_name = firm["name"]
+    if request.method == "GET":
+        return render_template("login_employee.html", firm_name=firm_name)
+
+    employee_code = (request.form.get("employee_id") or "").strip()
+    if not employee_code:
+        return render_template("login_employee.html", firm_name=firm_name,
+                               error="Employee ID is required.")
+
+    employee = tracker_db.get_employee_by_code(str(firm["id"]), employee_code)
+    if not employee:
+        if tracker_db.DATABASE_URL:
+            tracker_db.log_login_attempt(
+                ip_address=request.remote_addr or "",
+                access_code_used="",
+                firm_name=firm["name"],
+                firm_slug=firm["slug"],
+                success=False,
+            )
+        return render_template("login_employee.html", firm_name=firm_name,
+                               error="Invalid employee ID")
+
+    _clear_pending_login()
+    if tracker_db.DATABASE_URL:
+        tracker_db.log_login_attempt(
+            ip_address=request.remote_addr or "",
+            access_code_used="",
+            firm_name=firm["name"],
+            firm_slug=firm["slug"],
+            success=True,
+            employee_id_code=employee["employee_id_code"],
+            employee_name=employee["name"],
+        )
+    session.permanent = True
+    session["authenticated"] = True
+    session["firm_id"] = str(firm["id"])
+    session["firm_name"] = firm["name"]
+    session["firm_slug"] = firm["slug"]
+    session["employee_id"] = str(employee["id"])
+    session["employee_code"] = employee["employee_id_code"]
+    session["employee_name"] = employee["name"]
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/dashboard")

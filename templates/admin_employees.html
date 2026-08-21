@@ -38,7 +38,6 @@
         <h3 class="admin-section-title">Add Employees</h3>
         <div class="admin-mode-switch" role="tablist">
             <button type="button" class="admin-mode-btn{% if add_mode != 'csv' %} is-active{% endif %}" id="mode-add" role="tab" aria-selected="{{ 'true' if add_mode != 'csv' else 'false' }}">Add one</button>
-            <span class="admin-mode-sep">·</span>
             <button type="button" class="admin-mode-btn{% if add_mode == 'csv' %} is-active{% endif %}" id="mode-csv" role="tab" aria-selected="{{ 'true' if add_mode == 'csv' else 'false' }}">Upload CSV</button>
         </div>
 
