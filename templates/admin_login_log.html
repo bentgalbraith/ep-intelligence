@@ -48,7 +48,7 @@
         <table class="tracker-table">
             <thead>
                 <tr>
-                    <th>Time</th>
+                    <th>Time (ET)</th>
                     <th>IP Address</th>
                     <th>Access Code</th>
                     <th>Firm</th>
@@ -59,7 +59,7 @@
             <tbody>
                 {% for a in attempts %}
                 <tr>
-                    <td style="white-space:nowrap">{{ a.attempted_at.strftime('%b %d, %Y %I:%M %p') }}</td>
+                    <td style="white-space:nowrap">{{ a.attempted_at|et_time }}</td>
                     <td><code>{{ a.ip_address }}</code></td>
                     <td><code>{{ a.access_code_used }}</code></td>
                     <td>{{ a.firm_name or '—' }}</td>

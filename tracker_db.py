@@ -681,21 +681,60 @@ def _usage_filters(days=None, firm_id=None, employee_code=None):
 
 
 def usage_overview(days=None, firm_id=None, employee_code=None):
-    where, params = _usage_filters(days, firm_id, employee_code)
+    extra, extra_params = [], []
+    if firm_id:
+        extra.append("l.firm_id = %s")
+        extra_params.append(firm_id)
+    if employee_code:
+        extra.append("l.employee_id_code = %s")
+        extra_params.append(employee_code)
+    extra_sql = (" AND " + " AND ".join(extra)) if extra else ""
+
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                f"""SELECT
-                        COUNT(*) AS calls,
-                        COUNT(*) FILTER (WHERE l.status = 'error') AS errors,
-                        COALESCE(SUM(l.cost_usd), 0) AS cost,
-                        COALESCE(SUM(l.pages_processed), 0) AS pages,
-                        COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'openai'), 0) AS cost_openai,
-                        COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'google_documentai'), 0) AS cost_ocr
-                    FROM ai_usage_log l
-                    {where}""",
-                params,
-            )
+            if days:
+                days = int(days)
+                cur.execute(
+                    f"""SELECT
+                            COUNT(*) FILTER (WHERE l.timestamp >= b.cutoff) AS calls,
+                            COUNT(*) FILTER (WHERE l.timestamp >= b.cutoff
+                                             AND l.status = 'error') AS errors,
+                            COALESCE(SUM(l.cost_usd) FILTER (
+                                WHERE l.timestamp >= b.cutoff), 0) AS cost,
+                            COALESCE(SUM(l.pages_processed) FILTER (
+                                WHERE l.timestamp >= b.cutoff), 0) AS pages,
+                            COALESCE(SUM(l.cost_usd) FILTER (
+                                WHERE l.timestamp >= b.cutoff
+                                  AND l.provider = 'openai'), 0) AS cost_openai,
+                            COALESCE(SUM(l.cost_usd) FILTER (
+                                WHERE l.timestamp >= b.cutoff
+                                  AND l.provider = 'google_documentai'), 0) AS cost_ocr,
+                            COALESCE(SUM(l.cost_usd) FILTER (
+                                WHERE l.timestamp < b.cutoff), 0) AS cost_prior
+                        FROM ai_usage_log l
+                        CROSS JOIN (
+                            SELECT NOW() - (%s * INTERVAL '1 day') AS cutoff,
+                                   NOW() - (%s * INTERVAL '1 day') AS prior_start
+                        ) b
+                        WHERE l.timestamp >= b.prior_start
+                        {extra_sql}""",
+                    [days, days * 2, *extra_params],
+                )
+            else:
+                where, params = _usage_filters(None, firm_id, employee_code)
+                cur.execute(
+                    f"""SELECT
+                            COUNT(*) AS calls,
+                            COUNT(*) FILTER (WHERE l.status = 'error') AS errors,
+                            COALESCE(SUM(l.cost_usd), 0) AS cost,
+                            COALESCE(SUM(l.pages_processed), 0) AS pages,
+                            COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'openai'), 0) AS cost_openai,
+                            COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'google_documentai'), 0) AS cost_ocr,
+                            NULL AS cost_prior
+                        FROM ai_usage_log l
+                        {where}""",
+                    params,
+                )
             return cur.fetchone()
 
 

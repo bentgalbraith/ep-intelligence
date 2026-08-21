@@ -55,22 +55,10 @@
         </a>
     </form>
 
-    <div class="usage-kpis">
+    <div class="usage-kpis usage-kpis-cost{% if days_key != 'all' %} has-prior{% endif %}">
         <div class="usage-kpi">
             <div class="usage-kpi-label">Total cost</div>
             <div class="usage-kpi-value">${{ '%.2f'|format(overview.cost or 0) }}</div>
-        </div>
-        <div class="usage-kpi">
-            <div class="usage-kpi-label">Calls</div>
-            <div class="usage-kpi-value">{{ overview.calls or 0 }}</div>
-        </div>
-        <div class="usage-kpi">
-            <div class="usage-kpi-label">Error rate</div>
-            <div class="usage-kpi-value">{{ overview.error_rate or 0 }}%</div>
-        </div>
-        <div class="usage-kpi">
-            <div class="usage-kpi-label">OCR pages</div>
-            <div class="usage-kpi-value">{{ overview.pages or 0 }}</div>
         </div>
         <div class="usage-kpi">
             <div class="usage-kpi-label">OpenAI</div>
@@ -79,6 +67,33 @@
         <div class="usage-kpi">
             <div class="usage-kpi-label">Document AI</div>
             <div class="usage-kpi-value">${{ '%.2f'|format(overview.cost_ocr or 0) }}</div>
+        </div>
+        {% if days_key != 'all' %}
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">vs prior period</div>
+            <div class="usage-kpi-value">{{ overview.cost_delta_display or '—' }}</div>
+            {% if overview.cost_delta_sub %}
+            <div class="usage-kpi-sub">{{ overview.cost_delta_sub }}</div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+    <div class="usage-kpis">
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">Calls</div>
+            <div class="usage-kpi-value">{{ overview.calls or 0 }}</div>
+        </div>
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">Errors</div>
+            <div class="usage-kpi-value">{{ overview.errors or 0 }}</div>
+        </div>
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">Error rate</div>
+            <div class="usage-kpi-value">{{ overview.error_rate or 0 }}%</div>
+        </div>
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">OCR pages</div>
+            <div class="usage-kpi-value">{{ overview.pages or 0 }}</div>
         </div>
     </div>
 
@@ -125,7 +140,7 @@
                     <th>Calls</th>
                     <th>Errors</th>
                     <th>Cost</th>
-                    <th>Last seen</th>
+                    <th>Last seen (ET)</th>
                 </tr>
             </thead>
             <tbody>
@@ -141,7 +156,7 @@
                     <td>{{ row.calls }}</td>
                     <td>{{ row.errors }}</td>
                     <td>${{ '%.2f'|format(row.cost or 0) }}</td>
-                    <td style="white-space:nowrap">{{ row.last_seen.strftime('%b %d, %Y %I:%M %p') if row.last_seen else '—' }}</td>
+                    <td style="white-space:nowrap">{{ row.last_seen|et_time if row.last_seen else '—' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -198,7 +213,7 @@
         <table class="tracker-table">
             <thead>
                 <tr>
-                    <th>Time</th>
+                    <th>Time (ET)</th>
                     <th>Tool</th>
                     <th>Firm</th>
                     <th>Employee</th>
@@ -208,11 +223,21 @@
             <tbody>
                 {% for row in errors %}
                 <tr>
-                    <td style="white-space:nowrap">{{ row.timestamp.strftime('%b %d, %Y %I:%M %p') if row.timestamp else '—' }}</td>
+                    <td class="usage-time-cell">{{ row.timestamp|et_time if row.timestamp else '—' }}</td>
                     <td>{{ tool_label(row.tool) }}</td>
                     <td>{{ row.firm_name or '—' }}</td>
                     <td>{% if row.employee_name %}{{ row.employee_name }}{% if row.employee_id_code %} <code>{{ row.employee_id_code }}</code>{% endif %}{% else %}—{% endif %}</td>
-                    <td class="usage-error-cell">{{ row.summary or '—' }}</td>
+                    <td>
+                        <div class="usage-error-cell">
+                            <span class="usage-error-summary">{{ row.summary or '—' }}</span>
+                            {% if row.notes %}
+                            <button type="button" class="usage-error-copy" title="Copy full error" aria-label="Copy full error">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+                            </button>
+                            <textarea class="usage-error-raw" readonly tabindex="-1" aria-hidden="true">{{ row.notes }}</textarea>
+                            {% endif %}
+                        </div>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -222,4 +247,23 @@
     <p class="admin-empty">No errors for this period.</p>
     {% endif %}
 </main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.usage-error-copy').forEach((btn) => {
+    btn.addEventListener('click', () => {
+        const raw = btn.parentElement.querySelector('.usage-error-raw');
+        if (!raw) return;
+        navigator.clipboard.writeText(raw.value).then(() => {
+            btn.classList.add('is-copied');
+            btn.title = 'Copied';
+            setTimeout(() => {
+                btn.classList.remove('is-copied');
+                btn.title = 'Copy full error';
+            }, 2000);
+        });
+    });
+});
+</script>
 {% endblock %}

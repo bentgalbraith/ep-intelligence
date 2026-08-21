@@ -11,6 +11,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from functools import wraps
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -37,6 +38,32 @@ app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=10)
+
+_EASTERN = ZoneInfo("America/New_York")
+
+
+def _to_eastern(dt):
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_EASTERN)
+
+
+@app.template_filter("et_time")
+def _et_time_filter(dt):
+    eastern = _to_eastern(dt)
+    if eastern is None:
+        return ""
+    return eastern.strftime("%b %d, %Y %I:%M %p ET")
+
+
+def _et_time_csv(dt):
+    eastern = _to_eastern(dt)
+    if eastern is None:
+        return ""
+    return eastern.strftime("%Y-%m-%d %H:%M:%S")
+
 
 limiter = Limiter(get_remote_address, app=app)
 
@@ -1479,10 +1506,10 @@ def admin_login_log_csv():
     import csv
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Time", "IP Address", "Access Code", "Firm", "Employee ID", "Employee Name", "Result"])
+    writer.writerow(["Time (ET)", "IP Address", "Access Code", "Firm", "Employee ID", "Employee Name", "Result"])
     for a in attempts:
         writer.writerow([
-            a["attempted_at"].strftime("%Y-%m-%d %H:%M:%S"),
+            _et_time_csv(a["attempted_at"]),
             a["ip_address"],
             a["access_code_used"],
             a["firm_name"] or "",
@@ -1560,6 +1587,8 @@ def admin_usage():
     overview = {
         "calls": 0, "errors": 0, "cost": 0, "pages": 0,
         "cost_openai": 0, "cost_ocr": 0, "error_rate": 0,
+        "cost_delta": None, "cost_delta_pct": None,
+        "cost_delta_display": None, "cost_delta_sub": None,
     }
     by_tool, by_firm, by_employee, errors = [], [], [], []
 
@@ -1571,6 +1600,21 @@ def admin_usage():
         calls = int(overview.get("calls") or 0)
         errors_n = int(overview.get("errors") or 0)
         overview["error_rate"] = round(100.0 * errors_n / calls, 1) if calls else 0
+        if days is not None:
+            current_cost = float(overview.get("cost") or 0)
+            prior_cost = float(overview.get("cost_prior") or 0)
+            delta = current_cost - prior_cost
+            overview["cost_delta"] = delta
+            if prior_cost > 0:
+                pct = round(100.0 * delta / prior_cost, 1)
+                overview["cost_delta_pct"] = pct
+                overview["cost_delta_display"] = f"{pct:+.1f}%"
+                sign = "+" if delta >= 0 else "-"
+                overview["cost_delta_sub"] = f"{sign}${abs(delta):,.2f}"
+            else:
+                sign = "+" if delta >= 0 else "-"
+                overview["cost_delta_display"] = f"{sign}${abs(delta):,.2f}"
+                overview["cost_delta_sub"] = "no prior spend"
         by_tool = tracker_db.usage_by_tool(**kwargs)
         by_firm = tracker_db.usage_by_firm(**kwargs)
         by_employee = tracker_db.usage_by_employee(**kwargs)
@@ -1628,14 +1672,14 @@ def admin_usage_csv():
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        "Time", "Firm", "Employee Name", "Employee ID", "Tool", "Provider",
+        "Time (ET)", "Firm", "Employee Name", "Employee ID", "Tool", "Provider",
         "Model", "Status", "Cost USD", "Input Tokens", "Output Tokens",
         "Reasoning Tokens", "Pages", "Duration ms",
     ])
     for r in rows:
         ts = r.get("timestamp")
         writer.writerow([
-            ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "",
+            _et_time_csv(ts),
             r.get("firm_name") or "",
             r.get("employee_name") or "",
             r.get("employee_id_code") or "",

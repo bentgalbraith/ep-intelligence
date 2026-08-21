@@ -2380,9 +2380,18 @@ a.doc-list-item--link:hover {
 
 .usage-kpis {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    grid-template-columns: repeat(4, 1fr);
     gap: 0.75rem;
     margin-bottom: 1.75rem;
+}
+
+.usage-kpis-cost {
+    grid-template-columns: repeat(3, 1fr);
+    margin-bottom: 0.75rem;
+}
+
+.usage-kpis-cost.has-prior {
+    grid-template-columns: repeat(4, 1fr);
 }
 
 .usage-kpi {
@@ -2407,6 +2416,12 @@ a.doc-list-item--link:hover {
     color: #1a1a1a;
 }
 
+.usage-kpi-sub {
+    font-size: 0.75rem;
+    color: rgba(0, 0, 0, 0.4);
+    margin-top: 0.15rem;
+}
+
 .usage-section-heading {
     font-size: 0.95rem;
     font-weight: 600;
@@ -2423,13 +2438,63 @@ a.doc-list-item--link:hover {
     color: var(--primary);
 }
 
+.usage-time-cell {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 .usage-error-cell {
-    max-width: 280px;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    max-width: 320px;
+}
+
+.usage-error-summary {
+    min-width: 0;
+    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: #dc2626;
     font-size: 0.8rem;
+}
+
+.usage-error-copy {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 6px;
+    background: transparent;
+    color: rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+}
+
+.usage-error-copy:hover {
+    color: var(--primary);
+    border-color: rgba(198, 93, 26, 0.35);
+}
+
+.usage-error-copy.is-copied {
+    color: #16a34a;
+    border-color: rgba(22, 163, 74, 0.35);
+}
+
+.usage-error-raw {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
 }
 
 /* ── Specimen Admin ── */
