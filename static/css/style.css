@@ -2574,6 +2574,38 @@ a.doc-list-item--link:hover {
     clip: rect(0, 0, 0, 0);
 }
 
+.firm-usage-details summary {
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: rgba(0, 0, 0, 0.45);
+    list-style: none;
+    user-select: none;
+}
+
+.firm-usage-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.firm-usage-details summary:hover {
+    color: var(--primary, #ea580c);
+}
+
+.firm-usage-details[open] summary {
+    color: #1a1a1a;
+    margin-bottom: 0.6rem;
+}
+
+.firm-usage-event-table {
+    margin-top: 0.15rem;
+}
+
+.firm-usage-capped {
+    font-size: 0.75rem;
+    color: rgba(0, 0, 0, 0.4);
+    margin-top: 0.45rem;
+}
+
 /* ── Specimen Admin ── */
 
 .specimen-file-drop {

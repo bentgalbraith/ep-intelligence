@@ -24,7 +24,7 @@
         </select>
     </form>
 
-    <div class="usage-kpis usage-kpis-cost">
+    <div class="usage-kpis">
         <div class="usage-kpi">
             <div class="usage-kpi-label">Uses</div>
             <div class="usage-kpi-value">{{ overview.calls or 0 }}</div>
@@ -34,10 +34,71 @@
             <div class="usage-kpi-value">{{ overview.people or 0 }}</div>
         </div>
         <div class="usage-kpi">
+            <div class="usage-kpi-label">Tools</div>
+            <div class="usage-kpi-value">{{ overview.tools or 0 }}</div>
+        </div>
+        <div class="usage-kpi">
             <div class="usage-kpi-label">Last used</div>
             <div class="usage-kpi-value">{% if overview.last_seen %}{{ overview.last_seen|relative_time }}{% else %}—{% endif %}</div>
         </div>
     </div>
+
+    <h3 class="usage-section-heading">By tool</h3>
+    {% if tools %}
+    <div class="tracker-table-wrap">
+        <table class="tracker-table">
+            <thead>
+                <tr>
+                    <th>Tool</th>
+                    <th>Uses</th>
+                    <th>Last used (ET)</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in tools %}
+                <tr>
+                    <td>{{ t.label }}</td>
+                    <td>{{ t.calls }}</td>
+                    <td class="usage-time-cell">{{ t.last_seen|et_time if t.last_seen else '—' }}</td>
+                    <td>
+                        {% if t.events %}
+                        <details class="firm-usage-details">
+                            <summary>View uses</summary>
+                            <table class="tracker-table firm-usage-event-table">
+                                <thead>
+                                    <tr>
+                                        <th>Time (ET)</th>
+                                        <th>Employee</th>
+                                        <th>ID</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for e in t.events %}
+                                    <tr>
+                                        <td class="usage-time-cell">{{ e.timestamp|et_time if e.timestamp else '—' }}</td>
+                                        <td>{% if e.employee_name %}{{ e.employee_name }}{% elif e.employee_id_code %}{{ e.employee_id_code }}{% else %}Firm login{% endif %}</td>
+                                        <td>{% if e.employee_id_code %}<code>{{ e.employee_id_code }}</code>{% else %}—{% endif %}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                            {% if t.events_capped %}
+                            <p class="firm-usage-capped">Showing the 100 most recent uses</p>
+                            {% endif %}
+                        </details>
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="admin-empty">No tool usage recorded for this period.</p>
+    {% endif %}
 
     <h3 class="usage-section-heading">By employee</h3>
     {% if people %}

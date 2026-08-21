@@ -706,14 +706,32 @@ def _render_firm_usage_dashboard():
         _clear_usage_dash_session()
         return redirect(url_for("firm_usage"))
     days, days_key = _firm_usage_days_from_request()
-    overview = {"calls": 0, "last_seen": None, "people": 0}
+    overview = {"calls": 0, "last_seen": None, "people": 0, "tools": 0}
     people = []
+    tools = []
 
     if tracker_db.DATABASE_URL:
         row = tracker_db.firm_usage_overview(firm_id, days=days)
         if row:
             overview["calls"] = int(row.get("calls") or 0)
             overview["last_seen"] = row.get("last_seen")
+            overview["tools"] = int(row.get("tools") or 0)
+
+        events_by_tool = {}
+        for event in tracker_db.firm_usage_recent_events(firm_id, days=days):
+            events_by_tool.setdefault(event.get("tool"), []).append(dict(event))
+
+        for raw in tracker_db.firm_usage_by_tool(firm_id, days=days):
+            tool_key = raw.get("tool")
+            events = events_by_tool.get(tool_key, [])
+            tools.append({
+                "tool": tool_key,
+                "label": _usage_label_tool(tool_key),
+                "calls": int(raw.get("calls") or 0),
+                "last_seen": raw.get("last_seen"),
+                "events": events,
+                "events_capped": int(raw.get("calls") or 0) > len(events),
+            })
 
         tools_by_person = {}
         for t in tracker_db.firm_usage_tools_by_employee(firm_id, days=days):
@@ -753,6 +771,7 @@ def _render_firm_usage_dashboard():
         firm_name=session.get("usage_dash_firm_name", ""),
         overview=overview,
         people=people,
+        tools=tools,
         days_key=days_key,
     )
 

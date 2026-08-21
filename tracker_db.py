@@ -906,6 +906,7 @@ def firm_usage_overview(firm_id, days=None):
             cur.execute(
                 f"""SELECT
                         COUNT(*) AS calls,
+                        COUNT(DISTINCT l.tool) AS tools,
                         MAX(l.timestamp) AS last_seen
                     FROM ai_usage_log l
                     {where}""",
@@ -944,6 +945,47 @@ def firm_usage_tools_by_employee(firm_id, days=None):
                     {where}
                     GROUP BY l.employee_id, l.employee_id_code, l.employee_name, l.tool
                     ORDER BY calls DESC""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def firm_usage_by_tool(firm_id, days=None):
+    firm_id = _require_firm_id(firm_id)
+    where, params = _usage_filters(days, firm_id, None)
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT l.tool,
+                           COUNT(*) AS calls,
+                           MAX(l.timestamp) AS last_seen
+                    FROM ai_usage_log l
+                    {where}
+                    GROUP BY l.tool
+                    ORDER BY calls DESC""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def firm_usage_recent_events(firm_id, days=None, per_tool=100):
+    firm_id = _require_firm_id(firm_id)
+    where, params = _usage_filters(days, firm_id, None)
+    params = list(params) + [int(per_tool)]
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT x.timestamp, x.tool, x.employee_id_code, x.employee_name
+                    FROM (
+                        SELECT l.timestamp, l.tool, l.employee_id_code, l.employee_name,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY l.tool ORDER BY l.timestamp DESC
+                               ) AS rn
+                        FROM ai_usage_log l
+                        {where}
+                    ) x
+                    WHERE x.rn <= %s
+                    ORDER BY x.timestamp DESC""",
                 params,
             )
             return cur.fetchall()
