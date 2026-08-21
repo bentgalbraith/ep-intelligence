@@ -1,8 +1,10 @@
 """Centralized AI usage logger — writes every AI call to the ai_usage_log table."""
 
+import contextvars
 import logging
 import os
 import traceback
+from contextlib import contextmanager
 
 import psycopg2
 
@@ -51,6 +53,45 @@ def _compute_cost(provider, model, input_tokens, output_tokens, reasoning_tokens
     return round(cost, 6)
 
 
+_log_ctx = contextvars.ContextVar("ai_log_ctx", default=None)
+
+
+@contextmanager
+def log_context(**kwargs):
+    """Attach employee attribution for background jobs that have no Flask session."""
+    cleaned = {k: v for k, v in kwargs.items() if v}
+    token = _log_ctx.set(cleaned)
+    try:
+        yield
+    finally:
+        _log_ctx.reset(token)
+
+
+def _resolve_employee(employee_id, employee_id_code, employee_name):
+    ctx = _log_ctx.get() or {}
+    employee_id = employee_id or ctx.get("employee_id")
+    employee_id_code = employee_id_code or ctx.get("employee_id_code")
+    employee_name = employee_name or ctx.get("employee_name")
+    if not employee_id:
+        try:
+            from flask import has_request_context, session
+            if has_request_context():
+                employee_id = session.get("employee_id")
+                employee_id_code = employee_id_code or session.get("employee_code")
+                employee_name = employee_name or session.get("employee_name")
+        except Exception:
+            pass
+    return employee_id, employee_id_code, employee_name
+
+
+_INSERT_SQL = """INSERT INTO ai_usage_log
+                   (provider, model, project, tool, status,
+                    input_tokens, output_tokens, reasoning_tokens,
+                    pages_processed, cost_usd, execution_ms, notes, firm_id,
+                    employee_id, employee_id_code, employee_name)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
+
+
 def log_ai_call(
     *,
     provider,
@@ -64,31 +105,44 @@ def log_ai_call(
     execution_ms=None,
     notes=None,
     firm_id=None,
+    employee_id=None,
+    employee_id_code=None,
+    employee_name=None,
 ):
     cost = _compute_cost(provider, model, input_tokens, output_tokens, reasoning_tokens, pages_processed)
+    employee_id, employee_id_code, employee_name = _resolve_employee(
+        employee_id, employee_id_code, employee_name,
+    )
 
     if not DATABASE_URL:
         log.warning("DATABASE_URL not set — skipping AI usage log")
         return
 
+    values = (
+        provider, model, PROJECT, tool, status,
+        input_tokens, output_tokens, reasoning_tokens,
+        pages_processed, cost, execution_ms, notes,
+        str(firm_id) if firm_id else None,
+        str(employee_id) if employee_id else None,
+        employee_id_code or None,
+        employee_name or None,
+    )
+    values_no_emp_id = values[:-3] + (None, employee_id_code or None, employee_name or None)
+
     try:
         conn = psycopg2.connect(DATABASE_URL)
         try:
             with conn.cursor() as cur:
-                cur.execute(
-                    """INSERT INTO ai_usage_log
-                       (provider, model, project, tool, status,
-                        input_tokens, output_tokens, reasoning_tokens,
-                        pages_processed, cost_usd, execution_ms, notes, firm_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (
-                        provider, model, PROJECT, tool, status,
-                        input_tokens, output_tokens, reasoning_tokens,
-                        pages_processed, cost, execution_ms, notes,
-                        str(firm_id) if firm_id else None,
-                    ),
-                )
-            conn.commit()
+                try:
+                    cur.execute(_INSERT_SQL, values)
+                    conn.commit()
+                except psycopg2.Error:
+                    conn.rollback()
+                    if employee_id:
+                        cur.execute(_INSERT_SQL, values_no_emp_id)
+                        conn.commit()
+                    else:
+                        raise
         finally:
             conn.close()
     except Exception:

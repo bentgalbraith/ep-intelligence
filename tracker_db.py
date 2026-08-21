@@ -167,6 +167,16 @@ MIGRATIONS = [
         "ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS employee_id_code TEXT",
         "ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS employee_name TEXT",
     ],
+    # v8: employee attribution on AI usage log
+    [
+        """ALTER TABLE ai_usage_log ADD COLUMN IF NOT EXISTS employee_id UUID
+           REFERENCES employees(id) ON DELETE SET NULL""",
+        "ALTER TABLE ai_usage_log ADD COLUMN IF NOT EXISTS employee_id_code TEXT",
+        "ALTER TABLE ai_usage_log ADD COLUMN IF NOT EXISTS employee_name TEXT",
+        "CREATE INDEX IF NOT EXISTS idx_ai_usage_log_ts ON ai_usage_log (timestamp DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_usage_log_firm_ts ON ai_usage_log (firm_id, timestamp DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_ai_usage_log_employee_ts ON ai_usage_log (employee_id, timestamp DESC)",
+    ],
 ]
 
 
@@ -648,6 +658,146 @@ def get_login_attempts(limit=200, offset=0, firm_slug=None, success=None):
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(f"SELECT * FROM login_attempts {where} ORDER BY attempted_at DESC LIMIT %s OFFSET %s", params)
+            return cur.fetchall()
+
+
+# ---------------------------------------------------------------------------
+# AI usage (admin)
+# ---------------------------------------------------------------------------
+
+def _usage_filters(days=None, firm_id=None, employee_code=None):
+    clauses, params = [], []
+    if days:
+        clauses.append("l.timestamp >= NOW() - (%s * INTERVAL '1 day')")
+        params.append(int(days))
+    if firm_id:
+        clauses.append("l.firm_id = %s")
+        params.append(firm_id)
+    if employee_code:
+        clauses.append("l.employee_id_code = %s")
+        params.append(employee_code)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    return where, params
+
+
+def usage_overview(days=None, firm_id=None, employee_code=None):
+    where, params = _usage_filters(days, firm_id, employee_code)
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT
+                        COUNT(*) AS calls,
+                        COUNT(*) FILTER (WHERE l.status = 'error') AS errors,
+                        COALESCE(SUM(l.cost_usd), 0) AS cost,
+                        COALESCE(SUM(l.pages_processed), 0) AS pages,
+                        COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'openai'), 0) AS cost_openai,
+                        COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'google_documentai'), 0) AS cost_ocr
+                    FROM ai_usage_log l
+                    {where}""",
+                params,
+            )
+            return cur.fetchone()
+
+
+def usage_by_tool(days=None, firm_id=None, employee_code=None):
+    where, params = _usage_filters(days, firm_id, employee_code)
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT l.tool, l.provider,
+                           COUNT(*) AS calls,
+                           COUNT(*) FILTER (WHERE l.status = 'error') AS errors,
+                           COALESCE(SUM(l.cost_usd), 0) AS cost,
+                           COALESCE(SUM(l.pages_processed), 0) AS pages
+                    FROM ai_usage_log l
+                    {where}
+                    GROUP BY l.tool, l.provider
+                    ORDER BY cost DESC, calls DESC""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def usage_by_firm(days=None, firm_id=None, employee_code=None):
+    where, params = _usage_filters(days, firm_id, employee_code)
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT l.firm_id, f.name AS firm_name, f.slug AS firm_slug,
+                           COUNT(*) AS calls,
+                           COUNT(*) FILTER (WHERE l.status = 'error') AS errors,
+                           COALESCE(SUM(l.cost_usd), 0) AS cost,
+                           MAX(l.timestamp) AS last_seen
+                    FROM ai_usage_log l
+                    LEFT JOIN firms f ON f.id = l.firm_id
+                    {where}
+                    GROUP BY l.firm_id, f.name, f.slug
+                    ORDER BY cost DESC, calls DESC""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def usage_by_employee(days=None, firm_id=None, employee_code=None):
+    where, params = _usage_filters(days, firm_id, employee_code)
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT l.employee_id, l.employee_id_code, l.employee_name,
+                           l.firm_id, f.name AS firm_name,
+                           COUNT(*) AS calls,
+                           COUNT(*) FILTER (WHERE l.status = 'error') AS errors,
+                           COALESCE(SUM(l.cost_usd), 0) AS cost
+                    FROM ai_usage_log l
+                    LEFT JOIN firms f ON f.id = l.firm_id
+                    {where}
+                    GROUP BY l.employee_id, l.employee_id_code, l.employee_name,
+                             l.firm_id, f.name
+                    ORDER BY cost DESC, calls DESC""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def usage_recent_errors(days=None, firm_id=None, employee_code=None, limit=50):
+    where, params = _usage_filters(days, firm_id, employee_code)
+    extra = "l.status = 'error'"
+    where = f"{where} AND {extra}" if where else f"WHERE {extra}"
+    params = list(params) + [int(limit)]
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT l.timestamp, l.tool, l.provider, l.notes, l.execution_ms,
+                           l.firm_id, f.name AS firm_name,
+                           l.employee_id_code, l.employee_name
+                    FROM ai_usage_log l
+                    LEFT JOIN firms f ON f.id = l.firm_id
+                    {where}
+                    ORDER BY l.timestamp DESC
+                    LIMIT %s""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def usage_log_rows(days=None, firm_id=None, employee_code=None, limit=10000):
+    where, params = _usage_filters(days, firm_id, employee_code)
+    params = list(params) + [int(limit)]
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT l.timestamp, f.name AS firm_name,
+                           l.employee_name, l.employee_id_code,
+                           l.tool, l.provider, l.model, l.status,
+                           l.cost_usd, l.input_tokens, l.output_tokens,
+                           l.reasoning_tokens, l.pages_processed, l.execution_ms
+                    FROM ai_usage_log l
+                    LEFT JOIN firms f ON f.id = l.firm_id
+                    {where}
+                    ORDER BY l.timestamp DESC
+                    LIMIT %s""",
+                params,
+            )
             return cur.fetchall()
 
 

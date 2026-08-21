@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+
+{% block title %}Usage — Admin — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <div class="navbar-left">
+        <span class="navbar-brand">Admin</span>
+        <span class="navbar-sep">/</span>
+        <a href="{{ url_for('admin_firms') }}" class="navbar-page" style="text-decoration:none;color:inherit">Firms</a>
+        <span class="navbar-sep">/</span>
+        <span class="navbar-page">Usage</span>
+    </div>
+    <a href="{{ url_for('admin_logout') }}" class="btn-pill btn-sm">Log Out</a>
+</nav>
+
+<main class="admin-main">
+    <div class="admin-header">
+        <h2 class="admin-heading">Usage</h2>
+        <div style="display:flex;gap:.5rem">
+            <a href="{{ url_for('admin_login_log') }}" class="btn-pill btn-sm">Login Log</a>
+        </div>
+    </div>
+
+    {% if scope_firm_name or scope_employee %}
+    <p class="usage-scope">
+        {% if scope_employee %}{{ scope_employee }}{% if selected_employee %} <code>{{ selected_employee }}</code>{% endif %}{% if scope_firm_name %} · {% endif %}{% endif %}
+        {% if scope_firm_name %}{{ scope_firm_name }}{% endif %}
+        <a href="{{ url_for('admin_usage', days=days_key) }}">All usage</a>
+    </p>
+    {% endif %}
+
+    <form method="get" class="login-log-filters">
+        <select name="days" class="admin-input login-log-select">
+            <option value="7" {{ 'selected' if days_key == '7' }}>Last 7 days</option>
+            <option value="30" {{ 'selected' if days_key == '30' }}>Last 30 days</option>
+            <option value="90" {{ 'selected' if days_key == '90' }}>Last 90 days</option>
+            <option value="all" {{ 'selected' if days_key == 'all' }}>All time</option>
+        </select>
+        <select name="firm" class="admin-input login-log-select">
+            <option value="">All firms</option>
+            {% for f in firms %}
+            <option value="{{ f.id }}" {{ 'selected' if selected_firm == f.id|string }}>{{ f.name }}</option>
+            {% endfor %}
+        </select>
+        {% if selected_employee %}
+        <input type="hidden" name="employee" value="{{ selected_employee }}">
+        {% endif %}
+        <button type="submit" class="btn-pill btn-sm">Filter</button>
+        <a href="{{ url_for('admin_usage_csv', days=days_key, firm=selected_firm, employee=selected_employee) }}" class="btn-icon" title="Download CSV" style="margin-left:auto">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+        </a>
+    </form>
+
+    <div class="usage-kpis">
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">Total cost</div>
+            <div class="usage-kpi-value">${{ '%.2f'|format(overview.cost or 0) }}</div>
+        </div>
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">Calls</div>
+            <div class="usage-kpi-value">{{ overview.calls or 0 }}</div>
+        </div>
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">Error rate</div>
+            <div class="usage-kpi-value">{{ overview.error_rate or 0 }}%</div>
+        </div>
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">OCR pages</div>
+            <div class="usage-kpi-value">{{ overview.pages or 0 }}</div>
+        </div>
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">OpenAI</div>
+            <div class="usage-kpi-value">${{ '%.2f'|format(overview.cost_openai or 0) }}</div>
+        </div>
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">Document AI</div>
+            <div class="usage-kpi-value">${{ '%.2f'|format(overview.cost_ocr or 0) }}</div>
+        </div>
+    </div>
+
+    <h3 class="usage-section-heading">By tool</h3>
+    {% if by_tool %}
+    <div class="tracker-table-wrap">
+        <table class="tracker-table">
+            <thead>
+                <tr>
+                    <th>Tool</th>
+                    <th>Provider</th>
+                    <th>Calls</th>
+                    <th>Errors</th>
+                    <th>Cost</th>
+                    <th>Pages</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in by_tool %}
+                <tr>
+                    <td>{{ tool_label(row.tool) }}</td>
+                    <td>{{ provider_label(row.provider) }}</td>
+                    <td>{{ row.calls }}</td>
+                    <td>{{ row.errors }}</td>
+                    <td>${{ '%.2f'|format(row.cost or 0) }}</td>
+                    <td>{{ row.pages or 0 }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="admin-empty">No AI usage recorded for this period.</p>
+    {% endif %}
+
+    {% if not selected_firm %}
+    <h3 class="usage-section-heading">By firm</h3>
+    {% if by_firm %}
+    <div class="tracker-table-wrap">
+        <table class="tracker-table">
+            <thead>
+                <tr>
+                    <th>Firm</th>
+                    <th>Calls</th>
+                    <th>Errors</th>
+                    <th>Cost</th>
+                    <th>Last seen</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in by_firm %}
+                <tr>
+                    <td>
+                        {% if row.firm_id %}
+                        <a class="admin-table-link" href="{{ url_for('admin_usage', days=days_key, firm=row.firm_id, employee=selected_employee) }}">{{ row.firm_name or 'Unknown firm' }}</a>
+                        {% else %}
+                        {{ row.firm_name or '—' }}
+                        {% endif %}
+                    </td>
+                    <td>{{ row.calls }}</td>
+                    <td>{{ row.errors }}</td>
+                    <td>${{ '%.2f'|format(row.cost or 0) }}</td>
+                    <td style="white-space:nowrap">{{ row.last_seen.strftime('%b %d, %Y %I:%M %p') if row.last_seen else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="admin-empty">No firm activity for this period.</p>
+    {% endif %}
+    {% endif %}
+
+    {% if not selected_employee %}
+    <h3 class="usage-section-heading">By employee</h3>
+    {% if by_employee %}
+    <div class="tracker-table-wrap">
+        <table class="tracker-table">
+            <thead>
+                <tr>
+                    <th>Employee</th>
+                    <th>ID</th>
+                    <th>Firm</th>
+                    <th>Calls</th>
+                    <th>Errors</th>
+                    <th>Cost</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in by_employee %}
+                <tr>
+                    <td>
+                        {% if row.employee_id_code %}
+                        <a class="admin-table-link" href="{{ url_for('admin_usage', days=days_key, firm=row.firm_id or selected_firm, employee=row.employee_id_code) }}">{{ row.employee_name or row.employee_id_code }}</a>
+                        {% else %}
+                        {{ row.employee_name or 'Firm login' }}
+                        {% endif %}
+                    </td>
+                    <td>{% if row.employee_id_code %}<code>{{ row.employee_id_code }}</code>{% else %}—{% endif %}</td>
+                    <td>{{ row.firm_name or '—' }}</td>
+                    <td>{{ row.calls }}</td>
+                    <td>{{ row.errors }}</td>
+                    <td>${{ '%.2f'|format(row.cost or 0) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="admin-empty">No employee activity for this period.</p>
+    {% endif %}
+    {% endif %}
+
+    <h3 class="usage-section-heading">Recent errors</h3>
+    {% if errors %}
+    <div class="tracker-table-wrap">
+        <table class="tracker-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Tool</th>
+                    <th>Firm</th>
+                    <th>Employee</th>
+                    <th>Error</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in errors %}
+                <tr>
+                    <td style="white-space:nowrap">{{ row.timestamp.strftime('%b %d, %Y %I:%M %p') if row.timestamp else '—' }}</td>
+                    <td>{{ tool_label(row.tool) }}</td>
+                    <td>{{ row.firm_name or '—' }}</td>
+                    <td>{% if row.employee_name %}{{ row.employee_name }}{% if row.employee_id_code %} <code>{{ row.employee_id_code }}</code>{% endif %}{% else %}—{% endif %}</td>
+                    <td class="usage-error-cell">{{ row.summary or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="admin-empty">No errors for this period.</p>
+    {% endif %}
+</main>
+{% endblock %}

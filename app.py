@@ -21,7 +21,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from openai import OpenAI
 
-from ai_logger import log_ai_call, extract_xai_usage, completion_details
+from ai_logger import log_ai_call, extract_xai_usage, completion_details, log_context
 from doc_separator import separate_documents, redo_with_feedback, _extract_json
 from ep_export import build_export_csv, build_questionnaire_docx
 from prospect_summarizer import extract_prospect_documents, build_summary_docx, PROSPECT_SCHEMA
@@ -211,6 +211,17 @@ def _clear_firm_session():
 def _clear_pending_login():
     session.pop("pending_firm_id", None)
     session.pop("pending_firm_name", None)
+
+
+def _session_log_ctx():
+    eid = session.get("employee_id")
+    if not eid:
+        return {}
+    return {
+        "employee_id": eid,
+        "employee_id_code": session.get("employee_code"),
+        "employee_name": session.get("employee_name"),
+    }
 
 
 def _employee_session_valid():
@@ -782,32 +793,33 @@ def _purge_stale(store):
             del store[k]
 
 
-def _run_doc_separate(job_id, pdf_content, firm_id, firm_config):
-    try:
-        zip_buf, documents, page_texts, total_pages = separate_documents(
-            pdf_content, openai_client, firm_id=firm_id, firm_config=firm_config,
-        )
-        token = uuid.uuid4().hex
-        with _jobs_lock:
-            _zip_cache[token] = {"data": zip_buf.getvalue(), "ts": time.time()}
-            _jobs[job_id].update({
-                "status": "complete",
-                "documents": documents,
-                "download_token": token,
-                "page_texts": page_texts,
-                "total_pages": total_pages,
-                "pdf_content": pdf_content,
-                "firm_id": firm_id,
-                "firm_config": firm_config,
-            })
-    except Exception as e:
-        app.logger.error("Doc separator error (job %s): %s", job_id, e)
-        _notify_tool_error("Document Separator", str(e), firm_id=firm_id,
-                           firm_name=_jobs[job_id].get("firm_name"),
-                           firm_slug=_jobs[job_id].get("firm_slug"),
-                           details=getattr(e, "details", None))
-        with _jobs_lock:
-            _jobs[job_id].update({"status": "error", "error": str(e)})
+def _run_doc_separate(job_id, pdf_content, firm_id, firm_config, log_ctx=None):
+    with log_context(**(log_ctx or {})):
+        try:
+            zip_buf, documents, page_texts, total_pages = separate_documents(
+                pdf_content, openai_client, firm_id=firm_id, firm_config=firm_config,
+            )
+            token = uuid.uuid4().hex
+            with _jobs_lock:
+                _zip_cache[token] = {"data": zip_buf.getvalue(), "ts": time.time()}
+                _jobs[job_id].update({
+                    "status": "complete",
+                    "documents": documents,
+                    "download_token": token,
+                    "page_texts": page_texts,
+                    "total_pages": total_pages,
+                    "pdf_content": pdf_content,
+                    "firm_id": firm_id,
+                    "firm_config": firm_config,
+                })
+        except Exception as e:
+            app.logger.error("Doc separator error (job %s): %s", job_id, e)
+            _notify_tool_error("Document Separator", str(e), firm_id=firm_id,
+                               firm_name=_jobs[job_id].get("firm_name"),
+                               firm_slug=_jobs[job_id].get("firm_slug"),
+                               details=getattr(e, "details", None))
+            with _jobs_lock:
+                _jobs[job_id].update({"status": "error", "error": str(e)})
 
 
 @app.route("/doc-separator")
@@ -831,6 +843,7 @@ def api_doc_separate():
 
     firm_id = session.get("firm_id")
     firm_config = _get_firm_config(firm_id)
+    log_ctx = _session_log_ctx()
 
     job_id = uuid.uuid4().hex
     with _jobs_lock:
@@ -838,9 +851,10 @@ def api_doc_separate():
         _purge_stale(_zip_cache)
         _jobs[job_id] = {"status": "processing", "ts": time.time(),
                          "firm_name": session.get("firm_name"),
-                         "firm_slug": session.get("firm_slug")}
+                         "firm_slug": session.get("firm_slug"),
+                         "log_ctx": log_ctx}
 
-    _executor.submit(_run_doc_separate, job_id, pdf_content, firm_id, firm_config)
+    _executor.submit(_run_doc_separate, job_id, pdf_content, firm_id, firm_config, log_ctx)
     return jsonify({"job_id": job_id})
 
 
@@ -913,34 +927,36 @@ def api_doc_separate_download_single(token, doc_index):
 
 
 def _run_doc_separate_redo(job_id, pdf_content, page_texts, total_pages,
-                           previous_documents, feedback, firm_id, firm_config):
-    try:
-        zip_buf, documents = redo_with_feedback(
-            pdf_content, openai_client, page_texts, total_pages,
-            previous_documents, feedback,
-            firm_id=firm_id, firm_config=firm_config,
-        )
-        token = uuid.uuid4().hex
-        with _jobs_lock:
-            _zip_cache[token] = {"data": zip_buf.getvalue(), "ts": time.time()}
-            _jobs[job_id].update({
-                "status": "complete",
-                "documents": documents,
-                "download_token": token,
-                "page_texts": page_texts,
-                "total_pages": total_pages,
-                "pdf_content": pdf_content,
-                "firm_id": firm_id,
-                "firm_config": firm_config,
-            })
-    except Exception as e:
-        app.logger.error("Doc separator redo error (job %s): %s", job_id, e)
-        _notify_tool_error("Document Separator (Redo)", str(e), firm_id=firm_id,
-                           firm_name=_jobs[job_id].get("firm_name"),
-                           firm_slug=_jobs[job_id].get("firm_slug"),
-                           details=getattr(e, "details", None))
-        with _jobs_lock:
-            _jobs[job_id].update({"status": "error", "error": str(e)})
+                           previous_documents, feedback, firm_id, firm_config,
+                           log_ctx=None):
+    with log_context(**(log_ctx or {})):
+        try:
+            zip_buf, documents = redo_with_feedback(
+                pdf_content, openai_client, page_texts, total_pages,
+                previous_documents, feedback,
+                firm_id=firm_id, firm_config=firm_config,
+            )
+            token = uuid.uuid4().hex
+            with _jobs_lock:
+                _zip_cache[token] = {"data": zip_buf.getvalue(), "ts": time.time()}
+                _jobs[job_id].update({
+                    "status": "complete",
+                    "documents": documents,
+                    "download_token": token,
+                    "page_texts": page_texts,
+                    "total_pages": total_pages,
+                    "pdf_content": pdf_content,
+                    "firm_id": firm_id,
+                    "firm_config": firm_config,
+                })
+        except Exception as e:
+            app.logger.error("Doc separator redo error (job %s): %s", job_id, e)
+            _notify_tool_error("Document Separator (Redo)", str(e), firm_id=firm_id,
+                               firm_name=_jobs[job_id].get("firm_name"),
+                               firm_slug=_jobs[job_id].get("firm_slug"),
+                               details=getattr(e, "details", None))
+            with _jobs_lock:
+                _jobs[job_id].update({"status": "error", "error": str(e)})
 
 
 @app.route("/api/doc-separate/redo", methods=["POST"])
@@ -975,17 +991,20 @@ def api_doc_separate_redo():
     if not page_texts or not pdf_content:
         return jsonify({"error": "Original job data expired. Please re-upload."}), 410
 
+    log_ctx = original_job.get("log_ctx") or _session_log_ctx()
     new_job_id = uuid.uuid4().hex
     with _jobs_lock:
         _purge_stale(_jobs)
         _purge_stale(_zip_cache)
         _jobs[new_job_id] = {"status": "processing", "ts": time.time(),
                              "firm_name": session.get("firm_name"),
-                             "firm_slug": session.get("firm_slug")}
+                             "firm_slug": session.get("firm_slug"),
+                             "log_ctx": log_ctx}
 
     _executor.submit(
         _run_doc_separate_redo, new_job_id, pdf_content, page_texts,
         total_pages, previous_documents, feedback, firm_id, firm_config,
+        log_ctx,
     )
     return jsonify({"job_id": new_job_id})
 
@@ -1001,25 +1020,26 @@ def prospect_summarizer():
     return render_template("prospect_summarizer.html", firm_name=session.get("firm_name", ""))
 
 
-def _run_prospect_summarize(job_id, pdf_contents, notes, firm_id, firm_config):
-    try:
-        prospect_schema = _get_prospect_schema(firm_config)
-        extraction, ocr_text = extract_prospect_documents(
-            pdf_contents, openai_client, notes=notes,
-            firm_id=firm_id, firm_config=firm_config,
-        )
-        verify_quotes(extraction, ocr_text)
-        extraction["schema"] = prospect_schema["sections"]
-        with _jobs_lock:
-            _jobs[job_id].update({"status": "complete", "extraction": extraction})
-    except Exception as e:
-        app.logger.error("Prospect summarizer error (job %s): %s", job_id, e)
-        _notify_tool_error("Prospect Summarizer", str(e), firm_id=firm_id,
-                           firm_name=_jobs[job_id].get("firm_name"),
-                           firm_slug=_jobs[job_id].get("firm_slug"),
-                           details=getattr(e, "details", None))
-        with _jobs_lock:
-            _jobs[job_id].update({"status": "error", "error": str(e)})
+def _run_prospect_summarize(job_id, pdf_contents, notes, firm_id, firm_config, log_ctx=None):
+    with log_context(**(log_ctx or {})):
+        try:
+            prospect_schema = _get_prospect_schema(firm_config)
+            extraction, ocr_text = extract_prospect_documents(
+                pdf_contents, openai_client, notes=notes,
+                firm_id=firm_id, firm_config=firm_config,
+            )
+            verify_quotes(extraction, ocr_text)
+            extraction["schema"] = prospect_schema["sections"]
+            with _jobs_lock:
+                _jobs[job_id].update({"status": "complete", "extraction": extraction})
+        except Exception as e:
+            app.logger.error("Prospect summarizer error (job %s): %s", job_id, e)
+            _notify_tool_error("Prospect Summarizer", str(e), firm_id=firm_id,
+                               firm_name=_jobs[job_id].get("firm_name"),
+                               firm_slug=_jobs[job_id].get("firm_slug"),
+                               details=getattr(e, "details", None))
+            with _jobs_lock:
+                _jobs[job_id].update({"status": "error", "error": str(e)})
 
 
 @app.route("/api/prospect-summarize", methods=["POST"])
@@ -1042,15 +1062,17 @@ def api_prospect_summarize():
     notes = request.form.get("notes", "")
     firm_id = session.get("firm_id")
     firm_config = _get_firm_config(firm_id)
+    log_ctx = _session_log_ctx()
 
     job_id = uuid.uuid4().hex
     with _jobs_lock:
         _purge_stale(_jobs)
         _jobs[job_id] = {"status": "processing", "ts": time.time(),
                          "firm_name": session.get("firm_name"),
-                         "firm_slug": session.get("firm_slug")}
+                         "firm_slug": session.get("firm_slug"),
+                         "log_ctx": log_ctx}
 
-    _executor.submit(_run_prospect_summarize, job_id, pdf_contents, notes, firm_id, firm_config)
+    _executor.submit(_run_prospect_summarize, job_id, pdf_contents, notes, firm_id, firm_config, log_ctx)
     return jsonify({"job_id": job_id})
 
 
@@ -1471,6 +1493,168 @@ def admin_login_log_csv():
     resp = make_response(output.getvalue())
     resp.headers["Content-Type"] = "text/csv"
     resp.headers["Content-Disposition"] = f"attachment; filename=Login_Log_{time.strftime('%m-%d-%Y_%H%M%S')}.csv"
+    return resp
+
+
+_USAGE_TOOL_LABELS = {
+    "ep_extract": "Drafting Notes",
+    "doc_separator": "Document Separator",
+    "doc_separator_ocr": "Document Separator (OCR)",
+    "doc_separator_redo": "Document Separator (Redo)",
+    "prospect_summarizer": "Prospect Summarizer",
+    "prospect_summarizer_ocr": "Prospect Summarizer (OCR)",
+}
+
+_USAGE_PROVIDER_LABELS = {
+    "openai": "OpenAI",
+    "google_documentai": "Document AI",
+}
+
+
+def _usage_filters_from_request():
+    days_raw = (request.args.get("days") or "30").strip()
+    if days_raw == "all":
+        days, days_key = None, "all"
+    elif days_raw in ("7", "30", "90"):
+        days, days_key = int(days_raw), days_raw
+    else:
+        days, days_key = 30, "30"
+
+    firm_id = (request.args.get("firm") or "").strip() or None
+    if firm_id:
+        try:
+            uuid.UUID(firm_id)
+        except (ValueError, TypeError, AttributeError):
+            firm_id = None
+
+    employee_code = (request.args.get("employee") or "").strip() or None
+    return days, days_key, firm_id, employee_code
+
+
+def _usage_error_summary(notes):
+    if not notes:
+        return ""
+    lines = [ln.strip() for ln in str(notes).splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    summary = lines[-1]
+    if len(summary) > 180:
+        return summary[:177] + "..."
+    return summary
+
+
+def _usage_label_tool(tool):
+    return _USAGE_TOOL_LABELS.get(tool, tool or "—")
+
+
+def _usage_label_provider(provider):
+    return _USAGE_PROVIDER_LABELS.get(provider, provider or "—")
+
+
+@app.route("/admin/usage")
+@admin_required
+def admin_usage():
+    days, days_key, firm_id, employee_code = _usage_filters_from_request()
+    firms = tracker_db.list_firms() if tracker_db.DATABASE_URL else []
+
+    overview = {
+        "calls": 0, "errors": 0, "cost": 0, "pages": 0,
+        "cost_openai": 0, "cost_ocr": 0, "error_rate": 0,
+    }
+    by_tool, by_firm, by_employee, errors = [], [], [], []
+
+    if tracker_db.DATABASE_URL:
+        kwargs = dict(days=days, firm_id=firm_id, employee_code=employee_code)
+        row = tracker_db.usage_overview(**kwargs)
+        if row:
+            overview = dict(row)
+        calls = int(overview.get("calls") or 0)
+        errors_n = int(overview.get("errors") or 0)
+        overview["error_rate"] = round(100.0 * errors_n / calls, 1) if calls else 0
+        by_tool = tracker_db.usage_by_tool(**kwargs)
+        by_firm = tracker_db.usage_by_firm(**kwargs)
+        by_employee = tracker_db.usage_by_employee(**kwargs)
+        errors = []
+        for r in tracker_db.usage_recent_errors(**kwargs):
+            item = dict(r)
+            item["summary"] = _usage_error_summary(item.get("notes"))
+            errors.append(item)
+
+    scope_firm_name = None
+    if firm_id:
+        for f in firms:
+            if str(f["id"]) == str(firm_id):
+                scope_firm_name = f["name"]
+                break
+        if not scope_firm_name:
+            scope_firm_name = "Unknown firm"
+
+    scope_employee = None
+    if employee_code:
+        for row in by_employee:
+            if row.get("employee_id_code") == employee_code and row.get("employee_name"):
+                scope_employee = row["employee_name"]
+                break
+        if not scope_employee:
+            scope_employee = employee_code
+
+    return render_template(
+        "admin_usage.html",
+        overview=overview,
+        by_tool=by_tool,
+        by_firm=by_firm,
+        by_employee=by_employee,
+        errors=errors,
+        firms=firms,
+        days_key=days_key,
+        selected_firm=firm_id or "",
+        selected_employee=employee_code or "",
+        scope_firm_name=scope_firm_name,
+        scope_employee=scope_employee,
+        tool_label=_usage_label_tool,
+        provider_label=_usage_label_provider,
+    )
+
+
+@app.route("/admin/usage/csv")
+@admin_required
+def admin_usage_csv():
+    days, days_key, firm_id, employee_code = _usage_filters_from_request()
+    rows = tracker_db.usage_log_rows(
+        days=days, firm_id=firm_id, employee_code=employee_code,
+    ) if tracker_db.DATABASE_URL else []
+
+    import csv
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Time", "Firm", "Employee Name", "Employee ID", "Tool", "Provider",
+        "Model", "Status", "Cost USD", "Input Tokens", "Output Tokens",
+        "Reasoning Tokens", "Pages", "Duration ms",
+    ])
+    for r in rows:
+        ts = r.get("timestamp")
+        writer.writerow([
+            ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "",
+            r.get("firm_name") or "",
+            r.get("employee_name") or "",
+            r.get("employee_id_code") or "",
+            _usage_label_tool(r.get("tool")),
+            _usage_label_provider(r.get("provider")),
+            r.get("model") or "",
+            r.get("status") or "",
+            r.get("cost_usd") if r.get("cost_usd") is not None else "",
+            r.get("input_tokens") if r.get("input_tokens") is not None else "",
+            r.get("output_tokens") if r.get("output_tokens") is not None else "",
+            r.get("reasoning_tokens") if r.get("reasoning_tokens") is not None else "",
+            r.get("pages_processed") if r.get("pages_processed") is not None else "",
+            r.get("execution_ms") if r.get("execution_ms") is not None else "",
+        ])
+    resp = make_response(output.getvalue())
+    resp.headers["Content-Type"] = "text/csv"
+    resp.headers["Content-Disposition"] = (
+        f"attachment; filename=Usage_{time.strftime('%m-%d-%Y_%H%M%S')}.csv"
+    )
     return resp
 
 

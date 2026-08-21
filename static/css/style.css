@@ -2359,6 +2359,79 @@ a.doc-list-item--link:hover {
     font-size: 0.82rem;
 }
 
+/* ── Usage ── */
+
+.usage-scope {
+    margin: -0.5rem 0 1.1rem;
+    font-size: 0.88rem;
+    color: rgba(0, 0, 0, 0.55);
+}
+
+.usage-scope a {
+    margin-left: 0.6rem;
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.usage-scope a:hover {
+    text-decoration: underline;
+}
+
+.usage-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.75rem;
+}
+
+.usage-kpi {
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+}
+
+.usage-kpi-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(0, 0, 0, 0.4);
+}
+
+.usage-kpi-value {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-top: 0.3rem;
+    color: #1a1a1a;
+}
+
+.usage-section-heading {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 1.75rem 0 0.7rem;
+}
+
+.admin-table-link {
+    color: inherit;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.admin-table-link:hover {
+    color: var(--primary);
+}
+
+.usage-error-cell {
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #dc2626;
+    font-size: 0.8rem;
+}
+
 /* ── Specimen Admin ── */
 
 .specimen-file-drop {
