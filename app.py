@@ -1542,7 +1542,7 @@ def _usage_filters_from_request():
     days_raw = (request.args.get("days") or "30").strip()
     if days_raw == "all":
         days, days_key = None, "all"
-    elif days_raw in ("7", "30", "90"):
+    elif days_raw in ("1", "7", "30", "90"):
         days, days_key = int(days_raw), days_raw
     else:
         days, days_key = 30, "30"
@@ -1590,9 +1590,55 @@ def _monday(d):
     return d - timedelta(days=d.weekday())
 
 
+def _as_et_hour(value):
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=_EASTERN)
+    else:
+        value = value.astimezone(_EASTERN)
+    return value.replace(minute=0, second=0, microsecond=0)
+
+
+def _clock_parts(dt):
+    hour = dt.strftime("%I").lstrip("0") or "12"
+    ampm = dt.strftime("%p")
+    return hour, ampm
+
+
 def _usage_cost_series(days, firm_id, employee_code):
     if not tracker_db.DATABASE_URL:
         return []
+
+    if days == 1:
+        raw = tracker_db.usage_cost_by_hour(days=days, firm_id=firm_id, employee_code=employee_code)
+        by_hour = {}
+        for row in raw:
+            hour = _as_et_hour(row.get("hour"))
+            if not hour:
+                continue
+            by_hour[hour] = float(row.get("cost") or 0)
+        end = datetime.now(_EASTERN).replace(minute=0, second=0, microsecond=0)
+        cursor = end - timedelta(hours=23)
+        series = []
+        while cursor <= end:
+            hour, ampm = _clock_parts(cursor)
+            series.append({
+                "date": cursor.isoformat(),
+                "label": hour + " " + ampm,
+                "tip": (
+                    cursor.strftime("%b ") + str(cursor.day) + ", " + str(cursor.year)
+                    + ", " + hour + cursor.strftime(":%M ") + ampm + " ET"
+                ),
+                "cost": round(by_hour.get(cursor, 0.0), 4),
+            })
+            cursor += timedelta(hours=1)
+        running = 0.0
+        for item in series:
+            running += item["cost"]
+            item["cost"] = round(running, 4)
+        return series
+
     raw = tracker_db.usage_cost_by_day(days=days, firm_id=firm_id, employee_code=employee_code)
     by_day = {}
     for row in raw:

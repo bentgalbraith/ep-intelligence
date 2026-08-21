@@ -33,6 +33,7 @@
 
     <form method="get" class="login-log-filters">
         <select name="days" class="admin-input login-log-select" onchange="this.form.submit()">
+            <option value="1" {{ 'selected' if days_key == '1' }}>Last 24 hours</option>
             <option value="7" {{ 'selected' if days_key == '7' }}>Last 7 days</option>
             <option value="30" {{ 'selected' if days_key == '30' }}>Last 30 days</option>
             <option value="90" {{ 'selected' if days_key == '90' }}>Last 90 days</option>
