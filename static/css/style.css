@@ -1993,6 +1993,17 @@ a.doc-list-item--link:hover {
     margin-bottom: 1.5rem;
 }
 
+.admin-success-banner {
+    background: rgba(22, 163, 74, 0.06);
+    border: 1px solid rgba(22, 163, 74, 0.2);
+    color: #16a34a;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 0.7rem 1.2rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+}
+
 .admin-form {
     display: flex;
     flex-direction: column;

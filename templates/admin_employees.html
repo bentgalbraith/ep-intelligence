@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Employees — {{ firm.name }} — Admin — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <div class="navbar-left">
+        <a href="{{ url_for('admin_firm_edit', firm_id=firm.id) }}" class="navbar-brand">
+            <svg class="navbar-brand-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m15 18-6-6 6-6"/>
+            </svg>
+            {{ firm.name }}
+        </a>
+        <span class="navbar-sep">/</span>
+        <span class="navbar-page">Employees</span>
+    </div>
+    <a href="{{ url_for('admin_logout') }}" class="btn-pill btn-sm">Log Out</a>
+</nav>
+
+<main class="admin-main admin-edit-main">
+    {% if error %}
+    <div class="admin-error-banner">{{ error }}</div>
+    {% endif %}
+    {% if success %}
+    <div class="admin-success-banner">{{ success }}</div>
+    {% endif %}
+
+    {% if firm.require_employee_login %}
+    <p class="admin-hint" style="margin-bottom:1rem">Employee ID is currently required at login for this firm.</p>
+    {% else %}
+    <p class="admin-hint" style="margin-bottom:1rem">These IDs are not required at login until you enable "Require employee ID at login" on the firm page.</p>
+    {% endif %}
+
+    <section class="admin-section">
+        <h3 class="admin-section-title">Add Employee</h3>
+        <p class="admin-hint">IDs are case-sensitive and must be unique within this firm.</p>
+        <form method="POST" action="{{ url_for('admin_employee_add', firm_id=firm.id) }}" class="admin-form">
+            <div class="admin-field-row">
+                <div class="admin-field">
+                    <label class="admin-label">ID <span class="admin-req">*</span></label>
+                    <input class="admin-input" name="employee_id" type="text" required autocomplete="off" spellcheck="false" placeholder="jdoe@doelaw.com">
+                </div>
+                <div class="admin-field">
+                    <label class="admin-label">Name <span class="admin-req">*</span></label>
+                    <input class="admin-input" name="name" type="text" required autocomplete="off" placeholder="Jane Doe">
+                </div>
+            </div>
+            <button type="submit" class="btn-pill btn-sm btn-admin-save">Add Employee</button>
+        </form>
+    </section>
+
+    <section class="admin-section">
+        <h3 class="admin-section-title">Bulk Upload</h3>
+        <p class="admin-hint">CSV with exactly two columns: <code>id</code> and <code>name</code>. Existing IDs are updated; nothing is deleted.</p>
+        <form method="POST" action="{{ url_for('admin_employee_upload', firm_id=firm.id) }}" enctype="multipart/form-data" class="admin-form">
+            <div class="admin-field">
+                <input class="admin-input" type="file" name="csv" accept=".csv,text/csv" required>
+            </div>
+            <button type="submit" class="btn-pill btn-sm btn-admin-save" style="margin-top:0.75rem">Upload CSV</button>
+        </form>
+    </section>
+
+    <section class="admin-section">
+        <h3 class="admin-section-title">Employees ({{ employees | length }})</h3>
+        {% if employees %}
+        <div class="tracker-table-wrap">
+            <table class="tracker-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>ID</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in employees %}
+                    <tr>
+                        <td>{{ e.name }}</td>
+                        <td><code class="admin-slug">{{ e.employee_id_code }}</code></td>
+                        <td class="admin-actions-cell">
+                            <form method="POST" action="{{ url_for('admin_employee_delete', firm_id=firm.id, employee_id=e.id) }}" onsubmit="return confirm('Delete employee &quot;{{ e.name }}&quot;?')">
+                                <button type="submit" class="specimen-delete-btn">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="admin-empty">No employees yet.</p>
+        {% endif %}
+    </section>
+</main>
+{% endblock %}

@@ -66,8 +66,17 @@ if tracker_db.DATABASE_URL:
 # ---------------------------------------------------------------------------
 
 _firm_config_cache: dict = {}
+_employee_req_cache: dict = {}
 _firm_config_lock = threading.Lock()
 _CACHE_TTL = 300  # 5 minutes
+_AUTH_FLAG_TTL = 30  # seconds; logout after toggle-on may lag by this much
+
+
+def _invalidate_firm_cache(firm_id):
+    key = str(firm_id)
+    with _firm_config_lock:
+        _firm_config_cache.pop(key, None)
+        _employee_req_cache.pop(key, None)
 
 
 def _get_firm_config(firm_id):
@@ -82,6 +91,21 @@ def _get_firm_config(firm_id):
     with _firm_config_lock:
         _firm_config_cache[str(firm_id)] = {"config": config, "ts": now}
     return config
+
+
+def _firm_requires_employee_login(firm_id):
+    """Cached require_employee_login flag. None if the firm no longer exists."""
+    key = str(firm_id)
+    now = time.time()
+    with _firm_config_lock:
+        cached = _employee_req_cache.get(key)
+        if cached and now - cached["ts"] < _AUTH_FLAG_TTL:
+            return cached["value"]
+
+    required = tracker_db.firm_requires_employee_login(key)
+    with _firm_config_lock:
+        _employee_req_cache[key] = {"value": required, "ts": now}
+    return required
 
 
 def _get_ep_schema(firm_config):
@@ -175,10 +199,42 @@ def set_security_headers(response):
 # Auth decorators
 # ---------------------------------------------------------------------------
 
+def _clear_firm_session():
+    for key in (
+        "authenticated", "firm_id", "firm_name", "firm_slug",
+        "tracker_authenticated", "employee_id", "employee_code", "employee_name",
+        "pending_firm_id",
+    ):
+        session.pop(key, None)
+
+
+def _clear_pending_login():
+    session.pop("pending_firm_id", None)
+
+
+def _employee_session_valid():
+    if not session.get("authenticated"):
+        return False
+    if not tracker_db.DATABASE_URL:
+        return True
+    firm_id = session.get("firm_id")
+    if not firm_id:
+        return False
+    required = _firm_requires_employee_login(firm_id)
+    if required is None:
+        return False
+    if not required:
+        return True
+    return bool(session.get("employee_id"))
+
+
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get("authenticated"):
+            return redirect(url_for("login"))
+        if not _employee_session_valid():
+            _clear_firm_session()
             return redirect(url_for("login"))
         return f(*args, **kwargs)
     return decorated
@@ -188,6 +244,9 @@ def tracker_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get("authenticated"):
+            return jsonify({"error": "Not authenticated"}), 401
+        if not _employee_session_valid():
+            _clear_firm_session()
             return jsonify({"error": "Not authenticated"}), 401
         if not session.get("tracker_authenticated"):
             return jsonify({"error": "Tracker access required"}), 403
@@ -446,30 +505,103 @@ def create_checkout_session():
 @limiter.limit("10/minute")
 def login():
     if session.get("authenticated"):
-        return redirect(url_for("dashboard"))
+        if _employee_session_valid():
+            return redirect(url_for("dashboard"))
+        _clear_firm_session()
 
     error = None
+    require_employee = bool(session.get("pending_firm_id"))
+
     if request.method == "POST":
         code = request.form.get("access_code", "")
-        firm = tracker_db.lookup_firm_by_access_code(code)
-        if tracker_db.DATABASE_URL:
-            tracker_db.log_login_attempt(
-                ip_address=request.remote_addr or "",
-                access_code_used=code,
-                firm_name=firm["name"] if firm else None,
-                firm_slug=firm["slug"] if firm else None,
-                success=bool(firm),
-            )
-        if firm:
-            session.permanent = True
-            session["authenticated"] = True
-            session["firm_id"] = str(firm["id"])
-            session["firm_name"] = firm["name"]
-            session["firm_slug"] = firm["slug"]
-            return redirect(url_for("dashboard"))
-        error = "Invalid access code"
+        employee_code = request.form.get("employee_id", "").strip()
+        firm = None
 
-    return render_template("login.html", error=error)
+        if code:
+            firm = tracker_db.lookup_firm_by_access_code(code)
+            if not firm:
+                _clear_pending_login()
+                if tracker_db.DATABASE_URL:
+                    tracker_db.log_login_attempt(
+                        ip_address=request.remote_addr or "",
+                        access_code_used=code,
+                        firm_name=None,
+                        firm_slug=None,
+                        success=False,
+                    )
+                error = "Invalid access code"
+                require_employee = False
+        elif session.get("pending_firm_id"):
+            firm = tracker_db.get_firm(session.get("pending_firm_id"))
+            if not firm:
+                _clear_pending_login()
+                error = "Invalid access code"
+                require_employee = False
+        else:
+            error = "Invalid access code"
+            require_employee = False
+
+        if firm:
+            if not firm.get("require_employee_login"):
+                _clear_pending_login()
+                if tracker_db.DATABASE_URL:
+                    tracker_db.log_login_attempt(
+                        ip_address=request.remote_addr or "",
+                        access_code_used=code,
+                        firm_name=firm["name"],
+                        firm_slug=firm["slug"],
+                        success=True,
+                    )
+                session.permanent = True
+                session["authenticated"] = True
+                session["firm_id"] = str(firm["id"])
+                session["firm_name"] = firm["name"]
+                session["firm_slug"] = firm["slug"]
+                session.pop("employee_id", None)
+                session.pop("employee_code", None)
+                session.pop("employee_name", None)
+                return redirect(url_for("dashboard"))
+
+            if not employee_code:
+                session["pending_firm_id"] = str(firm["id"])
+                require_employee = True
+            else:
+                employee = tracker_db.get_employee_by_code(str(firm["id"]), employee_code)
+                if not employee:
+                    session["pending_firm_id"] = str(firm["id"])
+                    if tracker_db.DATABASE_URL:
+                        tracker_db.log_login_attempt(
+                            ip_address=request.remote_addr or "",
+                            access_code_used="",
+                            firm_name=firm["name"],
+                            firm_slug=firm["slug"],
+                            success=False,
+                        )
+                    error = "Invalid employee ID"
+                    require_employee = True
+                else:
+                    _clear_pending_login()
+                    if tracker_db.DATABASE_URL:
+                        tracker_db.log_login_attempt(
+                            ip_address=request.remote_addr or "",
+                            access_code_used=code,
+                            firm_name=firm["name"],
+                            firm_slug=firm["slug"],
+                            success=True,
+                            employee_id_code=employee["employee_id_code"],
+                            employee_name=employee["name"],
+                        )
+                    session.permanent = True
+                    session["authenticated"] = True
+                    session["firm_id"] = str(firm["id"])
+                    session["firm_name"] = firm["name"]
+                    session["firm_slug"] = firm["slug"]
+                    session["employee_id"] = str(employee["id"])
+                    session["employee_code"] = employee["employee_id_code"]
+                    session["employee_name"] = employee["name"]
+                    return redirect(url_for("dashboard"))
+
+    return render_template("login.html", error=error, require_employee=require_employee)
 
 
 @app.route("/dashboard")
@@ -1316,13 +1448,15 @@ def admin_login_log_csv():
     import csv
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Time", "IP Address", "Access Code", "Firm", "Result"])
+    writer.writerow(["Time", "IP Address", "Access Code", "Firm", "Employee ID", "Employee Name", "Result"])
     for a in attempts:
         writer.writerow([
             a["attempted_at"].strftime("%Y-%m-%d %H:%M:%S"),
             a["ip_address"],
             a["access_code_used"],
             a["firm_name"] or "",
+            a.get("employee_id_code") or "",
+            a.get("employee_name") or "",
             "Success" if a["success"] else "Failed",
         ])
     resp = make_response(output.getvalue())
@@ -1339,6 +1473,7 @@ def admin_firm_new():
         slug = request.form.get("slug", "").strip()
         access_code = request.form.get("access_code", "").strip()
         tracker_code = request.form.get("tracker_access_code", "").strip()
+        require_employee_login = bool(request.form.get("require_employee_login"))
 
         if not all([name, slug, access_code, tracker_code]):
             return render_template("admin_firm_edit.html", firm=None,
@@ -1351,15 +1486,18 @@ def admin_firm_new():
 
         errors = _validate_config(config)
         if errors:
-            stub = {"name": name, "slug": slug, "config": config}
+            stub = {"name": name, "slug": slug, "config": config,
+                    "require_employee_login": require_employee_login}
             return render_template("admin_firm_edit.html", firm=stub,
                                    error=" | ".join(errors))
 
         try:
-            tracker_db.create_firm(name, slug, access_code, tracker_code, config)
+            tracker_db.create_firm(name, slug, access_code, tracker_code, config,
+                                   require_employee_login=require_employee_login)
         except Exception as e:
             if "unique" in str(e).lower():
-                stub = {"name": name, "slug": slug, "config": config}
+                stub = {"name": name, "slug": slug, "config": config,
+                        "require_employee_login": require_employee_login}
                 return render_template("admin_firm_edit.html", firm=stub,
                                        error="A firm with that slug already exists.")
             raise
@@ -1395,6 +1533,7 @@ def admin_firm_edit(firm_id):
         slug = request.form.get("slug", "").strip()
         access_code = request.form.get("access_code", "").strip() or None
         tracker_code = request.form.get("tracker_access_code", "").strip() or None
+        require_employee_login = bool(request.form.get("require_employee_login"))
 
         if not name or not slug:
             return render_template("admin_firm_edit.html", firm=firm,
@@ -1408,6 +1547,7 @@ def admin_firm_edit(firm_id):
         errors = _validate_config(config)
         if errors:
             firm["config"] = config
+            firm["require_employee_login"] = require_employee_login
             return render_template("admin_firm_edit.html", firm=firm,
                                    error=" | ".join(errors))
 
@@ -1415,15 +1555,15 @@ def admin_firm_edit(firm_id):
             tracker_db.update_firm(firm_id, name=name, slug=slug,
                                    access_code=access_code,
                                    tracker_access_code=tracker_code,
-                                   config=config)
+                                   config=config,
+                                   require_employee_login=require_employee_login)
         except Exception as e:
             if "unique" in str(e).lower():
                 return render_template("admin_firm_edit.html", firm=firm,
                                        error="A firm with that slug already exists.")
             raise
 
-        with _firm_config_lock:
-            _firm_config_cache.pop(str(firm_id), None)
+        _invalidate_firm_cache(firm_id)
 
         return redirect(url_for("admin_firms"))
 
@@ -1442,8 +1582,7 @@ def admin_firm_delete(firm_id):
         return render_template("admin_firm_edit.html", firm=firm,
                                error="Deletion confirmation did not match. Firm was not deleted.")
     tracker_db.delete_firm(firm_id)
-    with _firm_config_lock:
-        _firm_config_cache.pop(str(firm_id), None)
+    _invalidate_firm_cache(firm_id)
     return redirect(url_for("admin_firms"))
 
 
@@ -1503,6 +1642,120 @@ def admin_specimen_download(firm_id, doc_id):
 def admin_specimen_delete(firm_id, doc_id):
     tracker_db.delete_specimen_document(doc_id)
     return redirect(url_for("admin_specimens", firm_id=firm_id))
+
+
+def _parse_employee_csv(file_storage):
+    import csv as csv_mod
+
+    raw = file_storage.read()
+    if len(raw) > 1_000_000:
+        raise ValueError("CSV file is too large.")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise ValueError("CSV must be UTF-8 encoded.")
+
+    reader = csv_mod.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise ValueError("CSV is missing a header row.")
+    headers = [h.strip() for h in reader.fieldnames]
+    if set(headers) != {"id", "name"}:
+        raise ValueError('CSV must have exactly two columns named "id" and "name".')
+
+    rows = []
+    seen = set()
+    for i, row in enumerate(reader, start=2):
+        emp_id = (row.get("id") or "").strip()
+        name = (row.get("name") or "").strip()
+        if not emp_id and not name:
+            continue
+        if not emp_id or not name:
+            raise ValueError(f"Row {i}: both id and name are required.")
+        if emp_id in seen:
+            raise ValueError(f'Row {i}: duplicate id "{emp_id}".')
+        seen.add(emp_id)
+        rows.append((emp_id, name))
+        if len(rows) > 5000:
+            raise ValueError("CSV cannot contain more than 5000 employees.")
+    if not rows:
+        raise ValueError("CSV contains no employee rows.")
+    return rows
+
+
+def _admin_employees_page(firm, error=None, success=None):
+    employees = tracker_db.list_employees(firm["id"])
+    return render_template(
+        "admin_employees.html",
+        firm=firm,
+        employees=employees,
+        error=error,
+        success=success,
+    )
+
+
+@app.route("/admin/firms/<firm_id>/employees")
+@admin_required
+def admin_employees(firm_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
+    success = None
+    if request.args.get("added"):
+        success = "Employee added."
+    imported = request.args.get("imported")
+    if imported:
+        try:
+            n = int(imported)
+            success = f"Imported {n} employee{'s' if n != 1 else ''}."
+        except ValueError:
+            success = "Employees imported."
+    return _admin_employees_page(firm, success=success)
+
+
+@app.route("/admin/firms/<firm_id>/employees/add", methods=["POST"])
+@admin_required
+def admin_employee_add(firm_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
+    emp_id = (request.form.get("employee_id") or "").strip()
+    name = (request.form.get("name") or "").strip()
+    if not emp_id or not name:
+        return _admin_employees_page(firm, error="Employee ID and name are required.")
+    try:
+        tracker_db.create_employee(firm_id, emp_id, name)
+    except Exception as e:
+        if "unique" in str(e).lower():
+            return _admin_employees_page(firm, error="An employee with that ID already exists.")
+        raise
+    return redirect(url_for("admin_employees", firm_id=firm_id, added="1"))
+
+
+@app.route("/admin/firms/<firm_id>/employees/upload", methods=["POST"])
+@admin_required
+def admin_employee_upload(firm_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
+    f = request.files.get("csv")
+    if not f or not f.filename:
+        return _admin_employees_page(firm, error="Please choose a CSV file.")
+    try:
+        rows = _parse_employee_csv(f)
+        count = tracker_db.upsert_employees(firm_id, rows)
+    except ValueError as e:
+        return _admin_employees_page(firm, error=str(e))
+    return redirect(url_for("admin_employees", firm_id=firm_id, imported=count))
+
+
+@app.route("/admin/firms/<firm_id>/employees/<employee_id>/delete", methods=["POST"])
+@admin_required
+def admin_employee_delete(firm_id, employee_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
+    tracker_db.delete_employee(employee_id, firm_id=firm_id)
+    return redirect(url_for("admin_employees", firm_id=firm_id))
 
 
 class ConfigParseError(Exception):

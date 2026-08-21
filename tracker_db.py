@@ -150,6 +150,23 @@ MIGRATIONS = [
     [
         "ALTER TABLE specimen_documents ADD COLUMN IF NOT EXISTS description TEXT",
     ],
+    # v7: optional employee logins
+    [
+        """ALTER TABLE firms ADD COLUMN IF NOT EXISTS require_employee_login
+           BOOLEAN NOT NULL DEFAULT false""",
+        """CREATE TABLE IF NOT EXISTS employees (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+            employee_id_code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (firm_id, employee_id_code)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_employees_firm ON employees(firm_id)",
+        "ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS employee_id_code TEXT",
+        "ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS employee_name TEXT",
+    ],
 ]
 
 
@@ -244,19 +261,22 @@ def seed_firm_if_empty():
 
 # ---------------------------------------------------------------------------
 
-def create_firm(name, slug, access_code, tracker_access_code, config=None):
+def create_firm(name, slug, access_code, tracker_access_code, config=None,
+                require_employee_login=False):
     firm_id = uuid.uuid4()
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO firms (id, name, slug, access_code_hash, access_code_plain,
-                   tracker_access_code_hash, tracker_access_code_plain, config)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                   tracker_access_code_hash, tracker_access_code_plain, config,
+                   require_employee_login)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     firm_id, name, slug,
                     generate_password_hash(access_code), access_code,
                     generate_password_hash(tracker_access_code), tracker_access_code,
                     json.dumps(config or {}),
+                    bool(require_employee_login),
                 ),
             )
     return str(firm_id)
@@ -266,7 +286,8 @@ def get_firm(firm_id):
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "SELECT id, name, slug, config, access_code_plain, tracker_access_code_plain FROM firms WHERE id = %s",
+                """SELECT id, name, slug, config, access_code_plain, tracker_access_code_plain,
+                          require_employee_login FROM firms WHERE id = %s""",
                 (firm_id,),
             )
             row = cur.fetchone()
@@ -289,7 +310,10 @@ def lookup_firm_by_access_code(access_code):
     """Find a firm by checking the access code against all firms. Returns firm dict or None."""
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT id, name, slug, access_code_hash, config FROM firms ORDER BY created_at")
+            cur.execute(
+                """SELECT id, name, slug, access_code_hash, config, require_employee_login
+                   FROM firms ORDER BY created_at"""
+            )
             for row in cur.fetchall():
                 if check_password_hash(row["access_code_hash"], access_code):
                     if isinstance(row["config"], str):
@@ -308,13 +332,15 @@ def list_firms():
 def delete_firm(firm_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
+            cur.execute("DELETE FROM employees WHERE firm_id = %s", (firm_id,))
             cur.execute("DELETE FROM client_steps WHERE client_id IN (SELECT id FROM clients WHERE firm_id = %s)", (firm_id,))
             cur.execute("DELETE FROM clients WHERE firm_id = %s", (firm_id,))
             cur.execute("UPDATE ai_usage_log SET firm_id = NULL WHERE firm_id = %s", (firm_id,))
             cur.execute("DELETE FROM firms WHERE id = %s", (firm_id,))
 
 
-def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_access_code=None, config=None):
+def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_access_code=None,
+                config=None, require_employee_login=None):
     sets, params = [], []
     if name is not None:
         sets.append("name = %s")
@@ -335,6 +361,9 @@ def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_acce
     if config is not None:
         sets.append("config = %s")
         params.append(json.dumps(config))
+    if require_employee_login is not None:
+        sets.append("require_employee_login = %s")
+        params.append(bool(require_employee_login))
     if not sets:
         return
     sets.append("updated_at = now()")
@@ -342,6 +371,93 @@ def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_acce
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(f"UPDATE firms SET {', '.join(sets)} WHERE id = %s", params)
+
+
+# ---------------------------------------------------------------------------
+# Employees (scoped to firm)
+# ---------------------------------------------------------------------------
+
+def firm_requires_employee_login(firm_id):
+    """True/False for the flag, or None if the firm does not exist."""
+    try:
+        firm_uuid = uuid.UUID(str(firm_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT require_employee_login FROM firms WHERE id = %s",
+                (firm_uuid,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return bool(row[0])
+
+
+def list_employees(firm_id):
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """SELECT id, firm_id, employee_id_code, name, created_at, updated_at
+                   FROM employees WHERE firm_id = %s
+                   ORDER BY name, employee_id_code""",
+                (firm_id,),
+            )
+            return cur.fetchall()
+
+
+def get_employee_by_code(firm_id, employee_id_code):
+    """Case-sensitive exact match on employee_id_code."""
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """SELECT id, firm_id, employee_id_code, name
+                   FROM employees WHERE firm_id = %s AND employee_id_code = %s""",
+                (firm_id, employee_id_code),
+            )
+            return cur.fetchone()
+
+
+def create_employee(firm_id, employee_id_code, name):
+    emp_id = uuid.uuid4()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO employees (id, firm_id, employee_id_code, name)
+                   VALUES (%s, %s, %s, %s)""",
+                (emp_id, firm_id, employee_id_code, name),
+            )
+    return str(emp_id)
+
+
+def upsert_employees(firm_id, rows):
+    """rows: list of (employee_id_code, name). Upsert by (firm_id, employee_id_code)."""
+    if not rows:
+        return 0
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_values(
+                cur,
+                """INSERT INTO employees (firm_id, employee_id_code, name)
+                   VALUES %s
+                   ON CONFLICT (firm_id, employee_id_code) DO UPDATE
+                   SET name = EXCLUDED.name, updated_at = now()""",
+                [(firm_id, code, name) for code, name in rows],
+            )
+            return len(rows)
+
+
+def delete_employee(employee_id, firm_id=None):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            sql = "DELETE FROM employees WHERE id = %s"
+            params = [employee_id]
+            if firm_id:
+                sql += " AND firm_id = %s"
+                params.append(firm_id)
+            cur.execute(sql, params)
+            return cur.rowcount > 0
 
 
 # ---------------------------------------------------------------------------
@@ -506,13 +622,16 @@ def reorder_steps(client_id, step_ids):
 # Login attempts log
 # ---------------------------------------------------------------------------
 
-def log_login_attempt(ip_address, access_code_used, firm_name, firm_slug, success):
+def log_login_attempt(ip_address, access_code_used, firm_name, firm_slug, success,
+                      employee_id_code=None, employee_name=None):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO login_attempts (ip_address, access_code_used, firm_name, firm_slug, success)
-                   VALUES (%s, %s, %s, %s, %s)""",
-                (ip_address, access_code_used, firm_name, firm_slug, success),
+                """INSERT INTO login_attempts (ip_address, access_code_used, firm_name, firm_slug,
+                   success, employee_id_code, employee_name)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (ip_address, access_code_used, firm_name, firm_slug, success,
+                 employee_id_code, employee_name),
             )
 
 

@@ -59,6 +59,17 @@
             </div>
         </section>
 
+        <section class="admin-section">
+            <h3 class="admin-section-title">Employee Logins</h3>
+            <p class="admin-hint">When enabled, staff must enter an employee ID after the firm access code. Sessions without an employee ID are signed out immediately.</p>
+            <label class="admin-toggle"><input type="checkbox" name="require_employee_login" value="1" {{ 'checked' if firm and firm.require_employee_login }}> Require employee ID at login</label>
+            {% if firm and firm.id and not is_duplicate %}
+            <div style="margin-top:0.75rem">
+                <a href="{{ url_for('admin_employees', firm_id=firm.id) }}" class="btn-pill btn-sm">Manage Employees</a>
+            </div>
+            {% endif %}
+        </section>
+
         {% set tools = cfg.get('tools_enabled', {}) %}
         {% set tools_default = firm is not none %}
         <section class="admin-section">

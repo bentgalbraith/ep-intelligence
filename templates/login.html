@@ -73,6 +73,10 @@
       width: 100%;
     }
 
+    .login-row-solo input {
+      width: 100%;
+    }
+
     .login-row input {
       flex: 1;
       padding: 0.75rem 1.4rem;
@@ -175,12 +179,31 @@
     <img src="{{ url_for('static', filename='EPILogo_White.png') }}" alt="EP Intelligence" class="landing-logo">
     <h1>Estate Planning Intelligence</h1>
     <form class="login-form" method="POST" action="{{ url_for('login') }}">
-      <div class="login-row">
+      <div class="login-row{% if require_employee %} login-row-solo{% endif %}">
         <input
           type="password"
           name="access_code"
           placeholder="Access Code"
           autocomplete="off"
+          {% if not require_employee %}autofocus required{% endif %}
+        >
+        {% if not require_employee %}
+        <button type="submit" class="btn-submit" aria-label="Submit">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+          </svg>
+        </button>
+        {% endif %}
+      </div>
+      {% if require_employee %}
+      <div class="login-row">
+        <input
+          type="text"
+          name="employee_id"
+          placeholder="Employee ID"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
           autofocus
           required
         >
@@ -190,6 +213,7 @@
           </svg>
         </button>
       </div>
+      {% endif %}
       {% if error %}
       <p class="login-error">{{ error }}</p>
       {% endif %}
