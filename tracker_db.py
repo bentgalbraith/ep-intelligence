@@ -738,6 +738,22 @@ def usage_overview(days=None, firm_id=None, employee_code=None):
             return cur.fetchone()
 
 
+def usage_cost_by_day(days=None, firm_id=None, employee_code=None):
+    where, params = _usage_filters(days, firm_id, employee_code)
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT (l.timestamp AT TIME ZONE 'America/New_York')::date AS day,
+                           COALESCE(SUM(l.cost_usd), 0) AS cost
+                    FROM ai_usage_log l
+                    {where}
+                    GROUP BY day
+                    ORDER BY day""",
+                params,
+            )
+            return cur.fetchall()
+
+
 def usage_by_tool(days=None, firm_id=None, employee_code=None):
     where, params = _usage_filters(days, firm_id, employee_code)
     with get_conn() as conn:

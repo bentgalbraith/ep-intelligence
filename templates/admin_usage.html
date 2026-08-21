@@ -72,9 +72,6 @@
         <div class="usage-kpi">
             <div class="usage-kpi-label">vs prior period</div>
             <div class="usage-kpi-value">{{ overview.cost_delta_display or '—' }}</div>
-            {% if overview.cost_delta_sub %}
-            <div class="usage-kpi-sub">{{ overview.cost_delta_sub }}</div>
-            {% endif %}
         </div>
         {% endif %}
     </div>
@@ -96,6 +93,14 @@
             <div class="usage-kpi-value">{{ overview.pages or 0 }}</div>
         </div>
     </div>
+
+    {% if cost_series %}
+    <h3 class="usage-section-heading">Cost over time</h3>
+    <div class="usage-chart-wrap">
+        <svg class="usage-chart" id="usage-cost-chart" viewBox="0 0 600 240" role="img" aria-label="Cost over time"></svg>
+        <script type="application/json" id="usage-cost-series">{{ cost_series|tojson }}</script>
+    </div>
+    {% endif %}
 
     <h3 class="usage-section-heading">By tool</h3>
     {% if by_tool %}
@@ -265,5 +270,127 @@ document.querySelectorAll('.usage-error-copy').forEach((btn) => {
         });
     });
 });
+
+(function () {
+    const svg = document.getElementById('usage-cost-chart');
+    const payload = document.getElementById('usage-cost-series');
+    if (!svg || !payload) return;
+
+    let data = [];
+    try { data = JSON.parse(payload.textContent || '[]'); } catch (e) { return; }
+    if (!data.length) return;
+
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const width = 600;
+    const height = 240;
+    const margin = { top: 16, right: 16, bottom: 36, left: 52 };
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+
+    function svgElement(name, attributes, text) {
+        const element = document.createElementNS(SVG_NS, name);
+        for (const [key, value] of Object.entries(attributes || {})) {
+            element.setAttribute(key, value);
+        }
+        if (text !== undefined) element.textContent = text;
+        return element;
+    }
+
+    function pathFromPoints(points) {
+        return points.map((point, index) =>
+            (index === 0 ? 'M' : 'L') + point.x.toFixed(2) + ' ' + point.y.toFixed(2)
+        ).join(' ');
+    }
+
+    function niceAxis(maxValue) {
+        if (!(maxValue > 0)) return { step: 1, maximum: 1, tickCount: 1 };
+        const roughStep = maxValue / 4;
+        const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+        const normalized = roughStep / magnitude;
+        const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+        const step = niceNormalized * magnitude;
+        const maximum = Math.ceil(maxValue / step) * step;
+        return { step, maximum, tickCount: Math.round(maximum / step) };
+    }
+
+    function formatAxisMoney(value, maxValue) {
+        if (maxValue < 1) return '$' + value.toFixed(2);
+        if (maxValue < 10) return '$' + value.toFixed(1);
+        return '$' + Math.round(value);
+    }
+
+    function formatPointMoney(value) {
+        return '$' + Number(value || 0).toFixed(2);
+    }
+
+    function labelIndexes(n) {
+        if (n <= 7) return Array.from({ length: n }, (_, i) => i);
+        const count = 6;
+        const out = [];
+        for (let i = 0; i < count; i++) {
+            out.push(Math.round(i * (n - 1) / (count - 1)));
+        }
+        return [...new Set(out)];
+    }
+
+    const costs = data.map((item) => Number(item.cost) || 0);
+    const axis = niceAxis(Math.max(0, ...costs));
+    const maxValue = axis.maximum;
+    const x = (index) => margin.left + (data.length === 1 ? plotWidth / 2 : (index / (data.length - 1)) * plotWidth);
+    const y = (value) => margin.top + plotHeight - (value / maxValue) * plotHeight;
+
+    svg.replaceChildren();
+
+    for (let index = 0; index <= axis.tickCount; index++) {
+        const value = axis.step * index;
+        const yPosition = y(value);
+        svg.appendChild(svgElement('line', {
+            class: 'chart-grid',
+            x1: margin.left,
+            x2: width - margin.right,
+            y1: yPosition,
+            y2: yPosition,
+        }));
+        svg.appendChild(svgElement('text', {
+            x: margin.left - 10,
+            y: yPosition + 4,
+            'text-anchor': 'end',
+        }, formatAxisMoney(value, maxValue)));
+    }
+
+    labelIndexes(data.length).forEach((index) => {
+        svg.appendChild(svgElement('text', {
+            x: x(index),
+            y: height - 12,
+            'text-anchor': 'middle',
+        }, data[index].label));
+    });
+
+    const points = data.map((item, index) => ({ x: x(index), y: y(Number(item.cost) || 0), item }));
+    const baseline = margin.top + plotHeight;
+    const areaPath = pathFromPoints(points) +
+        ' L' + points[points.length - 1].x + ' ' + baseline +
+        ' L' + points[0].x + ' ' + baseline + ' Z';
+
+    svg.appendChild(svgElement('path', { class: 'chart-area', d: areaPath }));
+    svg.appendChild(svgElement('path', {
+        class: 'chart-line',
+        d: pathFromPoints(points),
+        pathLength: '1',
+    }));
+
+    points.forEach((point) => {
+        const circle = svgElement('circle', {
+            class: 'chart-point',
+            cx: point.x,
+            cy: point.y,
+            r: '4',
+            role: 'img',
+            'aria-label': point.item.label + ': ' + formatPointMoney(point.item.cost),
+        });
+        circle.appendChild(svgElement('title', {}, point.item.label + ': ' + formatPointMoney(point.item.cost)));
+        svg.appendChild(circle);
+    });
+})();
 </script>
 {% endblock %}

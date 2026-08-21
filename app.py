@@ -1578,6 +1578,70 @@ def _usage_label_provider(provider):
     return _USAGE_PROVIDER_LABELS.get(provider, provider or "—")
 
 
+def _as_date(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    return value
+
+
+def _monday(d):
+    return d - timedelta(days=d.weekday())
+
+
+def _usage_cost_series(days, firm_id, employee_code):
+    if not tracker_db.DATABASE_URL:
+        return []
+    raw = tracker_db.usage_cost_by_day(days=days, firm_id=firm_id, employee_code=employee_code)
+    by_day = {}
+    for row in raw:
+        day = _as_date(row.get("day"))
+        if not day:
+            continue
+        by_day[day] = float(row.get("cost") or 0)
+
+    today = datetime.now(_EASTERN).date()
+    if days:
+        start = (datetime.now(_EASTERN) - timedelta(days=int(days))).date()
+    elif by_day:
+        start = min(by_day)
+    else:
+        return []
+
+    if start > today:
+        start = today
+
+    span = (today - start).days
+    use_week = days is None and span > 180
+    series = []
+
+    if use_week:
+        weekly = {}
+        for day, cost in by_day.items():
+            key = _monday(day)
+            weekly[key] = weekly.get(key, 0.0) + cost
+        cursor = _monday(start)
+        end = _monday(today)
+        while cursor <= end:
+            series.append({
+                "date": cursor.isoformat(),
+                "label": cursor.strftime("%b ") + str(cursor.day),
+                "cost": round(weekly.get(cursor, 0.0), 4),
+            })
+            cursor += timedelta(days=7)
+    else:
+        cursor = start
+        while cursor <= today:
+            series.append({
+                "date": cursor.isoformat(),
+                "label": cursor.strftime("%b ") + str(cursor.day),
+                "cost": round(by_day.get(cursor, 0.0), 4),
+            })
+            cursor += timedelta(days=1)
+    return series
+
+
 @app.route("/admin/usage")
 @admin_required
 def admin_usage():
@@ -1588,7 +1652,7 @@ def admin_usage():
         "calls": 0, "errors": 0, "cost": 0, "pages": 0,
         "cost_openai": 0, "cost_ocr": 0, "error_rate": 0,
         "cost_delta": None, "cost_delta_pct": None,
-        "cost_delta_display": None, "cost_delta_sub": None,
+        "cost_delta_display": None,
     }
     by_tool, by_firm, by_employee, errors = [], [], [], []
 
@@ -1609,12 +1673,9 @@ def admin_usage():
                 pct = round(100.0 * delta / prior_cost, 1)
                 overview["cost_delta_pct"] = pct
                 overview["cost_delta_display"] = f"{pct:+.1f}%"
-                sign = "+" if delta >= 0 else "-"
-                overview["cost_delta_sub"] = f"{sign}${abs(delta):,.2f}"
             else:
                 sign = "+" if delta >= 0 else "-"
                 overview["cost_delta_display"] = f"{sign}${abs(delta):,.2f}"
-                overview["cost_delta_sub"] = "no prior spend"
         by_tool = tracker_db.usage_by_tool(**kwargs)
         by_firm = tracker_db.usage_by_firm(**kwargs)
         by_employee = tracker_db.usage_by_employee(**kwargs)
@@ -1623,6 +1684,8 @@ def admin_usage():
             item = dict(r)
             item["summary"] = _usage_error_summary(item.get("notes"))
             errors.append(item)
+
+    cost_series = _usage_cost_series(days, firm_id, employee_code)
 
     scope_firm_name = None
     if firm_id:
@@ -1657,6 +1720,7 @@ def admin_usage():
         scope_employee=scope_employee,
         tool_label=_usage_label_tool,
         provider_label=_usage_label_provider,
+        cost_series=cost_series,
     )
 
 
