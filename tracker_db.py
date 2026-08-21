@@ -177,6 +177,13 @@ MIGRATIONS = [
         "CREATE INDEX IF NOT EXISTS idx_ai_usage_log_firm_ts ON ai_usage_log (firm_id, timestamp DESC)",
         "CREATE INDEX IF NOT EXISTS idx_ai_usage_log_employee_ts ON ai_usage_log (employee_id, timestamp DESC)",
     ],
+    # v9: optional firm-facing usage dashboard
+    [
+        """ALTER TABLE firms ADD COLUMN IF NOT EXISTS usage_dashboard_enabled
+           BOOLEAN NOT NULL DEFAULT false""",
+        "ALTER TABLE firms ADD COLUMN IF NOT EXISTS usage_dashboard_password_hash TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE firms ADD COLUMN IF NOT EXISTS usage_dashboard_password_plain TEXT NOT NULL DEFAULT ''",
+    ],
 ]
 
 
@@ -272,21 +279,26 @@ def seed_firm_if_empty():
 # ---------------------------------------------------------------------------
 
 def create_firm(name, slug, access_code, tracker_access_code, config=None,
-                require_employee_login=False):
+                require_employee_login=False, usage_dashboard_enabled=False,
+                usage_dashboard_password=""):
     firm_id = uuid.uuid4()
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO firms (id, name, slug, access_code_hash, access_code_plain,
                    tracker_access_code_hash, tracker_access_code_plain, config,
-                   require_employee_login)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   require_employee_login, usage_dashboard_enabled,
+                   usage_dashboard_password_hash, usage_dashboard_password_plain)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     firm_id, name, slug,
                     generate_password_hash(access_code), access_code,
                     generate_password_hash(tracker_access_code), tracker_access_code,
                     json.dumps(config or {}),
                     bool(require_employee_login),
+                    bool(usage_dashboard_enabled),
+                    generate_password_hash(usage_dashboard_password) if usage_dashboard_password else "",
+                    usage_dashboard_password or "",
                 ),
             )
     return str(firm_id)
@@ -297,7 +309,8 @@ def get_firm(firm_id):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """SELECT id, name, slug, config, access_code_plain, tracker_access_code_plain,
-                          require_employee_login FROM firms WHERE id = %s""",
+                          require_employee_login, usage_dashboard_enabled,
+                          usage_dashboard_password_plain FROM firms WHERE id = %s""",
                 (firm_id,),
             )
             row = cur.fetchone()
@@ -350,7 +363,8 @@ def delete_firm(firm_id):
 
 
 def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_access_code=None,
-                config=None, require_employee_login=None):
+                config=None, require_employee_login=None, usage_dashboard_enabled=None,
+                usage_dashboard_password=None):
     sets, params = [], []
     if name is not None:
         sets.append("name = %s")
@@ -374,6 +388,14 @@ def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_acce
     if require_employee_login is not None:
         sets.append("require_employee_login = %s")
         params.append(bool(require_employee_login))
+    if usage_dashboard_enabled is not None:
+        sets.append("usage_dashboard_enabled = %s")
+        params.append(bool(usage_dashboard_enabled))
+    if usage_dashboard_password is not None:
+        sets.append("usage_dashboard_password_hash = %s")
+        params.append(generate_password_hash(usage_dashboard_password))
+        sets.append("usage_dashboard_password_plain = %s")
+        params.append(usage_dashboard_password)
     if not sets:
         return
     sets.append("updated_at = now()")
@@ -403,6 +425,46 @@ def firm_requires_employee_login(firm_id):
             if not row:
                 return None
             return bool(row[0])
+
+
+def firm_usage_dashboard_enabled(firm_id):
+    """True/False for the flag, or None if the firm does not exist."""
+    try:
+        firm_uuid = uuid.UUID(str(firm_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT usage_dashboard_enabled FROM firms WHERE id = %s",
+                (firm_uuid,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return bool(row[0])
+
+
+def authenticate_usage_dashboard(access_code, password):
+    """Return firm dict if access code + dashboard password match and the dashboard is on."""
+    if not access_code or not password:
+        return None
+    firm = lookup_firm_by_access_code(access_code)
+    if not firm:
+        return None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT usage_dashboard_enabled, usage_dashboard_password_hash
+                   FROM firms WHERE id = %s""",
+                (firm["id"],),
+            )
+            row = cur.fetchone()
+    if not row or not row[0] or not row[1]:
+        return None
+    if not check_password_hash(row[1], password):
+        return None
+    return firm
 
 
 def list_employees(firm_id):
@@ -825,6 +887,63 @@ def usage_by_employee(days=None, firm_id=None, employee_code=None):
                     GROUP BY l.employee_id, l.employee_id_code, l.employee_name,
                              l.firm_id, f.name
                     ORDER BY cost DESC, calls DESC""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def _require_firm_id(firm_id):
+    if not firm_id:
+        raise ValueError("firm_id is required")
+    return firm_id
+
+
+def firm_usage_overview(firm_id, days=None):
+    firm_id = _require_firm_id(firm_id)
+    where, params = _usage_filters(days, firm_id, None)
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT
+                        COUNT(*) AS calls,
+                        MAX(l.timestamp) AS last_seen
+                    FROM ai_usage_log l
+                    {where}""",
+                params,
+            )
+            return cur.fetchone()
+
+
+def firm_usage_by_employee(firm_id, days=None):
+    firm_id = _require_firm_id(firm_id)
+    where, params = _usage_filters(days, firm_id, None)
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT l.employee_id, l.employee_id_code, l.employee_name,
+                           COUNT(*) AS calls,
+                           MAX(l.timestamp) AS last_seen
+                    FROM ai_usage_log l
+                    {where}
+                    GROUP BY l.employee_id, l.employee_id_code, l.employee_name
+                    ORDER BY calls DESC, l.employee_name ASC NULLS LAST""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def firm_usage_tools_by_employee(firm_id, days=None):
+    firm_id = _require_firm_id(firm_id)
+    where, params = _usage_filters(days, firm_id, None)
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT l.employee_id, l.employee_id_code, l.employee_name, l.tool,
+                           COUNT(*) AS calls
+                    FROM ai_usage_log l
+                    {where}
+                    GROUP BY l.employee_id, l.employee_id_code, l.employee_name, l.tool
+                    ORDER BY calls DESC""",
                 params,
             )
             return cur.fetchall()

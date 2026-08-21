@@ -58,6 +58,33 @@ def _et_time_filter(dt):
     return eastern.strftime("%b %d, %Y %I:%M %p ET")
 
 
+@app.template_filter("relative_time")
+def _relative_time_filter(dt):
+    eastern = _to_eastern(dt)
+    if eastern is None:
+        return ""
+    now = datetime.now(_EASTERN)
+    seconds = (now - eastern).total_seconds()
+    if seconds < 60:
+        return "Just now"
+    if seconds < 3600:
+        minutes = int(seconds // 60)
+        return f"{minutes}m ago"
+    if seconds < 86400:
+        hours = int(seconds // 3600)
+        return f"{hours}h ago"
+    today = now.date()
+    day = eastern.date()
+    if day == today - timedelta(days=1):
+        return "Yesterday"
+    days = int(seconds // 86400)
+    if days < 7:
+        return f"{days}d ago"
+    if day.year == today.year:
+        return eastern.strftime("%b ") + str(eastern.day)
+    return eastern.strftime("%b ") + str(eastern.day) + ", " + str(eastern.year)
+
+
 def _et_time_csv(dt):
     eastern = _to_eastern(dt)
     if eastern is None:
@@ -265,6 +292,11 @@ def _employee_session_valid():
     if not required:
         return True
     return bool(session.get("employee_id"))
+
+
+def _clear_usage_dash_session():
+    for key in ("usage_dash", "usage_dash_firm_id", "usage_dash_firm_name"):
+        session.pop(key, None)
 
 
 def login_required(f):
@@ -649,6 +681,114 @@ def login_employee():
     session["employee_code"] = employee["employee_id_code"]
     session["employee_name"] = employee["name"]
     return redirect(url_for("dashboard"))
+
+
+def _firm_usage_days_from_request():
+    days_raw = (request.args.get("days") or "30").strip()
+    if days_raw == "all":
+        return None, "all"
+    if days_raw in ("1", "7", "30", "90"):
+        return int(days_raw), days_raw
+    return 30, "30"
+
+
+def _firm_usage_person_key(row):
+    return (
+        str(row.get("employee_id") or ""),
+        row.get("employee_id_code") or "",
+        row.get("employee_name") or "",
+    )
+
+
+def _render_firm_usage_dashboard():
+    firm_id = session.get("usage_dash_firm_id")
+    if not firm_id:
+        _clear_usage_dash_session()
+        return redirect(url_for("firm_usage"))
+    days, days_key = _firm_usage_days_from_request()
+    overview = {"calls": 0, "last_seen": None, "people": 0}
+    people = []
+
+    if tracker_db.DATABASE_URL:
+        row = tracker_db.firm_usage_overview(firm_id, days=days)
+        if row:
+            overview["calls"] = int(row.get("calls") or 0)
+            overview["last_seen"] = row.get("last_seen")
+
+        tools_by_person = {}
+        for t in tracker_db.firm_usage_tools_by_employee(firm_id, days=days):
+            key = _firm_usage_person_key(t)
+            tools_by_person.setdefault(key, []).append({
+                "label": _usage_label_tool(t.get("tool")),
+                "calls": int(t.get("calls") or 0),
+            })
+
+        seen = set()
+        for raw in tracker_db.firm_usage_by_employee(firm_id, days=days):
+            item = dict(raw)
+            key = _firm_usage_person_key(item)
+            seen.add(item.get("employee_id_code") or "")
+            item["calls"] = int(item.get("calls") or 0)
+            item["tools"] = tools_by_person.get(key, [])
+            people.append(item)
+
+        for emp in tracker_db.list_employees(firm_id):
+            code = emp.get("employee_id_code") or ""
+            if code in seen:
+                continue
+            people.append({
+                "employee_id": emp.get("id"),
+                "employee_id_code": code,
+                "employee_name": emp.get("name"),
+                "calls": 0,
+                "last_seen": None,
+                "tools": [],
+            })
+
+        people.sort(key=lambda p: (-int(p.get("calls") or 0), (p.get("employee_name") or "").lower()))
+        overview["people"] = sum(1 for p in people if int(p.get("calls") or 0) > 0)
+
+    return render_template(
+        "firm_usage.html",
+        firm_name=session.get("usage_dash_firm_name", ""),
+        overview=overview,
+        people=people,
+        days_key=days_key,
+    )
+
+
+@app.route("/firm-usage", methods=["GET"])
+def firm_usage():
+    firm_id = session.get("usage_dash_firm_id")
+    if session.get("usage_dash") and firm_id:
+        if tracker_db.DATABASE_URL and tracker_db.firm_usage_dashboard_enabled(firm_id):
+            return _render_firm_usage_dashboard()
+        _clear_usage_dash_session()
+    return render_template("firm_usage_login.html", error=None)
+
+
+@app.route("/firm-usage/login", methods=["POST"])
+@limiter.limit("10/minute")
+def firm_usage_login():
+    access_code = request.form.get("access_code", "")
+    password = request.form.get("dashboard_password", "")
+    firm = tracker_db.authenticate_usage_dashboard(access_code, password) if tracker_db.DATABASE_URL else None
+    if not firm:
+        return render_template(
+            "firm_usage_login.html",
+            error="Invalid access code or password",
+        )
+    session.permanent = True
+    session["usage_dash"] = True
+    session["usage_dash_firm_id"] = str(firm["id"])
+    session["usage_dash_firm_name"] = firm["name"]
+    return redirect(url_for("firm_usage"))
+
+
+@app.route("/firm-usage/logout")
+def firm_usage_logout():
+    _clear_usage_dash_session()
+    return redirect(url_for("firm_usage"))
 
 
 @app.route("/dashboard")
@@ -1827,6 +1967,8 @@ def admin_firm_new():
         access_code = request.form.get("access_code", "").strip()
         tracker_code = request.form.get("tracker_access_code", "").strip()
         require_employee_login = bool(request.form.get("require_employee_login"))
+        usage_dash_on = bool(request.form.get("usage_dashboard_enabled"))
+        usage_dash_pw = (request.form.get("usage_dashboard_password") or "").strip()
 
         if not all([name, slug, access_code, tracker_code]):
             return render_template("admin_firm_edit.html", firm=None,
@@ -1838,19 +1980,24 @@ def admin_firm_new():
             return render_template("admin_firm_edit.html", firm=None, error=str(e))
 
         errors = _validate_config(config)
+        stub = {"name": name, "slug": slug, "config": config,
+                "require_employee_login": require_employee_login,
+                "usage_dashboard_enabled": usage_dash_on,
+                "usage_dashboard_password_plain": usage_dash_pw}
         if errors:
-            stub = {"name": name, "slug": slug, "config": config,
-                    "require_employee_login": require_employee_login}
             return render_template("admin_firm_edit.html", firm=stub,
                                    error=" | ".join(errors))
+        if usage_dash_on and not usage_dash_pw:
+            return render_template("admin_firm_edit.html", firm=stub,
+                                   error="A dashboard password is required when the usage dashboard is enabled.")
 
         try:
             tracker_db.create_firm(name, slug, access_code, tracker_code, config,
-                                   require_employee_login=require_employee_login)
+                                   require_employee_login=require_employee_login,
+                                   usage_dashboard_enabled=usage_dash_on,
+                                   usage_dashboard_password=usage_dash_pw)
         except Exception as e:
             if "unique" in str(e).lower():
-                stub = {"name": name, "slug": slug, "config": config,
-                        "require_employee_login": require_employee_login}
                 return render_template("admin_firm_edit.html", firm=stub,
                                        error="A firm with that slug already exists.")
             raise
@@ -1887,6 +2034,8 @@ def admin_firm_edit(firm_id):
         access_code = request.form.get("access_code", "").strip() or None
         tracker_code = request.form.get("tracker_access_code", "").strip() or None
         require_employee_login = bool(request.form.get("require_employee_login"))
+        usage_dash_on = bool(request.form.get("usage_dashboard_enabled"))
+        usage_dash_pw = (request.form.get("usage_dashboard_password") or "").strip() or None
 
         if not name or not slug:
             return render_template("admin_firm_edit.html", firm=firm,
@@ -1898,18 +2047,24 @@ def admin_firm_edit(firm_id):
             return render_template("admin_firm_edit.html", firm=firm, error=str(e))
 
         errors = _validate_config(config)
+        firm["config"] = config
+        firm["require_employee_login"] = require_employee_login
+        firm["usage_dashboard_enabled"] = usage_dash_on
         if errors:
-            firm["config"] = config
-            firm["require_employee_login"] = require_employee_login
             return render_template("admin_firm_edit.html", firm=firm,
                                    error=" | ".join(errors))
+        if usage_dash_on and not usage_dash_pw and not firm.get("usage_dashboard_password_plain"):
+            return render_template("admin_firm_edit.html", firm=firm,
+                                   error="A dashboard password is required when the usage dashboard is enabled.")
 
         try:
             tracker_db.update_firm(firm_id, name=name, slug=slug,
                                    access_code=access_code,
                                    tracker_access_code=tracker_code,
                                    config=config,
-                                   require_employee_login=require_employee_login)
+                                   require_employee_login=require_employee_login,
+                                   usage_dashboard_enabled=usage_dash_on,
+                                   usage_dashboard_password=usage_dash_pw)
         except Exception as e:
             if "unique" in str(e).lower():
                 return render_template("admin_firm_edit.html", firm=firm,

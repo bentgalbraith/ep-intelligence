@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Usage — {{ firm_name }} — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <span class="navbar-brand"><img src="{{ url_for('static', filename='EPILogo_Orange.png') }}" alt="" class="navbar-logo">{{ firm_name or 'EP Intelligence' }}</span>
+    <a href="{{ url_for('firm_usage_logout') }}" class="btn-pill btn-sm">Log Out</a>
+</nav>
+
+<main class="admin-main">
+    <div class="admin-header">
+        <h2 class="admin-heading">Usage</h2>
+    </div>
+
+    <form method="get" class="login-log-filters">
+        <select name="days" class="admin-input login-log-select" onchange="this.form.submit()">
+            <option value="1" {{ 'selected' if days_key == '1' }}>Last 24 hours</option>
+            <option value="7" {{ 'selected' if days_key == '7' }}>Last 7 days</option>
+            <option value="30" {{ 'selected' if days_key == '30' }}>Last 30 days</option>
+            <option value="90" {{ 'selected' if days_key == '90' }}>Last 90 days</option>
+            <option value="all" {{ 'selected' if days_key == 'all' }}>All time</option>
+        </select>
+    </form>
+
+    <div class="usage-kpis usage-kpis-cost">
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">Uses</div>
+            <div class="usage-kpi-value">{{ overview.calls or 0 }}</div>
+        </div>
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">People</div>
+            <div class="usage-kpi-value">{{ overview.people or 0 }}</div>
+        </div>
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">Last used</div>
+            <div class="usage-kpi-value">{% if overview.last_seen %}{{ overview.last_seen|relative_time }}{% else %}—{% endif %}</div>
+        </div>
+    </div>
+
+    <h3 class="usage-section-heading">By employee</h3>
+    {% if people %}
+    <div class="tracker-table-wrap">
+        <table class="tracker-table">
+            <thead>
+                <tr>
+                    <th>Employee</th>
+                    <th>ID</th>
+                    <th>Uses</th>
+                    <th>Last used (ET)</th>
+                    <th>Tools</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in people %}
+                <tr>
+                    <td>{% if p.employee_name %}{{ p.employee_name }}{% elif p.employee_id_code %}{{ p.employee_id_code }}{% else %}Firm login{% endif %}</td>
+                    <td>{% if p.employee_id_code %}<code>{{ p.employee_id_code }}</code>{% else %}—{% endif %}</td>
+                    <td>{{ p.calls or 0 }}</td>
+                    <td class="usage-time-cell">{{ p.last_seen|et_time if p.last_seen else '—' }}</td>
+                    <td>
+                        {% if p.tools %}
+                            {% for t in p.tools %}{{ t.label }} ({{ t.calls }}){% if not loop.last %}, {% endif %}{% endfor %}
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="admin-empty">No usage recorded for this period.</p>
+    {% endif %}
+</main>
+{% endblock %}

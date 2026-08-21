@@ -70,6 +70,17 @@
             {% endif %}
         </section>
 
+        <section class="admin-section">
+            <h3 class="admin-section-title">Usage Dashboard</h3>
+            <p class="admin-hint">When enabled, firm leaders sign in at <code>/firm-usage</code> with the firm access code and this password. No employee ID is required. Costs are not shown.</p>
+            <label class="admin-toggle"><input type="checkbox" name="usage_dashboard_enabled" value="1" {{ 'checked' if firm and firm.usage_dashboard_enabled }}> Enable usage dashboard</label>
+            <div class="admin-field" style="margin-top:0.85rem">
+                <label class="admin-label">Dashboard Password{% if firm and firm.id and not is_duplicate %} (leave blank to keep current){% endif %}</label>
+                <input class="admin-input" name="usage_dashboard_password" type="text" autocomplete="off"
+                       placeholder="{{ firm.usage_dashboard_password_plain if (firm and firm.usage_dashboard_password_plain and not is_duplicate) else '' }}">
+            </div>
+        </section>
+
         {% set tools = cfg.get('tools_enabled', {}) %}
         {% set tools_default = firm is not none %}
         <section class="admin-section">

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Firm Usage — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <span class="navbar-brand"><img src="{{ url_for('static', filename='EPILogo_Orange.png') }}" alt="" class="navbar-logo">EP Intelligence</span>
+</nav>
+<main class="employee-login">
+    <h2 class="dashboard-heading">Firm usage</h2>
+    <form method="POST" action="{{ url_for('firm_usage_login') }}" class="employee-login-form">
+        <input
+            class="admin-input"
+            type="text"
+            name="access_code"
+            placeholder="Firm access code"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            autofocus
+            required
+        >
+        <input
+            class="admin-input"
+            type="password"
+            name="dashboard_password"
+            placeholder="Dashboard password"
+            autocomplete="current-password"
+            required
+        >
+        <button type="submit" class="btn-pill btn-sm btn-admin-save">Continue</button>
+        {% if error %}
+        <p class="employee-login-error">{{ error }}</p>
+        {% endif %}
+    </form>
+</main>
+{% endblock %}
