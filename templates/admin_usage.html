@@ -97,7 +97,7 @@
     {% if cost_series %}
     <h3 class="usage-section-heading">Cost over time</h3>
     <div class="usage-chart-wrap">
-        <svg class="usage-chart" id="usage-cost-chart" viewBox="0 0 600 240" role="img" aria-label="Cost over time"></svg>
+        <svg class="usage-chart" id="usage-cost-chart" viewBox="0 0 600 240" role="img" aria-label="Cumulative cost over time"></svg>
         <script type="application/json" id="usage-cost-series">{{ cost_series|tojson }}</script>
     </div>
     {% endif %}
@@ -379,18 +379,99 @@ document.querySelectorAll('.usage-error-copy').forEach((btn) => {
         pathLength: '1',
     }));
 
-    points.forEach((point) => {
-        const circle = svgElement('circle', {
-            class: 'chart-point',
-            cx: point.x,
-            cy: point.y,
-            r: '4',
-            role: 'img',
-            'aria-label': point.item.label + ': ' + formatPointMoney(point.item.cost),
-        });
-        circle.appendChild(svgElement('title', {}, point.item.label + ': ' + formatPointMoney(point.item.cost)));
-        svg.appendChild(circle);
+    const hoverLine = svgElement('line', {
+        class: 'chart-hover-line',
+        y1: margin.top,
+        y2: margin.top + plotHeight,
+        visibility: 'hidden',
     });
+    const hoverPoint = svgElement('circle', {
+        class: 'chart-hover-point',
+        r: '3.5',
+        visibility: 'hidden',
+    });
+    const hit = svgElement('rect', {
+        class: 'chart-hit',
+        x: margin.left,
+        y: margin.top,
+        width: plotWidth,
+        height: plotHeight,
+    });
+    svg.appendChild(hoverLine);
+    svg.appendChild(hoverPoint);
+    svg.appendChild(hit);
+
+    const wrap = svg.closest('.usage-chart-wrap');
+    const tip = document.createElement('div');
+    tip.className = 'usage-chart-tip';
+    wrap.appendChild(tip);
+
+    function eventToSvgX(event) {
+        const ctm = svg.getScreenCTM();
+        if (!ctm) return margin.left;
+        const point = svg.createSVGPoint();
+        point.x = event.clientX;
+        point.y = event.clientY;
+        return point.matrixTransform(ctm.inverse()).x;
+    }
+
+    function svgToWrap(svgX, svgY) {
+        const ctm = svg.getScreenCTM();
+        const box = wrap.getBoundingClientRect();
+        if (!ctm) return { x: 0, y: 0 };
+        const point = svg.createSVGPoint();
+        point.x = svgX;
+        point.y = svgY;
+        const screen = point.matrixTransform(ctm);
+        return { x: screen.x - box.left, y: screen.y - box.top };
+    }
+
+    function hideHover() {
+        hoverLine.setAttribute('visibility', 'hidden');
+        hoverPoint.setAttribute('visibility', 'hidden');
+        tip.classList.remove('is-visible');
+    }
+
+    function showHover(index) {
+        const point = points[index];
+        hoverLine.setAttribute('x1', point.x);
+        hoverLine.setAttribute('x2', point.x);
+        hoverLine.setAttribute('visibility', 'visible');
+        hoverPoint.setAttribute('cx', point.x);
+        hoverPoint.setAttribute('cy', point.y);
+        hoverPoint.setAttribute('visibility', 'visible');
+
+        tip.replaceChildren();
+        const dateEl = document.createElement('div');
+        dateEl.textContent = point.item.tip || point.item.label;
+        const amountEl = document.createElement('strong');
+        amountEl.textContent = formatPointMoney(point.item.cost);
+        tip.append(dateEl, amountEl);
+        tip.classList.add('is-visible');
+
+        const pos = svgToWrap(point.x, point.y);
+        const tipWidth = tip.offsetWidth || 120;
+        const wrapWidth = wrap.clientWidth;
+        let left = pos.x;
+        const minLeft = tipWidth / 2 + 4;
+        const maxLeft = wrapWidth - tipWidth / 2 - 4;
+        if (wrapWidth > tipWidth) {
+            left = Math.max(minLeft, Math.min(maxLeft, left));
+        }
+        tip.style.left = left + 'px';
+        tip.style.top = pos.y + 'px';
+    }
+
+    function indexFromEvent(event) {
+        if (data.length === 1) return 0;
+        const svgX = eventToSvgX(event);
+        const t = (svgX - margin.left) / plotWidth;
+        return Math.max(0, Math.min(data.length - 1, Math.round(t * (data.length - 1))));
+    }
+
+    hit.addEventListener('pointermove', (event) => showHover(indexFromEvent(event)));
+    hit.addEventListener('pointerdown', (event) => showHover(indexFromEvent(event)));
+    hit.addEventListener('pointerleave', hideHover);
 })();
 </script>
 {% endblock %}

@@ -2417,10 +2417,8 @@ a.doc-list-item--link:hover {
 }
 
 .usage-chart-wrap {
-    background: #fff;
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    border-radius: 10px;
-    padding: 0.75rem 0.5rem 0.35rem 0.15rem;
+    position: relative;
+    background: transparent;
     margin-bottom: 0.25rem;
 }
 
@@ -2450,22 +2448,51 @@ a.doc-list-item--link:hover {
     stroke: #ea580c;
     stroke-linecap: round;
     stroke-linejoin: round;
-    stroke-width: 3;
+    stroke-width: 2.5;
     vector-effect: non-scaling-stroke;
     animation: usageDrawLine 700ms ease both;
 }
 
-.usage-chart .chart-point {
-    fill: #ea580c;
-    outline: none;
-    stroke: #fff;
-    stroke-width: 2;
-    transition: r 150ms ease, stroke-width 150ms ease;
+.usage-chart .chart-hover-line {
+    stroke: rgba(26, 26, 26, 0.28);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
 }
 
-.usage-chart .chart-point:hover {
-    r: 7;
-    stroke-width: 3;
+.usage-chart .chart-hover-point {
+    fill: #ea580c;
+    stroke: #fafaf8;
+    stroke-width: 2;
+}
+
+.usage-chart .chart-hit {
+    fill: transparent;
+    cursor: crosshair;
+}
+
+.usage-chart-tip {
+    position: absolute;
+    pointer-events: none;
+    background: #1a1a1a;
+    color: #fff;
+    font-size: 0.75rem;
+    line-height: 1.35;
+    padding: 0.4rem 0.6rem;
+    border-radius: 8px;
+    white-space: nowrap;
+    opacity: 0;
+    transform: translate(-50%, calc(-100% - 10px));
+    transition: opacity 0.12s ease;
+    z-index: 2;
+}
+
+.usage-chart-tip.is-visible {
+    opacity: 1;
+}
+
+.usage-chart-tip strong {
+    display: block;
+    font-weight: 600;
 }
 
 @keyframes usageDrawLine {

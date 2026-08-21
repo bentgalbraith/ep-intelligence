@@ -1627,6 +1627,7 @@ def _usage_cost_series(days, firm_id, employee_code):
             series.append({
                 "date": cursor.isoformat(),
                 "label": cursor.strftime("%b ") + str(cursor.day),
+                "tip": "Week of " + cursor.strftime("%b ") + str(cursor.day) + ", " + str(cursor.year),
                 "cost": round(weekly.get(cursor, 0.0), 4),
             })
             cursor += timedelta(days=7)
@@ -1636,9 +1637,14 @@ def _usage_cost_series(days, firm_id, employee_code):
             series.append({
                 "date": cursor.isoformat(),
                 "label": cursor.strftime("%b ") + str(cursor.day),
+                "tip": cursor.strftime("%b ") + str(cursor.day) + ", " + str(cursor.year),
                 "cost": round(by_day.get(cursor, 0.0), 4),
             })
             cursor += timedelta(days=1)
+    running = 0.0
+    for item in series:
+        running += item["cost"]
+        item["cost"] = round(running, 4)
     return series
 
 
