@@ -9,7 +9,7 @@
     <a href="{{ url_for('login') }}" class="btn-pill btn-sm">Back</a>
 </nav>
 <main class="employee-login">
-    <h2 class="dashboard-heading">Enter your employee ID</h2>
+    <h2 class="dashboard-heading">One last thing: who are you?</h2>
     <form method="POST" action="{{ url_for('login_employee') }}" class="employee-login-form">
         <input
             class="admin-input"
@@ -22,10 +22,10 @@
             autofocus
             required
         >
+        <button type="submit" class="btn-pill btn-sm btn-admin-save">Continue</button>
         {% if error %}
         <p class="employee-login-error">{{ error }}</p>
         {% endif %}
-        <button type="submit" class="btn-pill btn-sm btn-admin-save">Continue</button>
     </form>
 </main>
 {% endblock %}
