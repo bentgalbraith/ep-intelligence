@@ -191,6 +191,10 @@ MIGRATIONS = [
         """ALTER TABLE firms ADD COLUMN IF NOT EXISTS usage_dashboard_show_costs
            BOOLEAN NOT NULL DEFAULT false""",
     ],
+    # v11: optional hint on the employee login step
+    [
+        "ALTER TABLE firms ADD COLUMN IF NOT EXISTS employee_login_hint TEXT NOT NULL DEFAULT ''",
+    ],
 ]
 
 
@@ -287,7 +291,8 @@ def seed_firm_if_empty():
 
 def create_firm(name, slug, access_code, tracker_access_code, config=None,
                 require_employee_login=False, usage_dashboard_enabled=False,
-                usage_dashboard_password="", usage_dashboard_show_costs=False):
+                usage_dashboard_password="", usage_dashboard_show_costs=False,
+                employee_login_hint=""):
     firm_id = uuid.uuid4()
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -296,8 +301,8 @@ def create_firm(name, slug, access_code, tracker_access_code, config=None,
                    tracker_access_code_hash, tracker_access_code_plain, config,
                    require_employee_login, usage_dashboard_enabled,
                    usage_dashboard_password_hash, usage_dashboard_password_plain,
-                   usage_dashboard_show_costs)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   usage_dashboard_show_costs, employee_login_hint)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     firm_id, name, slug,
                     generate_password_hash(access_code), access_code,
@@ -308,6 +313,7 @@ def create_firm(name, slug, access_code, tracker_access_code, config=None,
                     generate_password_hash(usage_dashboard_password) if usage_dashboard_password else "",
                     usage_dashboard_password or "",
                     bool(usage_dashboard_show_costs),
+                    (employee_login_hint or "").strip(),
                 ),
             )
     return str(firm_id)
@@ -318,7 +324,8 @@ def get_firm(firm_id):
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 """SELECT id, name, slug, config, access_code_plain, tracker_access_code_plain,
-                          require_employee_login, usage_dashboard_enabled,
+                          require_employee_login, employee_login_hint,
+                          usage_dashboard_enabled,
                           usage_dashboard_show_costs,
                           usage_dashboard_password_plain FROM firms WHERE id = %s""",
                 (firm_id,),
@@ -373,7 +380,8 @@ def delete_firm(firm_id):
 
 
 def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_access_code=None,
-                config=None, require_employee_login=None, usage_dashboard_enabled=None,
+                config=None, require_employee_login=None, employee_login_hint=None,
+                usage_dashboard_enabled=None,
                 usage_dashboard_show_costs=None, usage_dashboard_password=None):
     sets, params = [], []
     if name is not None:
@@ -398,6 +406,9 @@ def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_acce
     if require_employee_login is not None:
         sets.append("require_employee_login = %s")
         params.append(bool(require_employee_login))
+    if employee_login_hint is not None:
+        sets.append("employee_login_hint = %s")
+        params.append(str(employee_login_hint).strip())
     if usage_dashboard_enabled is not None:
         sets.append("usage_dashboard_enabled = %s")
         params.append(bool(usage_dashboard_enabled))

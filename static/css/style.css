@@ -327,6 +327,16 @@ h1 {
     gap: 1.75rem;
 }
 
+.employee-login-hint {
+    margin: -0.85rem 0 0;
+    max-width: 28rem;
+    font-size: 0.95rem;
+    font-weight: 400;
+    line-height: 1.45;
+    color: rgba(0, 0, 0, 0.45);
+    text-align: center;
+}
+
 .employee-login-form {
     display: flex;
     flex-direction: column;
@@ -2100,6 +2110,11 @@ a.doc-list-item--link:hover {
 
 .admin-req {
     color: #ea580c;
+    font-weight: 400;
+}
+
+.admin-optional {
+    color: rgba(0, 0, 0, 0.35);
     font-weight: 400;
 }
 

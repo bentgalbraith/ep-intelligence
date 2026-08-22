@@ -641,12 +641,15 @@ def login_employee():
         return redirect(url_for("login"))
 
     firm_name = firm["name"]
+    hint = (firm.get("employee_login_hint") or "").strip()
     if request.method == "GET":
-        return render_template("login_employee.html", firm_name=firm_name)
+        return render_template("login_employee.html", firm_name=firm_name,
+                               employee_login_hint=hint)
 
     employee_code = (request.form.get("employee_id") or "").strip()
     if not employee_code:
         return render_template("login_employee.html", firm_name=firm_name,
+                               employee_login_hint=hint,
                                error="Employee ID is required.")
 
     employee = tracker_db.get_employee_by_code(str(firm["id"]), employee_code)
@@ -660,6 +663,7 @@ def login_employee():
                 success=False,
             )
         return render_template("login_employee.html", firm_name=firm_name,
+                               employee_login_hint=hint,
                                error="Invalid employee ID")
 
     _clear_pending_login()
@@ -2111,6 +2115,7 @@ def admin_firm_new():
         access_code = request.form.get("access_code", "").strip()
         tracker_code = request.form.get("tracker_access_code", "").strip()
         require_employee_login = bool(request.form.get("require_employee_login"))
+        employee_login_hint = (request.form.get("employee_login_hint") or "").strip()
         usage_dash_on = bool(request.form.get("usage_dashboard_enabled"))
         usage_dash_show_costs = bool(request.form.get("usage_dashboard_show_costs"))
         usage_dash_pw = (request.form.get("usage_dashboard_password") or "").strip()
@@ -2127,6 +2132,7 @@ def admin_firm_new():
         errors = _validate_config(config)
         stub = {"name": name, "slug": slug, "config": config,
                 "require_employee_login": require_employee_login,
+                "employee_login_hint": employee_login_hint,
                 "usage_dashboard_enabled": usage_dash_on,
                 "usage_dashboard_show_costs": usage_dash_show_costs,
                 "usage_dashboard_password_plain": usage_dash_pw}
@@ -2140,6 +2146,7 @@ def admin_firm_new():
         try:
             tracker_db.create_firm(name, slug, access_code, tracker_code, config,
                                    require_employee_login=require_employee_login,
+                                   employee_login_hint=employee_login_hint,
                                    usage_dashboard_enabled=usage_dash_on,
                                    usage_dashboard_show_costs=usage_dash_show_costs,
                                    usage_dashboard_password=usage_dash_pw)
@@ -2181,6 +2188,7 @@ def admin_firm_edit(firm_id):
         access_code = request.form.get("access_code", "").strip() or None
         tracker_code = request.form.get("tracker_access_code", "").strip() or None
         require_employee_login = bool(request.form.get("require_employee_login"))
+        employee_login_hint = (request.form.get("employee_login_hint") or "").strip()
         usage_dash_on = bool(request.form.get("usage_dashboard_enabled"))
         usage_dash_show_costs = bool(request.form.get("usage_dashboard_show_costs"))
         usage_dash_pw = (request.form.get("usage_dashboard_password") or "").strip() or None
@@ -2197,6 +2205,7 @@ def admin_firm_edit(firm_id):
         errors = _validate_config(config)
         firm["config"] = config
         firm["require_employee_login"] = require_employee_login
+        firm["employee_login_hint"] = employee_login_hint
         firm["usage_dashboard_enabled"] = usage_dash_on
         firm["usage_dashboard_show_costs"] = usage_dash_show_costs
         if errors:
@@ -2212,6 +2221,7 @@ def admin_firm_edit(firm_id):
                                    tracker_access_code=tracker_code,
                                    config=config,
                                    require_employee_login=require_employee_login,
+                                   employee_login_hint=employee_login_hint,
                                    usage_dashboard_enabled=usage_dash_on,
                                    usage_dashboard_show_costs=usage_dash_show_costs,
                                    usage_dashboard_password=usage_dash_pw)

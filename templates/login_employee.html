@@ -10,6 +10,9 @@
 </nav>
 <main class="employee-login">
     <h2 class="dashboard-heading">One more thing: who are you?</h2>
+    {% if employee_login_hint %}
+    <p class="employee-login-hint">{{ employee_login_hint }}</p>
+    {% endif %}
     <form method="POST" action="{{ url_for('login_employee') }}" class="employee-login-form">
         <input
             class="admin-input"

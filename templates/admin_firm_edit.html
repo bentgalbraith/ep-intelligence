@@ -63,6 +63,12 @@
             <h3 class="admin-section-title">Employee Logins</h3>
             <p class="admin-hint">When enabled, staff must enter an employee ID after the firm access code. Sessions without an employee ID are signed out immediately.</p>
             <label class="admin-toggle"><input type="checkbox" name="require_employee_login" value="1" {{ 'checked' if firm and firm.require_employee_login }}> Require employee ID at login</label>
+            <div class="admin-field" style="margin-top:0.85rem">
+                <label class="admin-label">Login hint <span class="admin-optional">(optional)</span></label>
+                <input class="admin-input" name="employee_login_hint" type="text" maxlength="160" autocomplete="off"
+                       placeholder="e.g. Enter your work email, or first initial plus last name"
+                       value="{{ firm.employee_login_hint if firm and firm.employee_login_hint else '' }}">
+            </div>
             {% if firm and firm.id and not is_duplicate %}
             <div style="margin-top:0.75rem">
                 <a href="{{ url_for('admin_employees', firm_id=firm.id) }}" class="btn-pill btn-sm">Manage Employees</a>
