@@ -52,9 +52,9 @@ def firm_product_tool_sql(column="l.tool"):
 
 
 def firm_step_not_in_sql(column="l.tool"):
-    """`(sql, params)` excluding internal steps. sql is TRUE when the map is empty."""
+    """SQL excluding internal steps. TRUE when the map is empty."""
     keys = sorted(STEP_OF)
     if not keys:
-        return "TRUE", []
-    placeholders = ", ".join(["%s"] * len(keys))
-    return f"{column} NOT IN ({placeholders})", keys
+        return "TRUE"
+    joined = ", ".join(_sql_literal(k) for k in keys)
+    return f"{column} NOT IN ({joined})"

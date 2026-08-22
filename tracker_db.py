@@ -931,17 +931,16 @@ def _require_firm_id(firm_id):
 
 def _firm_usage_where(days, firm_id):
     where, params = _usage_filters(days, firm_id, None)
-    not_step, step_params = usage_tools.firm_step_not_in_sql()
+    not_step = usage_tools.firm_step_not_in_sql()
     where = f"{where} AND {not_step}" if where else f"WHERE {not_step}"
-    return where, list(params) + step_params
+    return where, params
 
 
 def firm_usage_overview(firm_id, days=None):
     firm_id = _require_firm_id(firm_id)
     where, params = _usage_filters(days, firm_id, None)
-    not_step, step_params = usage_tools.firm_step_not_in_sql()
+    not_step = usage_tools.firm_step_not_in_sql()
     tool_expr = usage_tools.firm_product_tool_sql()
-    params = list(params) + step_params + step_params
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
