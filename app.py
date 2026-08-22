@@ -794,7 +794,7 @@ def _render_firm_usage_dashboard():
     )
 
 
-@app.route("/firm-usage", methods=["GET"])
+@app.route("/firm-usage", methods=["GET"], strict_slashes=False)
 def firm_usage():
     firm_id = session.get("usage_dash_firm_id")
     if session.get("usage_dash") and firm_id:
@@ -804,9 +804,11 @@ def firm_usage():
     return render_template("firm_usage_login.html", error=None)
 
 
-@app.route("/firm-usage/login", methods=["POST"])
+@app.route("/firm-usage/login", methods=["GET", "POST"], strict_slashes=False)
 @limiter.limit("10/minute")
 def firm_usage_login():
+    if request.method == "GET":
+        return redirect(url_for("firm_usage"))
     access_code = request.form.get("access_code", "")
     password = request.form.get("dashboard_password", "")
     firm = tracker_db.authenticate_usage_dashboard(access_code, password) if tracker_db.DATABASE_URL else None
@@ -822,7 +824,7 @@ def firm_usage_login():
     return redirect(url_for("firm_usage"))
 
 
-@app.route("/firm-usage/logout")
+@app.route("/firm-usage/logout", strict_slashes=False)
 def firm_usage_logout():
     _clear_usage_dash_session()
     return redirect(url_for("firm_usage"))
