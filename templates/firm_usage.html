@@ -462,21 +462,24 @@
     data.forEach((item, index) => {
         let yCursor = baseline;
         const counts = item.counts || {};
+        let stacked = 0;
         tools.forEach((tool, toolIndex) => {
             const count = Number(counts[tool.key]) || 0;
             if (count <= 0) return;
             const heightPx = (count / maxValue) * plotHeight;
             const top = yCursor - heightPx;
+            const gap = stacked > 0 && heightPx > 1.5 ? 1 : 0;
             svg.appendChild(svgElement('rect', {
                 class: 'chart-bar',
                 x: xBar(index).toFixed(2),
                 y: top.toFixed(2),
                 width: barWidth.toFixed(2),
-                height: Math.max(0, heightPx).toFixed(2),
+                height: Math.max(0, heightPx - gap).toFixed(2),
                 fill: tool.color,
                 style: 'animation-delay:' + (index * 12 + toolIndex * 20) + 'ms',
             }));
             yCursor = top;
+            stacked += 1;
         });
         tops.push({ x: xCenter(index), y: yCursor, item });
     });
@@ -487,11 +490,6 @@
         y2: margin.top + plotHeight,
         visibility: 'hidden',
     });
-    const hoverPoint = svgElement('circle', {
-        class: 'chart-hover-point',
-        r: '3.5',
-        visibility: 'hidden',
-    });
     const hit = svgElement('rect', {
         class: 'chart-hit',
         x: margin.left,
@@ -500,7 +498,6 @@
         height: plotHeight,
     });
     svg.appendChild(hoverLine);
-    svg.appendChild(hoverPoint);
     svg.appendChild(hit);
 
     const wrap = svg.closest('.usage-chart-wrap');
@@ -541,7 +538,6 @@
 
     function hideHover() {
         hoverLine.setAttribute('visibility', 'hidden');
-        hoverPoint.setAttribute('visibility', 'hidden');
         tip.classList.remove('is-visible');
     }
 
@@ -550,9 +546,6 @@
         hoverLine.setAttribute('x1', point.x);
         hoverLine.setAttribute('x2', point.x);
         hoverLine.setAttribute('visibility', 'visible');
-        hoverPoint.setAttribute('cx', point.x);
-        hoverPoint.setAttribute('cy', point.y);
-        hoverPoint.setAttribute('visibility', 'visible');
 
         tip.replaceChildren();
         const dateEl = document.createElement('div');
