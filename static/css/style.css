@@ -2495,6 +2495,66 @@ a.doc-list-item--link:hover {
     font-weight: 600;
 }
 
+.usage-chart .chart-bar {
+    transform-box: fill-box;
+    transform-origin: center bottom;
+    animation: usageGrowBar 550ms ease both;
+}
+
+.usage-chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    margin: 0.15rem 0 0.35rem;
+    padding-left: 52px;
+}
+
+.usage-chart-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+    color: #817c76;
+}
+
+.usage-chart-legend i {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.usage-chart-tip.is-stack {
+    white-space: normal;
+    min-width: 148px;
+}
+
+.usage-chart-tip-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.18rem;
+    font-size: 0.72rem;
+}
+
+.usage-chart-tip-row .swatch {
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.usage-chart-tip-row .n {
+    margin-left: auto;
+    padding-left: 0.8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+@keyframes usageGrowBar {
+    from { transform: scaleY(0); }
+    to { transform: scaleY(1); }
+}
+
 @keyframes usageDrawLine {
     from { stroke-dasharray: 0 1; }
     to { stroke-dasharray: 1 0; }
@@ -2574,36 +2634,111 @@ a.doc-list-item--link:hover {
     clip: rect(0, 0, 0, 0);
 }
 
-.firm-usage-details summary {
-    cursor: pointer;
-    font-size: 0.8rem;
+.firm-usage-tools {
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.firm-usage-tool-cols,
+.firm-usage-tool > summary,
+.firm-usage-tool-static {
+    display: grid;
+    grid-template-columns: 1rem minmax(0, 1fr) 4.5rem 12.5rem;
+    gap: 0.85rem;
+    align-items: center;
+    padding: 0.7rem 1rem;
+}
+
+.firm-usage-tool-cols {
+    font-size: 0.7rem;
     font-weight: 500;
-    color: rgba(0, 0, 0, 0.45);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(0, 0, 0, 0.4);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.firm-usage-tool {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.firm-usage-tool:last-child {
+    border-bottom: none;
+}
+
+.firm-usage-tool > summary {
     list-style: none;
+    cursor: pointer;
     user-select: none;
 }
 
-.firm-usage-details summary::-webkit-details-marker {
+.firm-usage-tool > summary::-webkit-details-marker {
     display: none;
 }
 
-.firm-usage-details summary:hover {
-    color: var(--primary, #ea580c);
+.firm-usage-tool > summary:hover,
+.firm-usage-tool[open] > summary {
+    background: rgba(234, 88, 12, 0.03);
 }
 
-.firm-usage-details[open] summary {
+.firm-usage-chevron {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 1.5px solid rgba(0, 0, 0, 0.35);
+    border-bottom: 1.5px solid rgba(0, 0, 0, 0.35);
+    transform: rotate(-45deg);
+    justify-self: center;
+    transition: transform 0.15s ease;
+}
+
+.firm-usage-tool[open] .firm-usage-chevron {
+    transform: rotate(45deg);
+}
+
+.firm-usage-chevron.is-empty {
+    visibility: hidden;
+}
+
+.firm-usage-tool-name {
+    font-weight: 500;
     color: #1a1a1a;
-    margin-bottom: 0.6rem;
+    min-width: 0;
 }
 
-.firm-usage-event-table {
-    margin-top: 0.15rem;
+.firm-usage-tool-count {
+    color: #1a1a1a;
+    font-variant-numeric: tabular-nums;
+}
+
+.firm-usage-log {
+    background: #fafafa;
+    border-top: 1px solid rgba(0, 0, 0, 0.04);
+    max-height: 18rem;
+    overflow-y: auto;
+}
+
+.firm-usage-log-item {
+    display: grid;
+    grid-template-columns: 12.5rem minmax(0, 1fr) auto;
+    gap: 0.85rem;
+    align-items: center;
+    padding: 0.55rem 1rem 0.55rem calc(1rem + 1rem + 0.85rem);
+    font-size: 0.82rem;
+    color: #1a1a1a;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.firm-usage-log-item:last-child {
+    border-bottom: none;
 }
 
 .firm-usage-capped {
     font-size: 0.75rem;
     color: rgba(0, 0, 0, 0.4);
-    margin-top: 0.45rem;
+    margin: 0;
+    padding: 0.55rem 1rem 0.7rem calc(1rem + 1rem + 0.85rem);
 }
 
 /* ── Specimen Admin ── */

@@ -30,6 +30,7 @@ from quote_verify import verify_quotes
 import resend
 import stripe
 import tracker_db
+import usage_tools
 
 app = Flask(__name__)
 app.secret_key = os.environ["SECRET_KEY"]
@@ -706,7 +707,10 @@ def _render_firm_usage_dashboard():
         _clear_usage_dash_session()
         return redirect(url_for("firm_usage"))
     days, days_key = _firm_usage_days_from_request()
-    overview = {"calls": 0, "last_seen": None, "people": 0, "tools": 0}
+    overview = {
+        "calls": 0, "last_seen": None, "people": 0, "tools": 0,
+        "cost": 0, "cost_openai": 0, "cost_ocr": 0,
+    }
     people = []
     tools = []
 
@@ -716,6 +720,9 @@ def _render_firm_usage_dashboard():
             overview["calls"] = int(row.get("calls") or 0)
             overview["last_seen"] = row.get("last_seen")
             overview["tools"] = int(row.get("tools") or 0)
+            overview["cost"] = float(row.get("cost") or 0)
+            overview["cost_openai"] = float(row.get("cost_openai") or 0)
+            overview["cost_ocr"] = float(row.get("cost_ocr") or 0)
 
         events_by_tool = {}
         for event in tracker_db.firm_usage_recent_events(firm_id, days=days):
@@ -766,12 +773,19 @@ def _render_firm_usage_dashboard():
         people.sort(key=lambda p: (-int(p.get("calls") or 0), (p.get("employee_name") or "").lower()))
         overview["people"] = sum(1 for p in people if int(p.get("calls") or 0) > 0)
 
+    chart = _firm_usage_chart_series(firm_id, days)
+    show_costs = bool(tracker_db.firm_usage_dashboard_show_costs(firm_id))
+    cost_series = _usage_cost_series(days, firm_id, None) if show_costs else []
+
     return render_template(
         "firm_usage.html",
         firm_name=session.get("usage_dash_firm_name", ""),
         overview=overview,
         people=people,
         tools=tools,
+        chart=chart,
+        show_costs=show_costs,
+        cost_series=cost_series,
         days_key=days_key,
     )
 
@@ -1682,15 +1696,6 @@ def admin_login_log_csv():
     return resp
 
 
-_USAGE_TOOL_LABELS = {
-    "ep_extract": "Drafting Notes",
-    "doc_separator": "Document Separator",
-    "doc_separator_ocr": "Document Separator (OCR)",
-    "doc_separator_redo": "Document Separator (Redo)",
-    "prospect_summarizer": "Prospect Summarizer",
-    "prospect_summarizer_ocr": "Prospect Summarizer (OCR)",
-}
-
 _USAGE_PROVIDER_LABELS = {
     "openai": "OpenAI",
     "google_documentai": "Document AI",
@@ -1730,7 +1735,7 @@ def _usage_error_summary(notes):
 
 
 def _usage_label_tool(tool):
-    return _USAGE_TOOL_LABELS.get(tool, tool or "—")
+    return usage_tools.display_label(tool)
 
 
 def _usage_label_provider(provider):
@@ -1851,6 +1856,121 @@ def _usage_cost_series(days, firm_id, employee_code):
         running += item["cost"]
         item["cost"] = round(running, 4)
     return series
+
+
+_FIRM_USAGE_CHART_COLORS = [
+    "#ea580c",
+    "#1a1a1a",
+    "#c2410c",
+    "#78716c",
+    "#b45309",
+    "#44403c",
+    "#9a3412",
+    "#a8a29e",
+    "#d97706",
+    "#292524",
+]
+
+
+def _firm_usage_chart_series(firm_id, days):
+    if not tracker_db.DATABASE_URL or not firm_id:
+        return None
+
+    buckets = collections.defaultdict(lambda: collections.defaultdict(int))
+    tool_totals = collections.defaultdict(int)
+
+    if days == 1:
+        for row in tracker_db.firm_usage_by_hour_tool(firm_id, days=days):
+            hour = _as_et_hour(row.get("hour"))
+            if not hour:
+                continue
+            tool = row.get("tool") or "unknown"
+            n = int(row.get("calls") or 0)
+            buckets[hour][tool] += n
+            tool_totals[tool] += n
+        if not tool_totals:
+            return None
+        end = datetime.now(_EASTERN).replace(minute=0, second=0, microsecond=0)
+        cursor = end - timedelta(hours=23)
+        points = []
+        while cursor <= end:
+            hour, ampm = _clock_parts(cursor)
+            counts = {k: int(buckets[cursor].get(k, 0)) for k in tool_totals}
+            points.append({
+                "date": cursor.isoformat(),
+                "label": hour + " " + ampm,
+                "tip": (
+                    cursor.strftime("%b ") + str(cursor.day) + ", " + str(cursor.year)
+                    + ", " + hour + cursor.strftime(":%M ") + ampm + " ET"
+                ),
+                "counts": counts,
+                "total": sum(counts.values()),
+            })
+            cursor += timedelta(hours=1)
+    else:
+        for row in tracker_db.firm_usage_by_day_tool(firm_id, days=days):
+            day = _as_date(row.get("day"))
+            if not day:
+                continue
+            tool = row.get("tool") or "unknown"
+            n = int(row.get("calls") or 0)
+            buckets[day][tool] += n
+            tool_totals[tool] += n
+        if not tool_totals:
+            return None
+
+        today = datetime.now(_EASTERN).date()
+        if days:
+            start = (datetime.now(_EASTERN) - timedelta(days=int(days))).date()
+        else:
+            start = min(buckets)
+        if start > today:
+            start = today
+
+        span = (today - start).days
+        use_week = days is None and span > 180
+        points = []
+
+        if use_week:
+            weekly = collections.defaultdict(lambda: collections.defaultdict(int))
+            for day, tools in buckets.items():
+                key = _monday(day)
+                for tool, n in tools.items():
+                    weekly[key][tool] += n
+            cursor = _monday(start)
+            end = _monday(today)
+            while cursor <= end:
+                counts = {k: int(weekly[cursor].get(k, 0)) for k in tool_totals}
+                points.append({
+                    "date": cursor.isoformat(),
+                    "label": cursor.strftime("%b ") + str(cursor.day),
+                    "tip": "Week of " + cursor.strftime("%b ") + str(cursor.day) + ", " + str(cursor.year),
+                    "counts": counts,
+                    "total": sum(counts.values()),
+                })
+                cursor += timedelta(days=7)
+        else:
+            cursor = start
+            while cursor <= today:
+                counts = {k: int(buckets[cursor].get(k, 0)) for k in tool_totals}
+                points.append({
+                    "date": cursor.isoformat(),
+                    "label": cursor.strftime("%b ") + str(cursor.day),
+                    "tip": cursor.strftime("%b ") + str(cursor.day) + ", " + str(cursor.year),
+                    "counts": counts,
+                    "total": sum(counts.values()),
+                })
+                cursor += timedelta(days=1)
+
+    tools_sorted = sorted(tool_totals, key=lambda k: (-tool_totals[k], k or ""))
+    tools = []
+    for i, key in enumerate(tools_sorted):
+        tools.append({
+            "key": key,
+            "label": _usage_label_tool(key),
+            "color": _FIRM_USAGE_CHART_COLORS[i % len(_FIRM_USAGE_CHART_COLORS)],
+        })
+    return {"tools": tools, "points": points}
 
 
 @app.route("/admin/usage")
@@ -1987,6 +2107,7 @@ def admin_firm_new():
         tracker_code = request.form.get("tracker_access_code", "").strip()
         require_employee_login = bool(request.form.get("require_employee_login"))
         usage_dash_on = bool(request.form.get("usage_dashboard_enabled"))
+        usage_dash_show_costs = bool(request.form.get("usage_dashboard_show_costs"))
         usage_dash_pw = (request.form.get("usage_dashboard_password") or "").strip()
 
         if not all([name, slug, access_code, tracker_code]):
@@ -2002,6 +2123,7 @@ def admin_firm_new():
         stub = {"name": name, "slug": slug, "config": config,
                 "require_employee_login": require_employee_login,
                 "usage_dashboard_enabled": usage_dash_on,
+                "usage_dashboard_show_costs": usage_dash_show_costs,
                 "usage_dashboard_password_plain": usage_dash_pw}
         if errors:
             return render_template("admin_firm_edit.html", firm=stub,
@@ -2014,6 +2136,7 @@ def admin_firm_new():
             tracker_db.create_firm(name, slug, access_code, tracker_code, config,
                                    require_employee_login=require_employee_login,
                                    usage_dashboard_enabled=usage_dash_on,
+                                   usage_dashboard_show_costs=usage_dash_show_costs,
                                    usage_dashboard_password=usage_dash_pw)
         except Exception as e:
             if "unique" in str(e).lower():
@@ -2054,6 +2177,7 @@ def admin_firm_edit(firm_id):
         tracker_code = request.form.get("tracker_access_code", "").strip() or None
         require_employee_login = bool(request.form.get("require_employee_login"))
         usage_dash_on = bool(request.form.get("usage_dashboard_enabled"))
+        usage_dash_show_costs = bool(request.form.get("usage_dashboard_show_costs"))
         usage_dash_pw = (request.form.get("usage_dashboard_password") or "").strip() or None
 
         if not name or not slug:
@@ -2069,6 +2193,7 @@ def admin_firm_edit(firm_id):
         firm["config"] = config
         firm["require_employee_login"] = require_employee_login
         firm["usage_dashboard_enabled"] = usage_dash_on
+        firm["usage_dashboard_show_costs"] = usage_dash_show_costs
         if errors:
             return render_template("admin_firm_edit.html", firm=firm,
                                    error=" | ".join(errors))
@@ -2083,6 +2208,7 @@ def admin_firm_edit(firm_id):
                                    config=config,
                                    require_employee_login=require_employee_login,
                                    usage_dashboard_enabled=usage_dash_on,
+                                   usage_dashboard_show_costs=usage_dash_show_costs,
                                    usage_dashboard_password=usage_dash_pw)
         except Exception as e:
             if "unique" in str(e).lower():

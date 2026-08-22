@@ -1,0 +1,15 @@
+---
+description: When adding log_ai_call tool keys or changing usage dashboards
+alwaysApply: true
+---
+
+# Usage log tool keys
+
+`log_ai_call(tool=...)` keys are registered in `usage_tools.py`. Do not invent a new string and only use it at the call site.
+
+- Add a display name to `TOOL_LABELS`.
+- If it is an internal step of an existing product (OCR, extra API hop), add it to `STEP_OF`. The firm dashboard will hide it from uses / by-tool / charts. Costs still roll up via `provider` (openai vs google_documentai).
+- If it is the same product under another key (redo, retry), add it to `ALIAS_OF`.
+- Leave admin `/admin/usage` uncollapsed so steps stay visible there.
+- Do not show per-tool costs on the firm dashboard.
+- Firm-facing cost KPIs and the cost chart are gated by `usage_dashboard_show_costs` (off by default).

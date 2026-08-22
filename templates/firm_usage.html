@@ -24,6 +24,23 @@
         </select>
     </form>
 
+    {% if show_costs %}
+    <div class="usage-kpis usage-kpis-cost">
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">Total cost</div>
+            <div class="usage-kpi-value">${{ '%.2f'|format(overview.cost or 0) }}</div>
+        </div>
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">Model</div>
+            <div class="usage-kpi-value">${{ '%.2f'|format(overview.cost_openai or 0) }}</div>
+        </div>
+        <div class="usage-kpi">
+            <div class="usage-kpi-label">OCR</div>
+            <div class="usage-kpi-value">${{ '%.2f'|format(overview.cost_ocr or 0) }}</div>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="usage-kpis">
         <div class="usage-kpi">
             <div class="usage-kpi-label">Uses</div>
@@ -43,58 +60,62 @@
         </div>
     </div>
 
+    {% if show_costs and cost_series %}
+    <h3 class="usage-section-heading">Cost over time</h3>
+    <div class="usage-chart-wrap">
+        <svg class="usage-chart" id="firm-cost-chart" viewBox="0 0 600 240" role="img" aria-label="Cumulative cost over time"></svg>
+        <script type="application/json" id="firm-cost-series">{{ cost_series|tojson }}</script>
+    </div>
+    {% endif %}
+
+    {% if chart and chart.points %}
+    <h3 class="usage-section-heading">Uses over time</h3>
+    <div class="usage-chart-wrap">
+        <svg class="usage-chart" id="firm-usage-chart" viewBox="0 0 600 240" role="img" aria-label="Uses per day by tool"></svg>
+        <script type="application/json" id="firm-usage-series">{{ chart|tojson }}</script>
+    </div>
+    {% endif %}
+
     <h3 class="usage-section-heading">By tool</h3>
     {% if tools %}
-    <div class="tracker-table-wrap">
-        <table class="tracker-table">
-            <thead>
-                <tr>
-                    <th>Tool</th>
-                    <th>Uses</th>
-                    <th>Last used (ET)</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for t in tools %}
-                <tr>
-                    <td>{{ t.label }}</td>
-                    <td>{{ t.calls }}</td>
-                    <td class="usage-time-cell">{{ t.last_seen|et_time if t.last_seen else '—' }}</td>
-                    <td>
-                        {% if t.events %}
-                        <details class="firm-usage-details">
-                            <summary>View uses</summary>
-                            <table class="tracker-table firm-usage-event-table">
-                                <thead>
-                                    <tr>
-                                        <th>Time (ET)</th>
-                                        <th>Employee</th>
-                                        <th>ID</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for e in t.events %}
-                                    <tr>
-                                        <td class="usage-time-cell">{{ e.timestamp|et_time if e.timestamp else '—' }}</td>
-                                        <td>{% if e.employee_name %}{{ e.employee_name }}{% elif e.employee_id_code %}{{ e.employee_id_code }}{% else %}Firm login{% endif %}</td>
-                                        <td>{% if e.employee_id_code %}<code>{{ e.employee_id_code }}</code>{% else %}—{% endif %}</td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                            {% if t.events_capped %}
-                            <p class="firm-usage-capped">Showing the 100 most recent uses</p>
-                            {% endif %}
-                        </details>
-                        {% else %}
-                        —
-                        {% endif %}
-                    </td>
-                </tr>
+    <div class="firm-usage-tools">
+        <div class="firm-usage-tool-cols">
+            <span></span>
+            <span>Tool</span>
+            <span>Uses</span>
+            <span>Last used (ET)</span>
+        </div>
+        {% for t in tools %}
+        {% if t.events %}
+        <details class="firm-usage-tool">
+            <summary>
+                <span class="firm-usage-chevron" aria-hidden="true"></span>
+                <span class="firm-usage-tool-name">{{ t.label }}</span>
+                <span class="firm-usage-tool-count">{{ t.calls }}</span>
+                <span class="usage-time-cell">{{ t.last_seen|et_time if t.last_seen else '—' }}</span>
+            </summary>
+            <div class="firm-usage-log">
+                {% for e in t.events %}
+                <div class="firm-usage-log-item">
+                    <span class="usage-time-cell">{{ e.timestamp|et_time if e.timestamp else '—' }}</span>
+                    <span>{% if e.employee_name %}{{ e.employee_name }}{% elif e.employee_id_code %}{{ e.employee_id_code }}{% else %}Firm login{% endif %}</span>
+                    <span>{% if e.employee_id_code %}<code>{{ e.employee_id_code }}</code>{% else %}{% endif %}</span>
+                </div>
                 {% endfor %}
-            </tbody>
-        </table>
+                {% if t.events_capped %}
+                <p class="firm-usage-capped">Showing the 100 most recent uses</p>
+                {% endif %}
+            </div>
+        </details>
+        {% else %}
+        <div class="firm-usage-tool firm-usage-tool-static">
+            <span class="firm-usage-chevron is-empty" aria-hidden="true"></span>
+            <span class="firm-usage-tool-name">{{ t.label }}</span>
+            <span class="firm-usage-tool-count">{{ t.calls }}</span>
+            <span class="usage-time-cell">{{ t.last_seen|et_time if t.last_seen else '—' }}</span>
+        </div>
+        {% endif %}
+        {% endfor %}
     </div>
     {% else %}
     <p class="admin-empty">No tool usage recorded for this period.</p>
@@ -136,4 +157,453 @@
     <p class="admin-empty">No usage recorded for this period.</p>
     {% endif %}
 </main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    const svg = document.getElementById('firm-cost-chart');
+    const payload = document.getElementById('firm-cost-series');
+    if (!svg || !payload) return;
+
+    let data = [];
+    try { data = JSON.parse(payload.textContent || '[]'); } catch (e) { return; }
+    if (!data.length) return;
+
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const width = 600;
+    const height = 240;
+    const margin = { top: 16, right: 16, bottom: 36, left: 52 };
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+
+    function svgElement(name, attributes, text) {
+        const element = document.createElementNS(SVG_NS, name);
+        for (const [key, value] of Object.entries(attributes || {})) {
+            element.setAttribute(key, value);
+        }
+        if (text !== undefined) element.textContent = text;
+        return element;
+    }
+
+    function pathFromPoints(points) {
+        return points.map((point, index) =>
+            (index === 0 ? 'M' : 'L') + point.x.toFixed(2) + ' ' + point.y.toFixed(2)
+        ).join(' ');
+    }
+
+    function niceAxis(maxValue) {
+        if (!(maxValue > 0)) return { step: 1, maximum: 1, tickCount: 1 };
+        const roughStep = maxValue / 4;
+        const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+        const normalized = roughStep / magnitude;
+        const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+        const step = niceNormalized * magnitude;
+        const maximum = Math.ceil(maxValue / step) * step;
+        return { step, maximum, tickCount: Math.round(maximum / step) };
+    }
+
+    function formatAxisMoney(value, maxValue) {
+        if (maxValue < 1) return '$' + value.toFixed(2);
+        if (maxValue < 10) return '$' + value.toFixed(1);
+        return '$' + Math.round(value);
+    }
+
+    function formatPointMoney(value) {
+        return '$' + Number(value || 0).toFixed(2);
+    }
+
+    function labelIndexes(n) {
+        if (n <= 7) return Array.from({ length: n }, (_, i) => i);
+        const count = 6;
+        const out = [];
+        for (let i = 0; i < count; i++) {
+            out.push(Math.round(i * (n - 1) / (count - 1)));
+        }
+        return [...new Set(out)];
+    }
+
+    const costs = data.map((item) => Number(item.cost) || 0);
+    const axis = niceAxis(Math.max(0, ...costs));
+    const maxValue = axis.maximum;
+    const x = (index) => margin.left + (data.length === 1 ? plotWidth / 2 : (index / (data.length - 1)) * plotWidth);
+    const y = (value) => margin.top + plotHeight - (value / maxValue) * plotHeight;
+
+    svg.replaceChildren();
+
+    for (let index = 0; index <= axis.tickCount; index++) {
+        const value = axis.step * index;
+        const yPosition = y(value);
+        svg.appendChild(svgElement('line', {
+            class: 'chart-grid',
+            x1: margin.left,
+            x2: width - margin.right,
+            y1: yPosition,
+            y2: yPosition,
+        }));
+        svg.appendChild(svgElement('text', {
+            x: margin.left - 10,
+            y: yPosition + 4,
+            'text-anchor': 'end',
+        }, formatAxisMoney(value, maxValue)));
+    }
+
+    labelIndexes(data.length).forEach((index) => {
+        svg.appendChild(svgElement('text', {
+            x: x(index),
+            y: height - 12,
+            'text-anchor': 'middle',
+        }, data[index].label));
+    });
+
+    const points = data.map((item, index) => ({ x: x(index), y: y(Number(item.cost) || 0), item }));
+    const baseline = margin.top + plotHeight;
+    const areaPath = pathFromPoints(points) +
+        ' L' + points[points.length - 1].x + ' ' + baseline +
+        ' L' + points[0].x + ' ' + baseline + ' Z';
+
+    svg.appendChild(svgElement('path', { class: 'chart-area', d: areaPath }));
+    svg.appendChild(svgElement('path', {
+        class: 'chart-line',
+        d: pathFromPoints(points),
+        pathLength: '1',
+    }));
+
+    const hoverLine = svgElement('line', {
+        class: 'chart-hover-line',
+        y1: margin.top,
+        y2: margin.top + plotHeight,
+        visibility: 'hidden',
+    });
+    const hoverPoint = svgElement('circle', {
+        class: 'chart-hover-point',
+        r: '3.5',
+        visibility: 'hidden',
+    });
+    const hit = svgElement('rect', {
+        class: 'chart-hit',
+        x: margin.left,
+        y: margin.top,
+        width: plotWidth,
+        height: plotHeight,
+    });
+    svg.appendChild(hoverLine);
+    svg.appendChild(hoverPoint);
+    svg.appendChild(hit);
+
+    const wrap = svg.closest('.usage-chart-wrap');
+    const tip = document.createElement('div');
+    tip.className = 'usage-chart-tip';
+    wrap.appendChild(tip);
+
+    function eventToSvgX(event) {
+        const ctm = svg.getScreenCTM();
+        if (!ctm) return margin.left;
+        const point = svg.createSVGPoint();
+        point.x = event.clientX;
+        point.y = event.clientY;
+        return point.matrixTransform(ctm.inverse()).x;
+    }
+
+    function svgToWrap(svgX, svgY) {
+        const ctm = svg.getScreenCTM();
+        const box = wrap.getBoundingClientRect();
+        if (!ctm) return { x: 0, y: 0 };
+        const point = svg.createSVGPoint();
+        point.x = svgX;
+        point.y = svgY;
+        const screen = point.matrixTransform(ctm);
+        return { x: screen.x - box.left, y: screen.y - box.top };
+    }
+
+    function hideHover() {
+        hoverLine.setAttribute('visibility', 'hidden');
+        hoverPoint.setAttribute('visibility', 'hidden');
+        tip.classList.remove('is-visible');
+    }
+
+    function showHover(index) {
+        const point = points[index];
+        hoverLine.setAttribute('x1', point.x);
+        hoverLine.setAttribute('x2', point.x);
+        hoverLine.setAttribute('visibility', 'visible');
+        hoverPoint.setAttribute('cx', point.x);
+        hoverPoint.setAttribute('cy', point.y);
+        hoverPoint.setAttribute('visibility', 'visible');
+
+        tip.replaceChildren();
+        const dateEl = document.createElement('div');
+        dateEl.textContent = point.item.tip || point.item.label;
+        const amountEl = document.createElement('strong');
+        amountEl.textContent = formatPointMoney(point.item.cost);
+        tip.append(dateEl, amountEl);
+        tip.classList.add('is-visible');
+
+        const pos = svgToWrap(point.x, point.y);
+        const tipWidth = tip.offsetWidth || 120;
+        const wrapWidth = wrap.clientWidth;
+        let left = pos.x;
+        const minLeft = tipWidth / 2 + 4;
+        const maxLeft = wrapWidth - tipWidth / 2 - 4;
+        if (wrapWidth > tipWidth) {
+            left = Math.max(minLeft, Math.min(maxLeft, left));
+        }
+        tip.style.left = left + 'px';
+        tip.style.top = pos.y + 'px';
+    }
+
+    function indexFromEvent(event) {
+        if (data.length === 1) return 0;
+        const svgX = eventToSvgX(event);
+        const t = (svgX - margin.left) / plotWidth;
+        return Math.max(0, Math.min(data.length - 1, Math.round(t * (data.length - 1))));
+    }
+
+    hit.addEventListener('pointermove', (event) => showHover(indexFromEvent(event)));
+    hit.addEventListener('pointerdown', (event) => showHover(indexFromEvent(event)));
+    hit.addEventListener('pointerleave', hideHover);
+})();
+
+(function () {
+    const svg = document.getElementById('firm-usage-chart');
+    const payload = document.getElementById('firm-usage-series');
+    if (!svg || !payload) return;
+
+    let chart = null;
+    try { chart = JSON.parse(payload.textContent || 'null'); } catch (e) { return; }
+    const tools = (chart && chart.tools) || [];
+    const data = (chart && chart.points) || [];
+    if (!tools.length || !data.length) return;
+
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const width = 600;
+    const height = 240;
+    const margin = { top: 16, right: 16, bottom: 36, left: 52 };
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+
+    function svgElement(name, attributes, text) {
+        const element = document.createElementNS(SVG_NS, name);
+        for (const [key, value] of Object.entries(attributes || {})) {
+            element.setAttribute(key, value);
+        }
+        if (text !== undefined) element.textContent = text;
+        return element;
+    }
+
+    function niceAxis(maxValue) {
+        maxValue = Math.max(1, Math.ceil(maxValue || 0));
+        const roughStep = maxValue / 4;
+        const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+        const normalized = roughStep / magnitude;
+        const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+        let step = niceNormalized * magnitude;
+        if (step < 1) step = 1;
+        const maximum = Math.ceil(maxValue / step) * step;
+        return { step, maximum, tickCount: Math.round(maximum / step) };
+    }
+
+    function formatAxisCount(value) {
+        if (value >= 1000) {
+            const k = value / 1000;
+            return (Number.isInteger(k) ? k.toFixed(0) : k.toFixed(1)) + 'k';
+        }
+        return String(Math.round(value));
+    }
+
+    function labelIndexes(n) {
+        if (n <= 7) return Array.from({ length: n }, (_, i) => i);
+        const count = 6;
+        const out = [];
+        for (let i = 0; i < count; i++) {
+            out.push(Math.round(i * (n - 1) / (count - 1)));
+        }
+        return [...new Set(out)];
+    }
+
+    const totals = data.map((item) => Number(item.total) || 0);
+    const axis = niceAxis(Math.max(0, ...totals));
+    const maxValue = axis.maximum;
+    const slot = plotWidth / data.length;
+    const barWidth = Math.max(2, slot * (data.length > 40 ? 0.72 : 0.62));
+    const xCenter = (index) => margin.left + index * slot + slot / 2;
+    const xBar = (index) => xCenter(index) - barWidth / 2;
+    const y = (value) => margin.top + plotHeight - (value / maxValue) * plotHeight;
+    const baseline = margin.top + plotHeight;
+
+    svg.replaceChildren();
+
+    for (let index = 0; index <= axis.tickCount; index++) {
+        const value = axis.step * index;
+        const yPosition = y(value);
+        svg.appendChild(svgElement('line', {
+            class: 'chart-grid',
+            x1: margin.left,
+            x2: width - margin.right,
+            y1: yPosition,
+            y2: yPosition,
+        }));
+        svg.appendChild(svgElement('text', {
+            x: margin.left - 10,
+            y: yPosition + 4,
+            'text-anchor': 'end',
+        }, formatAxisCount(value)));
+    }
+
+    labelIndexes(data.length).forEach((index) => {
+        svg.appendChild(svgElement('text', {
+            x: xCenter(index),
+            y: height - 12,
+            'text-anchor': 'middle',
+        }, data[index].label));
+    });
+
+    const tops = [];
+    data.forEach((item, index) => {
+        let yCursor = baseline;
+        const counts = item.counts || {};
+        tools.forEach((tool, toolIndex) => {
+            const count = Number(counts[tool.key]) || 0;
+            if (count <= 0) return;
+            const heightPx = (count / maxValue) * plotHeight;
+            const top = yCursor - heightPx;
+            svg.appendChild(svgElement('rect', {
+                class: 'chart-bar',
+                x: xBar(index).toFixed(2),
+                y: top.toFixed(2),
+                width: barWidth.toFixed(2),
+                height: Math.max(0, heightPx).toFixed(2),
+                fill: tool.color,
+                style: 'animation-delay:' + (index * 12 + toolIndex * 20) + 'ms',
+            }));
+            yCursor = top;
+        });
+        tops.push({ x: xCenter(index), y: yCursor, item });
+    });
+
+    const hoverLine = svgElement('line', {
+        class: 'chart-hover-line',
+        y1: margin.top,
+        y2: margin.top + plotHeight,
+        visibility: 'hidden',
+    });
+    const hoverPoint = svgElement('circle', {
+        class: 'chart-hover-point',
+        r: '3.5',
+        visibility: 'hidden',
+    });
+    const hit = svgElement('rect', {
+        class: 'chart-hit',
+        x: margin.left,
+        y: margin.top,
+        width: plotWidth,
+        height: plotHeight,
+    });
+    svg.appendChild(hoverLine);
+    svg.appendChild(hoverPoint);
+    svg.appendChild(hit);
+
+    const wrap = svg.closest('.usage-chart-wrap');
+    const legend = document.createElement('div');
+    legend.className = 'usage-chart-legend';
+    tools.forEach((tool) => {
+        const item = document.createElement('span');
+        const swatch = document.createElement('i');
+        swatch.style.background = tool.color;
+        item.append(swatch, document.createTextNode(tool.label));
+        legend.appendChild(item);
+    });
+    wrap.appendChild(legend);
+
+    const tip = document.createElement('div');
+    tip.className = 'usage-chart-tip is-stack';
+    wrap.appendChild(tip);
+
+    function eventToSvgX(event) {
+        const ctm = svg.getScreenCTM();
+        if (!ctm) return margin.left;
+        const point = svg.createSVGPoint();
+        point.x = event.clientX;
+        point.y = event.clientY;
+        return point.matrixTransform(ctm.inverse()).x;
+    }
+
+    function svgToWrap(svgX, svgY) {
+        const ctm = svg.getScreenCTM();
+        const box = wrap.getBoundingClientRect();
+        if (!ctm) return { x: 0, y: 0 };
+        const point = svg.createSVGPoint();
+        point.x = svgX;
+        point.y = svgY;
+        const screen = point.matrixTransform(ctm);
+        return { x: screen.x - box.left, y: screen.y - box.top };
+    }
+
+    function hideHover() {
+        hoverLine.setAttribute('visibility', 'hidden');
+        hoverPoint.setAttribute('visibility', 'hidden');
+        tip.classList.remove('is-visible');
+    }
+
+    function showHover(index) {
+        const point = tops[index];
+        hoverLine.setAttribute('x1', point.x);
+        hoverLine.setAttribute('x2', point.x);
+        hoverLine.setAttribute('visibility', 'visible');
+        hoverPoint.setAttribute('cx', point.x);
+        hoverPoint.setAttribute('cy', point.y);
+        hoverPoint.setAttribute('visibility', 'visible');
+
+        tip.replaceChildren();
+        const dateEl = document.createElement('div');
+        dateEl.textContent = point.item.tip || point.item.label;
+        const amountEl = document.createElement('strong');
+        const total = Number(point.item.total) || 0;
+        amountEl.textContent = total + (total === 1 ? ' use' : ' uses');
+        tip.append(dateEl, amountEl);
+
+        const counts = point.item.counts || {};
+        tools.forEach((tool) => {
+            const count = Number(counts[tool.key]) || 0;
+            if (!count) return;
+            const row = document.createElement('div');
+            row.className = 'usage-chart-tip-row';
+            const swatch = document.createElement('span');
+            swatch.className = 'swatch';
+            swatch.style.background = tool.color;
+            const name = document.createElement('span');
+            name.textContent = tool.label;
+            const n = document.createElement('span');
+            n.className = 'n';
+            n.textContent = String(count);
+            row.append(swatch, name, n);
+            tip.appendChild(row);
+        });
+        tip.classList.add('is-visible');
+
+        const pos = svgToWrap(point.x, point.y);
+        const tipWidth = tip.offsetWidth || 120;
+        const wrapWidth = wrap.clientWidth;
+        let left = pos.x;
+        const minLeft = tipWidth / 2 + 4;
+        const maxLeft = wrapWidth - tipWidth / 2 - 4;
+        if (wrapWidth > tipWidth) {
+            left = Math.max(minLeft, Math.min(maxLeft, left));
+        }
+        tip.style.left = left + 'px';
+        tip.style.top = pos.y + 'px';
+    }
+
+    function indexFromEvent(event) {
+        if (data.length === 1) return 0;
+        const svgX = eventToSvgX(event);
+        const t = (svgX - margin.left) / plotWidth;
+        return Math.max(0, Math.min(data.length - 1, Math.floor(t * data.length)));
+    }
+
+    hit.addEventListener('pointermove', (event) => showHover(indexFromEvent(event)));
+    hit.addEventListener('pointerdown', (event) => showHover(indexFromEvent(event)));
+    hit.addEventListener('pointerleave', hideHover);
+})();
+</script>
 {% endblock %}

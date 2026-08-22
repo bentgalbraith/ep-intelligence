@@ -10,6 +10,8 @@ import psycopg2
 import psycopg2.extras
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import usage_tools
+
 psycopg2.extras.register_uuid()
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -184,6 +186,11 @@ MIGRATIONS = [
         "ALTER TABLE firms ADD COLUMN IF NOT EXISTS usage_dashboard_password_hash TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE firms ADD COLUMN IF NOT EXISTS usage_dashboard_password_plain TEXT NOT NULL DEFAULT ''",
     ],
+    # v10: optional costs on firm-facing usage dashboard
+    [
+        """ALTER TABLE firms ADD COLUMN IF NOT EXISTS usage_dashboard_show_costs
+           BOOLEAN NOT NULL DEFAULT false""",
+    ],
 ]
 
 
@@ -280,7 +287,7 @@ def seed_firm_if_empty():
 
 def create_firm(name, slug, access_code, tracker_access_code, config=None,
                 require_employee_login=False, usage_dashboard_enabled=False,
-                usage_dashboard_password=""):
+                usage_dashboard_password="", usage_dashboard_show_costs=False):
     firm_id = uuid.uuid4()
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -288,8 +295,9 @@ def create_firm(name, slug, access_code, tracker_access_code, config=None,
                 """INSERT INTO firms (id, name, slug, access_code_hash, access_code_plain,
                    tracker_access_code_hash, tracker_access_code_plain, config,
                    require_employee_login, usage_dashboard_enabled,
-                   usage_dashboard_password_hash, usage_dashboard_password_plain)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   usage_dashboard_password_hash, usage_dashboard_password_plain,
+                   usage_dashboard_show_costs)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     firm_id, name, slug,
                     generate_password_hash(access_code), access_code,
@@ -299,6 +307,7 @@ def create_firm(name, slug, access_code, tracker_access_code, config=None,
                     bool(usage_dashboard_enabled),
                     generate_password_hash(usage_dashboard_password) if usage_dashboard_password else "",
                     usage_dashboard_password or "",
+                    bool(usage_dashboard_show_costs),
                 ),
             )
     return str(firm_id)
@@ -310,6 +319,7 @@ def get_firm(firm_id):
             cur.execute(
                 """SELECT id, name, slug, config, access_code_plain, tracker_access_code_plain,
                           require_employee_login, usage_dashboard_enabled,
+                          usage_dashboard_show_costs,
                           usage_dashboard_password_plain FROM firms WHERE id = %s""",
                 (firm_id,),
             )
@@ -364,7 +374,7 @@ def delete_firm(firm_id):
 
 def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_access_code=None,
                 config=None, require_employee_login=None, usage_dashboard_enabled=None,
-                usage_dashboard_password=None):
+                usage_dashboard_show_costs=None, usage_dashboard_password=None):
     sets, params = [], []
     if name is not None:
         sets.append("name = %s")
@@ -391,6 +401,9 @@ def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_acce
     if usage_dashboard_enabled is not None:
         sets.append("usage_dashboard_enabled = %s")
         params.append(bool(usage_dashboard_enabled))
+    if usage_dashboard_show_costs is not None:
+        sets.append("usage_dashboard_show_costs = %s")
+        params.append(bool(usage_dashboard_show_costs))
     if usage_dashboard_password is not None:
         sets.append("usage_dashboard_password_hash = %s")
         params.append(generate_password_hash(usage_dashboard_password))
@@ -437,6 +450,24 @@ def firm_usage_dashboard_enabled(firm_id):
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT usage_dashboard_enabled FROM firms WHERE id = %s",
+                (firm_uuid,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return bool(row[0])
+
+
+def firm_usage_dashboard_show_costs(firm_id):
+    """True/False for the flag, or None if the firm does not exist."""
+    try:
+        firm_uuid = uuid.UUID(str(firm_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT usage_dashboard_show_costs FROM firms WHERE id = %s",
                 (firm_uuid,),
             )
             row = cur.fetchone()
@@ -898,16 +929,29 @@ def _require_firm_id(firm_id):
     return firm_id
 
 
+def _firm_usage_where(days, firm_id):
+    where, params = _usage_filters(days, firm_id, None)
+    not_step, step_params = usage_tools.firm_step_not_in_sql()
+    where = f"{where} AND {not_step}" if where else f"WHERE {not_step}"
+    return where, list(params) + step_params
+
+
 def firm_usage_overview(firm_id, days=None):
     firm_id = _require_firm_id(firm_id)
     where, params = _usage_filters(days, firm_id, None)
+    not_step, step_params = usage_tools.firm_step_not_in_sql()
+    tool_expr = usage_tools.firm_product_tool_sql()
+    params = list(params) + step_params + step_params
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 f"""SELECT
-                        COUNT(*) AS calls,
-                        COUNT(DISTINCT l.tool) AS tools,
-                        MAX(l.timestamp) AS last_seen
+                        COUNT(*) FILTER (WHERE {not_step}) AS calls,
+                        COUNT(DISTINCT CASE WHEN {not_step} THEN {tool_expr} END) AS tools,
+                        MAX(l.timestamp) AS last_seen,
+                        COALESCE(SUM(l.cost_usd), 0) AS cost,
+                        COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'openai'), 0) AS cost_openai,
+                        COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'google_documentai'), 0) AS cost_ocr
                     FROM ai_usage_log l
                     {where}""",
                 params,
@@ -917,7 +961,7 @@ def firm_usage_overview(firm_id, days=None):
 
 def firm_usage_by_employee(firm_id, days=None):
     firm_id = _require_firm_id(firm_id)
-    where, params = _usage_filters(days, firm_id, None)
+    where, params = _firm_usage_where(days, firm_id)
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -935,15 +979,17 @@ def firm_usage_by_employee(firm_id, days=None):
 
 def firm_usage_tools_by_employee(firm_id, days=None):
     firm_id = _require_firm_id(firm_id)
-    where, params = _usage_filters(days, firm_id, None)
+    where, params = _firm_usage_where(days, firm_id)
+    tool_expr = usage_tools.firm_product_tool_sql()
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                f"""SELECT l.employee_id, l.employee_id_code, l.employee_name, l.tool,
+                f"""SELECT l.employee_id, l.employee_id_code, l.employee_name,
+                           {tool_expr} AS tool,
                            COUNT(*) AS calls
                     FROM ai_usage_log l
                     {where}
-                    GROUP BY l.employee_id, l.employee_id_code, l.employee_name, l.tool
+                    GROUP BY l.employee_id, l.employee_id_code, l.employee_name, {tool_expr}
                     ORDER BY calls DESC""",
                 params,
             )
@@ -952,17 +998,56 @@ def firm_usage_tools_by_employee(firm_id, days=None):
 
 def firm_usage_by_tool(firm_id, days=None):
     firm_id = _require_firm_id(firm_id)
-    where, params = _usage_filters(days, firm_id, None)
+    where, params = _firm_usage_where(days, firm_id)
+    tool_expr = usage_tools.firm_product_tool_sql()
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                f"""SELECT l.tool,
+                f"""SELECT {tool_expr} AS tool,
                            COUNT(*) AS calls,
                            MAX(l.timestamp) AS last_seen
                     FROM ai_usage_log l
                     {where}
-                    GROUP BY l.tool
+                    GROUP BY {tool_expr}
                     ORDER BY calls DESC""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def firm_usage_by_day_tool(firm_id, days=None):
+    firm_id = _require_firm_id(firm_id)
+    where, params = _firm_usage_where(days, firm_id)
+    tool_expr = usage_tools.firm_product_tool_sql()
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT (l.timestamp AT TIME ZONE 'America/New_York')::date AS day,
+                           {tool_expr} AS tool,
+                           COUNT(*) AS calls
+                    FROM ai_usage_log l
+                    {where}
+                    GROUP BY day, {tool_expr}
+                    ORDER BY day""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def firm_usage_by_hour_tool(firm_id, days=None):
+    firm_id = _require_firm_id(firm_id)
+    where, params = _firm_usage_where(days, firm_id)
+    tool_expr = usage_tools.firm_product_tool_sql()
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT date_trunc('hour', l.timestamp AT TIME ZONE 'America/New_York') AS hour,
+                           {tool_expr} AS tool,
+                           COUNT(*) AS calls
+                    FROM ai_usage_log l
+                    {where}
+                    GROUP BY hour, {tool_expr}
+                    ORDER BY hour""",
                 params,
             )
             return cur.fetchall()
@@ -970,16 +1055,18 @@ def firm_usage_by_tool(firm_id, days=None):
 
 def firm_usage_recent_events(firm_id, days=None, per_tool=100):
     firm_id = _require_firm_id(firm_id)
-    where, params = _usage_filters(days, firm_id, None)
+    where, params = _firm_usage_where(days, firm_id)
+    tool_expr = usage_tools.firm_product_tool_sql()
     params = list(params) + [int(per_tool)]
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 f"""SELECT x.timestamp, x.tool, x.employee_id_code, x.employee_name
                     FROM (
-                        SELECT l.timestamp, l.tool, l.employee_id_code, l.employee_name,
+                        SELECT l.timestamp, {tool_expr} AS tool,
+                               l.employee_id_code, l.employee_name,
                                ROW_NUMBER() OVER (
-                                   PARTITION BY l.tool ORDER BY l.timestamp DESC
+                                   PARTITION BY {tool_expr} ORDER BY l.timestamp DESC
                                ) AS rn
                         FROM ai_usage_log l
                         {where}
