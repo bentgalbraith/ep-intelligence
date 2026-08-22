@@ -1060,10 +1060,10 @@ def firm_usage_recent_events(firm_id, days=None, per_tool=100):
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                f"""SELECT x.timestamp, x.tool, x.employee_id_code, x.employee_name
+                f"""SELECT x.timestamp, x.tool, x.employee_id_code, x.employee_name, x.status
                     FROM (
                         SELECT l.timestamp, {tool_expr} AS tool,
-                               l.employee_id_code, l.employee_name,
+                               l.employee_id_code, l.employee_name, l.status,
                                ROW_NUMBER() OVER (
                                    PARTITION BY {tool_expr} ORDER BY l.timestamp DESC
                                ) AS rn

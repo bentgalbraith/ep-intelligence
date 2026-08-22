@@ -98,8 +98,8 @@
                 {% for e in t.events %}
                 <div class="firm-usage-log-item">
                     <span class="usage-time-cell">{{ e.timestamp|et_time if e.timestamp else '—' }}</span>
-                    <span>{% if e.employee_name %}{{ e.employee_name }}{% elif e.employee_id_code %}{{ e.employee_id_code }}{% else %}Firm login{% endif %}</span>
-                    <span>{% if e.employee_id_code %}<code>{{ e.employee_id_code }}</code>{% else %}{% endif %}</span>
+                    <span>{% if e.employee_name %}{{ e.employee_name }}{% else %}Firm login{% endif %}</span>
+                    <span class="firm-usage-status {% if e.status == 'error' %}is-failed{% else %}is-ok{% endif %}">{% if e.status == 'error' %}Failed{% else %}Success{% endif %}</span>
                 </div>
                 {% endfor %}
                 {% if t.events_capped %}

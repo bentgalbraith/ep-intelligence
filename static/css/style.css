@@ -2734,6 +2734,19 @@ a.doc-list-item--link:hover {
     border-bottom: none;
 }
 
+.firm-usage-status {
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.firm-usage-status.is-ok {
+    color: #16a34a;
+}
+
+.firm-usage-status.is-failed {
+    color: #dc2626;
+}
+
 .firm-usage-capped {
     font-size: 0.75rem;
     color: rgba(0, 0, 0, 0.4);
