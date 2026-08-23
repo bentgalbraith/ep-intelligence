@@ -2122,9 +2122,9 @@ def admin_firm_new():
         usage_dash_show_costs = bool(request.form.get("usage_dashboard_show_costs"))
         usage_dash_pw = (request.form.get("usage_dashboard_password") or "").strip()
 
-        if not all([name, slug, access_code, tracker_code]):
+        if not all([name, slug, access_code]):
             return render_template("admin_firm_edit.html", firm=None,
-                                   error="All identity fields are required.")
+                                   error="Firm name, slug, and tool access code are required.")
 
         try:
             config = _parse_config_from_form(request.form)
@@ -2137,7 +2137,10 @@ def admin_firm_new():
                 "employee_login_hint": employee_login_hint,
                 "usage_dashboard_enabled": usage_dash_on,
                 "usage_dashboard_show_costs": usage_dash_show_costs,
-                "usage_dashboard_password_plain": usage_dash_pw}
+                "usage_dashboard_password_plain": usage_dash_pw,
+                "tracker_access_code_plain": tracker_code}
+        if config.get("tools_enabled", {}).get("tracker") and not tracker_code:
+            errors.append("A tracker access code is required when Client Progress Tracker is enabled.")
         if errors:
             return render_template("admin_firm_edit.html", firm=stub,
                                    error=" | ".join(errors))
@@ -2146,7 +2149,7 @@ def admin_firm_new():
                                    error="A dashboard password is required when the usage dashboard is enabled.")
 
         try:
-            tracker_db.create_firm(name, slug, access_code, tracker_code, config,
+            tracker_db.create_firm(name, slug, access_code, tracker_code or "", config,
                                    require_employee_login=require_employee_login,
                                    employee_login_hint=employee_login_hint,
                                    usage_dashboard_enabled=usage_dash_on,
@@ -2210,6 +2213,8 @@ def admin_firm_edit(firm_id):
         firm["employee_login_hint"] = employee_login_hint
         firm["usage_dashboard_enabled"] = usage_dash_on
         firm["usage_dashboard_show_costs"] = usage_dash_show_costs
+        if config.get("tools_enabled", {}).get("tracker") and not tracker_code and not firm.get("tracker_access_code_plain"):
+            errors.append("A tracker access code is required when Client Progress Tracker is enabled.")
         if errors:
             return render_template("admin_firm_edit.html", firm=firm,
                                    error=" | ".join(errors))
@@ -2448,34 +2453,45 @@ def _parse_config_from_form(form):
         "estate_tax_calc": bool(form.get("tool_estate_tax_calc")),
     }
 
-    for key in ["ep_schema", "prospect_schema", "tracker_default_steps"]:
+    for key, tool in (
+        ("ep_schema", "drafting_notes"),
+        ("prospect_schema", "prospect_summarizer"),
+        ("tracker_default_steps", "tracker"),
+    ):
         raw = form.get(key, "").strip()
-        if raw:
-            try:
-                config[key] = json.loads(raw)
-            except json.JSONDecodeError as e:
+        empty = [] if key == "tracker_default_steps" else {}
+        if not raw:
+            config[key] = empty
+            continue
+        try:
+            config[key] = json.loads(raw)
+        except json.JSONDecodeError as e:
+            if config["tools_enabled"].get(tool):
                 raise ConfigParseError(f"Invalid JSON in {key}: {e}")
-        else:
-            config[key] = {}
+            config[key] = empty
 
     return config
 
 
 def _validate_config(config):
     errors = []
-    if not config.get("firm_context"):
-        errors.append("Firm context is required")
-    ep = config.get("ep_schema")
-    if not ep or not isinstance(ep, dict) or not ep.get("sections"):
-        errors.append("EP schema must be valid JSON with a 'sections' array")
-    ps = config.get("prospect_schema")
-    if not ps or not isinstance(ps, dict) or not ps.get("sections"):
-        errors.append("Prospect schema must be valid JSON with a 'sections' array")
-    ts = config.get("tracker_default_steps")
-    if not ts or not isinstance(ts, list):
-        errors.append("Tracker default steps must be a JSON array")
-    if not config.get("doc_filename_format"):
-        errors.append("Document filename format is required")
+    tools = config.get("tools_enabled") or {}
+    if (tools.get("drafting_notes") or tools.get("prospect_summarizer")) and not config.get("firm_context"):
+        errors.append("Firm context is required when Drafting Notes or Prospect Summarizer is enabled")
+    if tools.get("drafting_notes"):
+        ep = config.get("ep_schema")
+        if not ep or not isinstance(ep, dict) or not ep.get("sections"):
+            errors.append("EP schema must be valid JSON with a 'sections' array")
+    if tools.get("prospect_summarizer"):
+        ps = config.get("prospect_schema")
+        if not ps or not isinstance(ps, dict) or not ps.get("sections"):
+            errors.append("Prospect schema must be valid JSON with a 'sections' array")
+    if tools.get("tracker"):
+        ts = config.get("tracker_default_steps")
+        if not ts or not isinstance(ts, list):
+            errors.append("Tracker default steps must be a JSON array")
+    if tools.get("doc_separator") and not config.get("doc_filename_format"):
+        errors.append("Document filename format is required when Document Separator is enabled")
     return errors
 
 

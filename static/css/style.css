@@ -2229,6 +2229,23 @@ a.doc-list-item--link:hover {
     height: 15px;
 }
 
+.admin-tool-head {
+    margin-bottom: 0.15rem;
+}
+
+.admin-tool-head .admin-toggle {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.admin-tool-fields {
+    margin-top: 0.7rem;
+}
+
+.admin-tool-fields[hidden] {
+    display: none;
+}
+
 .admin-save-bar {
     position: fixed;
     bottom: 0;
