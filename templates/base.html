@@ -18,6 +18,35 @@
     {% block background %}{% endblock %}
     {% block body %}{% endblock %}
     {% block scripts %}{% endblock %}
+    {% if show_feedback_widget %}
+    <div class="feedback-widget" id="feedback-widget">
+        <div class="feedback-widget-panel" id="feedback-widget-panel" hidden>
+            <p class="feedback-widget-title">Send feedback</p>
+            <form class="feedback-widget-form" id="feedback-widget-form">
+                <div class="feedback-widget-types" role="radiogroup" aria-label="Feedback type">
+                    <label class="feedback-widget-type"><input type="radio" name="feedback_type" value="bug"> Bug</label>
+                    <label class="feedback-widget-type"><input type="radio" name="feedback_type" value="idea"> Idea</label>
+                    <label class="feedback-widget-type"><input type="radio" name="feedback_type" value="other" checked> Other</label>
+                </div>
+                <label class="feedback-widget-sr" for="feedback-widget-message">Your feedback</label>
+                <textarea class="feedback-widget-textarea" id="feedback-widget-message" name="message" rows="4" maxlength="4000" placeholder="What should we know?"></textarea>
+                <p class="feedback-widget-error" id="feedback-widget-error"></p>
+                <div class="feedback-widget-actions">
+                    <button type="button" class="feedback-widget-cancel" id="feedback-widget-cancel">Cancel</button>
+                    <button type="submit" class="feedback-widget-submit" id="feedback-widget-submit">Send</button>
+                </div>
+            </form>
+            <p class="feedback-widget-thanks" id="feedback-widget-status" hidden>Thanks — we got it.</p>
+        </div>
+        <button type="button" class="feedback-widget-btn" id="feedback-widget-toggle" aria-expanded="false" aria-controls="feedback-widget-panel">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            Feedback
+        </button>
+    </div>
+    <script src="{{ url_for('static', filename='js/feedback-widget.js') }}"></script>
+    {% endif %}
     <script>
     (function(){
         var b=document.getElementById('mobile-banner'),x=document.getElementById('mobile-banner-close');

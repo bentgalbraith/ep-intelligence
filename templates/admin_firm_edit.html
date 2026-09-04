@@ -85,6 +85,12 @@
         </section>
 
         <section class="admin-section">
+            <h3 class="admin-section-title">Feedback Widget</h3>
+            <p class="admin-hint">When enabled, signed-in staff see a feedback button in the bottom-right corner of the site. Submissions are emailed to you and listed under Admin → Feedback.</p>
+            <label class="admin-toggle"><input type="checkbox" name="feedback_widget_enabled" value="1" {{ 'checked' if firm and firm.feedback_widget_enabled }}> Enable feedback widget</label>
+        </section>
+
+        <section class="admin-section">
             <h3 class="admin-section-title">Firm Context <span id="firm-context-req" class="admin-req">*</span></h3>
             <p class="admin-hint">Injected into AI prompts for Drafting Notes and Prospect Summarizer. Required when either of those tools is enabled.</p>
             <textarea class="admin-textarea" name="firm_context" rows="4">{{ cfg.get('firm_context', '') }}</textarea>

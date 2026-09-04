@@ -122,6 +122,7 @@ if tracker_db.DATABASE_URL:
 
 _firm_config_cache: dict = {}
 _employee_req_cache: dict = {}
+_feedback_widget_cache: dict = {}
 _firm_config_lock = threading.Lock()
 _CACHE_TTL = 300  # 5 minutes
 _AUTH_FLAG_TTL = 30  # seconds; logout after toggle-on may lag by this much
@@ -132,6 +133,7 @@ def _invalidate_firm_cache(firm_id):
     with _firm_config_lock:
         _firm_config_cache.pop(key, None)
         _employee_req_cache.pop(key, None)
+        _feedback_widget_cache.pop(key, None)
 
 
 def _get_firm_config(firm_id):
@@ -161,6 +163,27 @@ def _firm_requires_employee_login(firm_id):
     with _firm_config_lock:
         _employee_req_cache[key] = {"value": required, "ts": now}
     return required
+
+
+def _firm_feedback_widget_enabled(firm_id):
+    """Cached feedback_widget_enabled flag. False if missing, firm gone, or lookup fails."""
+    if not tracker_db.DATABASE_URL or not firm_id:
+        return False
+    key = str(firm_id)
+    now = time.time()
+    with _firm_config_lock:
+        cached = _feedback_widget_cache.get(key)
+        if cached and now - cached["ts"] < _AUTH_FLAG_TTL:
+            return bool(cached["value"])
+
+    try:
+        enabled = tracker_db.firm_feedback_widget_enabled(key)
+    except Exception:
+        app.logger.warning("feedback widget flag lookup failed", exc_info=True)
+        return False
+    with _firm_config_lock:
+        _feedback_widget_cache[key] = {"value": enabled, "ts": now}
+    return bool(enabled)
 
 
 def _get_ep_schema(firm_config):
@@ -360,6 +383,25 @@ def admin_required(f):
             return redirect(url_for("admin_login"))
         return f(*args, **kwargs)
     return decorated
+
+
+@app.context_processor
+def _inject_feedback_widget():
+    try:
+        if not has_request_context():
+            return {"show_feedback_widget": False}
+        path = request.path or ""
+        if path.startswith("/admin") or path.startswith("/firm-usage"):
+            return {"show_feedback_widget": False}
+        if not _employee_session_valid():
+            return {"show_feedback_widget": False}
+        firm_id = session.get("firm_id")
+        if not firm_id or not _firm_feedback_widget_enabled(firm_id):
+            return {"show_feedback_widget": False}
+        return {"show_feedback_widget": True}
+    except Exception:
+        app.logger.warning("feedback widget inject failed", exc_info=True)
+        return {"show_feedback_widget": False}
 
 
 # ---------------------------------------------------------------------------
@@ -1608,8 +1650,127 @@ def api_tracker_lookup():
 
 
 # ---------------------------------------------------------------------------
+# Feedback widget
+# ---------------------------------------------------------------------------
+
+_FEEDBACK_MAX_LEN = 4000
+_FEEDBACK_TYPE_LABELS = tracker_db.FEEDBACK_TYPE_LABELS
+
+
+def _sanitize_feedback_path(raw):
+    path = (raw or "").strip()
+    if not path.startswith("/") or path.startswith("//") or "://" in path:
+        return ""
+    if "\\" in path or "\n" in path or "\r" in path:
+        return ""
+    return path[:200]
+
+
+def _send_feedback_email(payload):
+    if not RESEND_API_KEY:
+        app.logger.warning("RESEND_API_KEY not set — feedback email not sent")
+        return
+
+    def _e(value):
+        return html.escape(str(value) if value is not None else "")
+
+    firm_name = payload.get("firm_name") or "Unknown firm"
+    employee = payload.get("employee_name") or "—"
+    emp_code = payload.get("employee_id_code")
+    if emp_code:
+        employee = f"{employee} ({emp_code})" if payload.get("employee_name") else emp_code
+    type_label = _FEEDBACK_TYPE_LABELS.get(payload.get("feedback_type"), payload.get("feedback_type") or "—")
+    created = payload.get("created_at")
+    time_str = _et_time_filter(created) if created else datetime.now(_EASTERN).strftime("%b %d, %Y %I:%M %p ET")
+
+    body = (
+        f"<h2>New Feedback</h2>"
+        f"<p><strong>Time:</strong> {_e(time_str)}</p>"
+        f"<p><strong>Firm:</strong> {_e(firm_name)}"
+        f"{' (' + _e(payload.get('firm_slug')) + ')' if payload.get('firm_slug') else ''}</p>"
+        f"<p><strong>Employee:</strong> {_e(employee)}</p>"
+        f"<p><strong>Page:</strong> {_e(payload.get('page_path') or '—')}</p>"
+        f"<p><strong>Type:</strong> {_e(type_label)}</p>"
+        f"<p><strong>IP:</strong> {_e(payload.get('ip_address') or '—')}</p>"
+        f"<p><strong>User-Agent:</strong> {_e(payload.get('user_agent') or '—')}</p>"
+        f"<hr>"
+        f"<pre style=\"font-size:13px;white-space:pre-wrap;\">{_e(payload.get('message'))}</pre>"
+    )
+    try:
+        resend.Emails.send({
+            "from": "EP Intelligence <notifications@ep-intelligence.com>",
+            "to": ["ben@ep-intelligence.com"],
+            "subject": f"[Feedback] {firm_name}",
+            "html": body,
+        })
+    except Exception:
+        app.logger.warning("Failed to send feedback email", exc_info=True)
+
+
+@app.route("/api/feedback", methods=["POST"])
+@limiter.limit("10/hour")
+def api_feedback():
+    if not session.get("authenticated") or not _employee_session_valid():
+        return jsonify({"error": "Not authenticated"}), 401
+    firm_id = session.get("firm_id")
+    if not firm_id or not _firm_feedback_widget_enabled(firm_id):
+        return jsonify({"error": "Feedback is not enabled for your firm."}), 403
+
+    data = request.get_json(silent=True) or {}
+    message = (data.get("message") or "").strip()
+    if not message:
+        return jsonify({"error": "Please enter your feedback."}), 400
+    if len(message) > _FEEDBACK_MAX_LEN:
+        return jsonify({"error": f"Feedback must be {_FEEDBACK_MAX_LEN} characters or fewer."}), 400
+
+    feedback_type = (data.get("type") or "").strip().lower()
+    if feedback_type not in tracker_db.FEEDBACK_TYPES:
+        return jsonify({"error": "Please choose Bug, Idea, or Other."}), 400
+
+    page_path = _sanitize_feedback_path(data.get("page"))
+    user_agent = (request.headers.get("User-Agent") or "")[:500]
+    ip_address = request.remote_addr or ""
+
+    payload = {
+        "firm_id": firm_id,
+        "firm_name": session.get("firm_name") or "",
+        "firm_slug": session.get("firm_slug") or "",
+        "employee_id": session.get("employee_id"),
+        "employee_id_code": session.get("employee_code"),
+        "employee_name": session.get("employee_name"),
+        "page_path": page_path,
+        "feedback_type": feedback_type,
+        "message": message,
+        "user_agent": user_agent,
+        "ip_address": ip_address,
+        "created_at": datetime.now(timezone.utc),
+    }
+    try:
+        tracker_db.create_feedback(
+            firm_id=payload["firm_id"],
+            firm_name=payload["firm_name"],
+            firm_slug=payload["firm_slug"],
+            employee_id=payload["employee_id"],
+            employee_id_code=payload["employee_id_code"],
+            employee_name=payload["employee_name"],
+            page_path=payload["page_path"],
+            feedback_type=payload["feedback_type"],
+            message=payload["message"],
+            user_agent=payload["user_agent"],
+            ip_address=payload["ip_address"],
+        )
+    except Exception:
+        app.logger.error("Failed to store feedback", exc_info=True)
+        return jsonify({"error": "Could not save feedback. Please try again."}), 500
+
+    _send_feedback_email(payload)
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # Admin
 # ---------------------------------------------------------------------------
+
 
 REQUIRED_CONFIG_KEYS = [
     "firm_context", "ep_schema",
@@ -1699,6 +1860,65 @@ def admin_login_log_csv():
     resp = make_response(output.getvalue())
     resp.headers["Content-Type"] = "text/csv"
     resp.headers["Content-Disposition"] = f"attachment; filename=Login_Log_{time.strftime('%m-%d-%Y_%H%M%S')}.csv"
+    return resp
+
+
+def _admin_feedback_firm_id():
+    firm_id = (request.args.get("firm") or "").strip() or None
+    if firm_id:
+        try:
+            uuid.UUID(firm_id)
+        except (ValueError, TypeError, AttributeError):
+            firm_id = None
+    return firm_id
+
+
+@app.route("/admin/feedback")
+@admin_required
+def admin_feedback():
+    firm_id = _admin_feedback_firm_id()
+    items = tracker_db.list_feedback(firm_id=firm_id) if tracker_db.DATABASE_URL else []
+    firms = tracker_db.list_firms() if tracker_db.DATABASE_URL else []
+    return render_template(
+        "admin_feedback.html",
+        items=items,
+        firms=firms,
+        selected_firm=firm_id or "",
+        type_labels=_FEEDBACK_TYPE_LABELS,
+    )
+
+
+@app.route("/admin/feedback/csv")
+@admin_required
+def admin_feedback_csv():
+    firm_id = _admin_feedback_firm_id()
+    items = tracker_db.list_feedback(limit=10000, firm_id=firm_id) if tracker_db.DATABASE_URL else []
+
+    import csv
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Time (ET)", "Firm", "Firm Slug", "Employee Name", "Employee ID",
+        "Page", "Type", "Message", "User Agent", "IP Address",
+    ])
+    for row in items:
+        writer.writerow([
+            _et_time_csv(row.get("created_at")),
+            row.get("firm_name") or "",
+            row.get("firm_slug") or "",
+            row.get("employee_name") or "",
+            row.get("employee_id_code") or "",
+            row.get("page_path") or "",
+            _FEEDBACK_TYPE_LABELS.get(row.get("feedback_type"), row.get("feedback_type") or ""),
+            row.get("message") or "",
+            row.get("user_agent") or "",
+            row.get("ip_address") or "",
+        ])
+    resp = make_response(output.getvalue())
+    resp.headers["Content-Type"] = "text/csv"
+    resp.headers["Content-Disposition"] = (
+        f"attachment; filename=Feedback_{time.strftime('%m-%d-%Y_%H%M%S')}.csv"
+    )
     return resp
 
 
@@ -2121,6 +2341,7 @@ def admin_firm_new():
         usage_dash_on = bool(request.form.get("usage_dashboard_enabled"))
         usage_dash_show_costs = bool(request.form.get("usage_dashboard_show_costs"))
         usage_dash_pw = (request.form.get("usage_dashboard_password") or "").strip()
+        feedback_widget_on = bool(request.form.get("feedback_widget_enabled"))
 
         if not all([name, slug, access_code]):
             return render_template("admin_firm_edit.html", firm=None,
@@ -2138,6 +2359,7 @@ def admin_firm_new():
                 "usage_dashboard_enabled": usage_dash_on,
                 "usage_dashboard_show_costs": usage_dash_show_costs,
                 "usage_dashboard_password_plain": usage_dash_pw,
+                "feedback_widget_enabled": feedback_widget_on,
                 "tracker_access_code_plain": tracker_code}
         if config.get("tools_enabled", {}).get("tracker") and not tracker_code:
             errors.append("A tracker access code is required when Client Progress Tracker is enabled.")
@@ -2154,7 +2376,8 @@ def admin_firm_new():
                                    employee_login_hint=employee_login_hint,
                                    usage_dashboard_enabled=usage_dash_on,
                                    usage_dashboard_show_costs=usage_dash_show_costs,
-                                   usage_dashboard_password=usage_dash_pw)
+                                   usage_dashboard_password=usage_dash_pw,
+                                   feedback_widget_enabled=feedback_widget_on)
         except Exception as e:
             if "unique" in str(e).lower():
                 return render_template("admin_firm_edit.html", firm=stub,
@@ -2197,6 +2420,7 @@ def admin_firm_edit(firm_id):
         usage_dash_on = bool(request.form.get("usage_dashboard_enabled"))
         usage_dash_show_costs = bool(request.form.get("usage_dashboard_show_costs"))
         usage_dash_pw = (request.form.get("usage_dashboard_password") or "").strip() or None
+        feedback_widget_on = bool(request.form.get("feedback_widget_enabled"))
 
         if not name or not slug:
             return render_template("admin_firm_edit.html", firm=firm,
@@ -2213,6 +2437,7 @@ def admin_firm_edit(firm_id):
         firm["employee_login_hint"] = employee_login_hint
         firm["usage_dashboard_enabled"] = usage_dash_on
         firm["usage_dashboard_show_costs"] = usage_dash_show_costs
+        firm["feedback_widget_enabled"] = feedback_widget_on
         if config.get("tools_enabled", {}).get("tracker") and not tracker_code and not firm.get("tracker_access_code_plain"):
             errors.append("A tracker access code is required when Client Progress Tracker is enabled.")
         if errors:
@@ -2231,7 +2456,8 @@ def admin_firm_edit(firm_id):
                                    employee_login_hint=employee_login_hint,
                                    usage_dashboard_enabled=usage_dash_on,
                                    usage_dashboard_show_costs=usage_dash_show_costs,
-                                   usage_dashboard_password=usage_dash_pw)
+                                   usage_dashboard_password=usage_dash_pw,
+                                   feedback_widget_enabled=feedback_widget_on)
         except Exception as e:
             if "unique" in str(e).lower():
                 return render_template("admin_firm_edit.html", firm=firm,

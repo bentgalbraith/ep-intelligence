@@ -195,6 +195,29 @@ MIGRATIONS = [
     [
         "ALTER TABLE firms ADD COLUMN IF NOT EXISTS employee_login_hint TEXT NOT NULL DEFAULT ''",
     ],
+    # v12: optional firm feedback widget
+    [
+        """ALTER TABLE firms ADD COLUMN IF NOT EXISTS feedback_widget_enabled
+           BOOLEAN NOT NULL DEFAULT false""",
+        """CREATE TABLE IF NOT EXISTS feedback (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            firm_id UUID REFERENCES firms(id) ON DELETE SET NULL,
+            firm_name TEXT NOT NULL DEFAULT '',
+            firm_slug TEXT NOT NULL DEFAULT '',
+            employee_id UUID REFERENCES employees(id) ON DELETE SET NULL,
+            employee_id_code TEXT,
+            employee_name TEXT,
+            page_path TEXT NOT NULL DEFAULT '',
+            feedback_type TEXT NOT NULL DEFAULT 'other'
+                CHECK (feedback_type IN ('bug', 'idea', 'other')),
+            message TEXT NOT NULL,
+            user_agent TEXT NOT NULL DEFAULT '',
+            ip_address TEXT NOT NULL DEFAULT ''
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback (created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_feedback_firm_created ON feedback (firm_id, created_at DESC)",
+    ],
 ]
 
 
@@ -292,7 +315,7 @@ def seed_firm_if_empty():
 def create_firm(name, slug, access_code, tracker_access_code, config=None,
                 require_employee_login=False, usage_dashboard_enabled=False,
                 usage_dashboard_password="", usage_dashboard_show_costs=False,
-                employee_login_hint=""):
+                employee_login_hint="", feedback_widget_enabled=False):
     firm_id = uuid.uuid4()
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -301,8 +324,9 @@ def create_firm(name, slug, access_code, tracker_access_code, config=None,
                    tracker_access_code_hash, tracker_access_code_plain, config,
                    require_employee_login, usage_dashboard_enabled,
                    usage_dashboard_password_hash, usage_dashboard_password_plain,
-                   usage_dashboard_show_costs, employee_login_hint)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   usage_dashboard_show_costs, employee_login_hint,
+                   feedback_widget_enabled)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     firm_id, name, slug,
                     generate_password_hash(access_code), access_code,
@@ -314,6 +338,7 @@ def create_firm(name, slug, access_code, tracker_access_code, config=None,
                     usage_dashboard_password or "",
                     bool(usage_dashboard_show_costs),
                     (employee_login_hint or "").strip(),
+                    bool(feedback_widget_enabled),
                 ),
             )
     return str(firm_id)
@@ -327,7 +352,8 @@ def get_firm(firm_id):
                           require_employee_login, employee_login_hint,
                           usage_dashboard_enabled,
                           usage_dashboard_show_costs,
-                          usage_dashboard_password_plain FROM firms WHERE id = %s""",
+                          usage_dashboard_password_plain,
+                          feedback_widget_enabled FROM firms WHERE id = %s""",
                 (firm_id,),
             )
             row = cur.fetchone()
@@ -372,6 +398,7 @@ def list_firms():
 def delete_firm(firm_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
+            cur.execute("UPDATE feedback SET firm_id = NULL, employee_id = NULL WHERE firm_id = %s", (firm_id,))
             cur.execute("DELETE FROM employees WHERE firm_id = %s", (firm_id,))
             cur.execute("DELETE FROM client_steps WHERE client_id IN (SELECT id FROM clients WHERE firm_id = %s)", (firm_id,))
             cur.execute("DELETE FROM clients WHERE firm_id = %s", (firm_id,))
@@ -382,7 +409,8 @@ def delete_firm(firm_id):
 def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_access_code=None,
                 config=None, require_employee_login=None, employee_login_hint=None,
                 usage_dashboard_enabled=None,
-                usage_dashboard_show_costs=None, usage_dashboard_password=None):
+                usage_dashboard_show_costs=None, usage_dashboard_password=None,
+                feedback_widget_enabled=None):
     sets, params = [], []
     if name is not None:
         sets.append("name = %s")
@@ -420,6 +448,9 @@ def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_acce
         params.append(generate_password_hash(usage_dashboard_password))
         sets.append("usage_dashboard_password_plain = %s")
         params.append(usage_dashboard_password)
+    if feedback_widget_enabled is not None:
+        sets.append("feedback_widget_enabled = %s")
+        params.append(bool(feedback_widget_enabled))
     if not sets:
         return
     sets.append("updated_at = now()")
@@ -479,6 +510,24 @@ def firm_usage_dashboard_show_costs(firm_id):
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT usage_dashboard_show_costs FROM firms WHERE id = %s",
+                (firm_uuid,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return bool(row[0])
+
+
+def firm_feedback_widget_enabled(firm_id):
+    """True/False for the flag, or None if the firm does not exist."""
+    try:
+        firm_uuid = uuid.UUID(str(firm_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT feedback_widget_enabled FROM firms WHERE id = %s",
                 (firm_uuid,),
             )
             row = cur.fetchone()
@@ -762,6 +811,87 @@ def get_login_attempts(limit=200, offset=0, firm_slug=None, success=None):
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(f"SELECT * FROM login_attempts {where} ORDER BY attempted_at DESC LIMIT %s OFFSET %s", params)
+            return cur.fetchall()
+
+
+# ---------------------------------------------------------------------------
+# Feedback
+# ---------------------------------------------------------------------------
+
+FEEDBACK_TYPES = ("bug", "idea", "other")
+FEEDBACK_TYPE_LABELS = {
+    "bug": "Bug",
+    "idea": "Idea",
+    "other": "Other",
+}
+
+
+def create_feedback(*, firm_id, firm_name, firm_slug, employee_id=None,
+                    employee_id_code=None, employee_name=None, page_path="",
+                    feedback_type="other", message="", user_agent="", ip_address=""):
+    if feedback_type not in FEEDBACK_TYPES:
+        raise ValueError("Invalid feedback type")
+    message = (message or "").strip()
+    if not message:
+        raise ValueError("Feedback message is required")
+    feedback_id = uuid.uuid4()
+    firm_uuid = None
+    if firm_id:
+        try:
+            firm_uuid = uuid.UUID(str(firm_id))
+        except (ValueError, TypeError, AttributeError):
+            firm_uuid = None
+    employee_uuid = None
+    if employee_id:
+        try:
+            employee_uuid = uuid.UUID(str(employee_id))
+        except (ValueError, TypeError, AttributeError):
+            employee_uuid = None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO feedback (
+                       id, firm_id, firm_name, firm_slug, employee_id,
+                       employee_id_code, employee_name, page_path, feedback_type,
+                       message, user_agent, ip_address
+                   ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    feedback_id, firm_uuid, firm_name or "", firm_slug or "",
+                    employee_uuid, employee_id_code, employee_name,
+                    page_path or "", feedback_type, message,
+                    user_agent or "", ip_address or "",
+                ),
+            )
+    return str(feedback_id)
+
+
+def list_feedback(limit=500, offset=0, firm_id=None):
+    clauses, params = [], []
+    if firm_id:
+        try:
+            firm_uuid = uuid.UUID(str(firm_id))
+        except (ValueError, TypeError, AttributeError):
+            return []
+        clauses.append("f.firm_id = %s")
+        params.append(firm_uuid)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.extend([limit, offset])
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT f.id, f.created_at, f.firm_id,
+                           COALESCE(firms.name, f.firm_name) AS firm_name,
+                           COALESCE(firms.slug, f.firm_slug) AS firm_slug,
+                           f.employee_id, f.employee_id_code, f.employee_name,
+                           f.page_path, f.feedback_type, f.message,
+                           f.user_agent, f.ip_address
+                    FROM feedback f
+                    LEFT JOIN firms ON firms.id = f.firm_id
+                    {where}
+                    ORDER BY f.created_at DESC
+                    LIMIT %s OFFSET %s""",
+                params,
+            )
             return cur.fetchall()
 
 

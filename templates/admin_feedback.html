@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Feedback — Admin — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <div class="navbar-left">
+        <span class="navbar-brand">Admin</span>
+        <span class="navbar-sep">/</span>
+        <a href="{{ url_for('admin_firms') }}" class="navbar-page" style="text-decoration:none;color:inherit">Firms</a>
+        <span class="navbar-sep">/</span>
+        <span class="navbar-page">Feedback</span>
+    </div>
+    <a href="{{ url_for('admin_logout') }}" class="btn-pill btn-sm">Log Out</a>
+</nav>
+
+<main class="admin-main">
+    <div class="admin-header">
+        <h2 class="admin-heading">Feedback</h2>
+        <div style="display:flex;gap:.5rem">
+            <a href="{{ url_for('admin_usage') }}" class="btn-pill btn-sm">Usage</a>
+            <a href="{{ url_for('admin_login_log') }}" class="btn-pill btn-sm">Login Log</a>
+        </div>
+    </div>
+
+    <form method="get" class="login-log-filters">
+        <select name="firm" class="admin-input login-log-select" onchange="this.form.submit()">
+            <option value="">All firms</option>
+            {% for f in firms %}
+            <option value="{{ f.id }}" {{ 'selected' if selected_firm == f.id|string }}>{{ f.name }}</option>
+            {% endfor %}
+        </select>
+        <a href="{{ url_for('admin_feedback_csv', firm=selected_firm) }}" class="btn-icon" title="Download CSV" style="margin-left:auto">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+        </a>
+    </form>
+
+    {% if items %}
+    <div class="tracker-table-wrap">
+        <table class="tracker-table">
+            <thead>
+                <tr>
+                    <th>Time (ET)</th>
+                    <th>Firm</th>
+                    <th>Employee</th>
+                    <th>Page</th>
+                    <th>Type</th>
+                    <th>Message</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in items %}
+                <tr>
+                    <td style="white-space:nowrap">{{ row.created_at|et_time }}</td>
+                    <td>{{ row.firm_name or '—' }}</td>
+                    <td>{% if row.employee_name %}{{ row.employee_name }}{% if row.employee_id_code %} <code>{{ row.employee_id_code }}</code>{% endif %}{% elif row.employee_id_code %}<code>{{ row.employee_id_code }}</code>{% else %}—{% endif %}</td>
+                    <td><code>{{ row.page_path or '—' }}</code></td>
+                    <td><span class="feedback-type-pill feedback-type-{{ row.feedback_type }}">{{ type_labels.get(row.feedback_type, row.feedback_type or '—') }}</span></td>
+                    <td class="feedback-message-cell">{{ row.message }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="admin-empty">No feedback yet.</p>
+    {% endif %}
+</main>
+{% endblock %}

@@ -3012,3 +3012,225 @@ a.specimen-name:hover {
         padding: 1.5rem;
     }
 }
+
+/* ── Feedback widget ── */
+
+.feedback-widget {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 2.75rem;
+    z-index: 250;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.6rem;
+    pointer-events: none;
+}
+
+.feedback-widget-btn,
+.feedback-widget-panel {
+    pointer-events: auto;
+}
+
+.feedback-widget-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 1rem 0.55rem 0.85rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: #ffffff;
+    background: #ea580c;
+    border: none;
+    border-radius: 100px;
+    box-shadow: 0 6px 20px rgba(234, 88, 12, 0.28);
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.feedback-widget-btn:hover {
+    background: #c2410c;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(234, 88, 12, 0.35);
+}
+
+.feedback-widget-panel {
+    width: min(340px, calc(100vw - 2.5rem));
+    padding: 1rem 1.05rem 0.95rem;
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+}
+
+.feedback-widget-title {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: #1a1a1a;
+    margin-bottom: 0.7rem;
+}
+
+.feedback-widget-types {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 0.65rem;
+}
+
+.feedback-widget-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.78rem;
+    color: #1a1a1a;
+    cursor: pointer;
+    padding: 0.25rem 0.55rem;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 100px;
+    background: #fafaf8;
+}
+
+.feedback-widget-type:has(input:checked) {
+    border-color: rgba(234, 88, 12, 0.45);
+    background: rgba(234, 88, 12, 0.08);
+    color: #c2410c;
+}
+
+.feedback-widget-type input {
+    accent-color: #ea580c;
+    margin: 0;
+}
+
+.feedback-widget-textarea {
+    width: 100%;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 8px;
+    padding: 0.55rem 0.65rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    color: #1a1a1a;
+    background: #fafaf8;
+    resize: vertical;
+    min-height: 5.5rem;
+}
+
+.feedback-widget-textarea:focus {
+    outline: none;
+    border-color: rgba(234, 88, 12, 0.45);
+    background: #ffffff;
+}
+
+.feedback-widget-error {
+    font-size: 0.75rem;
+    color: #dc2626;
+    min-height: 1.1em;
+    margin-top: 0.35rem;
+}
+
+.feedback-widget-error:empty {
+    display: none;
+}
+
+.feedback-widget-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    margin-top: 0.55rem;
+}
+
+.feedback-widget-cancel,
+.feedback-widget-submit {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    border-radius: 100px;
+    padding: 0.4rem 0.95rem;
+    cursor: pointer;
+}
+
+.feedback-widget-cancel {
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    background: transparent;
+    color: #555;
+}
+
+.feedback-widget-cancel:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.feedback-widget-submit {
+    border: none;
+    background: #ea580c;
+    color: #ffffff;
+}
+
+.feedback-widget-submit:hover {
+    background: #c2410c;
+}
+
+.feedback-widget-submit:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.feedback-widget-thanks {
+    font-size: 0.88rem;
+    font-weight: 500;
+    color: #16a34a;
+    padding: 0.4rem 0 0.15rem;
+}
+
+.feedback-widget-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.feedback-message-cell {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-width: 28rem;
+    line-height: 1.45;
+}
+
+.feedback-type-pill {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border-radius: 100px;
+    background: rgba(0, 0, 0, 0.06);
+    color: #555;
+}
+
+.feedback-type-bug {
+    background: rgba(220, 38, 38, 0.1);
+    color: #b91c1c;
+}
+
+.feedback-type-idea {
+    background: rgba(234, 88, 12, 0.1);
+    color: #c2410c;
+}
+
+.feedback-type-other {
+    background: rgba(0, 0, 0, 0.06);
+    color: #555;
+}
+
+@media (max-width: 768px) {
+    .feedback-widget {
+        bottom: 5.5rem;
+        right: 1rem;
+    }
+}
