@@ -2108,6 +2108,75 @@ a.doc-list-item--link:hover {
     margin-bottom: 0.6rem;
 }
 
+.admin-collapse-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 0.75rem;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+}
+
+.admin-collapse-btn .admin-section-title {
+    margin-bottom: 0;
+}
+
+.admin-collapse-btn-icon {
+    width: auto;
+    flex: 0 0 auto;
+    padding: 0.15rem;
+    color: rgba(0, 0, 0, 0.35);
+}
+
+.admin-collapse-btn-icon:hover {
+    color: #ea580c;
+}
+
+.admin-collapse-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.admin-collapse-chevron {
+    flex-shrink: 0;
+    color: rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease;
+}
+
+.admin-section.is-open > .admin-collapse-btn .admin-collapse-chevron,
+.admin-section.is-open > .admin-collapse-row .admin-collapse-chevron {
+    transform: rotate(180deg);
+}
+
+.admin-section-body {
+    padding-top: 0.85rem;
+}
+
+.admin-section-body[hidden] {
+    display: none;
+}
+
+.admin-section[data-collapsible] {
+    padding: 0.85rem 0;
+}
+
+.admin-tools-intro {
+    margin: 0.65rem 0 0.15rem;
+}
+
+.admin-tool-toggle {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
 .admin-req {
     color: #ea580c;
     font-weight: 400;
@@ -2239,7 +2308,7 @@ a.doc-list-item--link:hover {
 }
 
 .admin-tool-fields {
-    margin-top: 0.7rem;
+    margin-top: 0;
 }
 
 .admin-tool-fields[hidden] {

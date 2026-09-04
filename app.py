@@ -1877,21 +1877,41 @@ def _admin_feedback_firm_id():
 @admin_required
 def admin_feedback():
     firm_id = _admin_feedback_firm_id()
-    items = tracker_db.list_feedback(firm_id=firm_id) if tracker_db.DATABASE_URL else []
-    firms = tracker_db.list_firms() if tracker_db.DATABASE_URL else []
-    return render_template(
-        "admin_feedback.html",
-        items=items,
-        firms=firms,
-        selected_firm=firm_id or "",
-        type_labels=_FEEDBACK_TYPE_LABELS,
-    )
+    if firm_id:
+        return redirect(url_for("admin_firm_feedback", firm_id=firm_id))
+    return redirect(url_for("admin_firms"))
 
 
 @app.route("/admin/feedback/csv")
 @admin_required
 def admin_feedback_csv():
     firm_id = _admin_feedback_firm_id()
+    if firm_id:
+        return redirect(url_for("admin_firm_feedback_csv", firm_id=firm_id))
+    return redirect(url_for("admin_firms"))
+
+
+@app.route("/admin/firms/<firm_id>/feedback")
+@admin_required
+def admin_firm_feedback(firm_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
+    items = tracker_db.list_feedback(firm_id=firm_id) if tracker_db.DATABASE_URL else []
+    return render_template(
+        "admin_feedback.html",
+        items=items,
+        firm=firm,
+        type_labels=_FEEDBACK_TYPE_LABELS,
+    )
+
+
+@app.route("/admin/firms/<firm_id>/feedback/csv")
+@admin_required
+def admin_firm_feedback_csv(firm_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
     items = tracker_db.list_feedback(limit=10000, firm_id=firm_id) if tracker_db.DATABASE_URL else []
 
     import csv
