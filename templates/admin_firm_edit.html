@@ -191,6 +191,15 @@
                     <label class="admin-label" style="margin-top:0.75rem">Additional Rules</label>
                     <p class="admin-hint">Extra instructions for the AI when identifying document boundaries (optional).</p>
                     <textarea class="admin-textarea" name="doc_separator_rules" rows="3">{{ cfg.get('doc_separator_rules', '') }}</textarea>
+                    <div style="margin-top:1rem">
+                        <label class="admin-toggle"><input type="checkbox" name="doc_separator_redo_log_enabled" value="1" {{ 'checked' if firm and firm.doc_separator_redo_log_enabled }}> Log Redo with Feedback</label>
+                        <p class="admin-hint" style="margin-top:0.4rem">When on, each redo stores the user’s feedback plus a compact before/after split (page range, type, filename). No PDFs or OCR text.</p>
+                        {% if existing_firm %}
+                        <div style="margin-top:0.75rem">
+                            <a href="{{ url_for('admin_firm_doc_separator_redos', firm_id=firm.id) }}" class="btn-pill btn-sm">View Redo Log</a>
+                        </div>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </section>

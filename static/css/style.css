@@ -3297,6 +3297,67 @@ a.specimen-name:hover {
     color: #555;
 }
 
+.redo-log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.redo-log-entry {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 10px;
+    padding: 1rem 1.1rem 1.05rem;
+}
+
+.redo-log-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1rem;
+    font-size: 0.8rem;
+    color: rgba(0, 0, 0, 0.45);
+    margin-bottom: 0.55rem;
+}
+
+.redo-log-feedback {
+    font-size: 0.9rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.redo-log-splits {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.85rem 1.1rem;
+    margin-top: 0.85rem;
+}
+
+.redo-log-split-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(0, 0, 0, 0.4);
+    margin-bottom: 0.35rem;
+}
+
+.redo-log-lines {
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.74rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: #1a1a1a;
+}
+
+@media (max-width: 720px) {
+    .redo-log-splits {
+        grid-template-columns: 1fr;
+    }
+}
+
 @media (max-width: 768px) {
     .feedback-widget {
         bottom: 5.5rem;

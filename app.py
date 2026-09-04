@@ -23,7 +23,7 @@ from flask_limiter.util import get_remote_address
 from openai import OpenAI
 
 from ai_logger import log_ai_call, extract_xai_usage, completion_details, log_context
-from doc_separator import separate_documents, redo_with_feedback, _extract_json
+from doc_separator import separate_documents, redo_with_feedback, summarize_split, _extract_json
 from ep_export import build_export_csv, build_questionnaire_docx
 from prospect_summarizer import extract_prospect_documents, build_summary_docx, PROSPECT_SCHEMA
 from quote_verify import verify_quotes
@@ -1174,6 +1174,31 @@ def api_doc_separate_download_single(token, doc_index):
     )
 
 
+def _maybe_log_doc_separator_redo(*, firm_id, firm_name="", firm_slug="",
+                                  log_ctx=None, page_count=None, feedback="",
+                                  before_docs=None, after_docs=None, filename_fmt=None):
+    if not firm_id or not tracker_db.DATABASE_URL:
+        return
+    try:
+        if not tracker_db.firm_doc_separator_redo_log_enabled(firm_id):
+            return
+        ctx = log_ctx or {}
+        tracker_db.create_doc_separator_redo_log(
+            firm_id=firm_id,
+            firm_name=firm_name or "",
+            firm_slug=firm_slug or "",
+            employee_id=ctx.get("employee_id"),
+            employee_id_code=ctx.get("employee_id_code"),
+            employee_name=ctx.get("employee_name"),
+            page_count=page_count,
+            feedback=feedback,
+            before_docs=summarize_split(before_docs, filename_fmt=filename_fmt),
+            after_docs=summarize_split(after_docs, filename_fmt=filename_fmt),
+        )
+    except Exception:
+        app.logger.warning("Failed to log document separator redo", exc_info=True)
+
+
 def _run_doc_separate_redo(job_id, pdf_content, page_texts, total_pages,
                            previous_documents, feedback, firm_id, firm_config,
                            log_ctx=None):
@@ -1185,7 +1210,11 @@ def _run_doc_separate_redo(job_id, pdf_content, page_texts, total_pages,
                 firm_id=firm_id, firm_config=firm_config,
             )
             token = uuid.uuid4().hex
+            firm_name = ""
+            firm_slug = ""
             with _jobs_lock:
+                firm_name = _jobs[job_id].get("firm_name") or ""
+                firm_slug = _jobs[job_id].get("firm_slug") or ""
                 _zip_cache[token] = {"data": zip_buf.getvalue(), "ts": time.time()}
                 _jobs[job_id].update({
                     "status": "complete",
@@ -1197,6 +1226,17 @@ def _run_doc_separate_redo(job_id, pdf_content, page_texts, total_pages,
                     "firm_id": firm_id,
                     "firm_config": firm_config,
                 })
+            _maybe_log_doc_separator_redo(
+                firm_id=firm_id,
+                firm_name=firm_name,
+                firm_slug=firm_slug,
+                log_ctx=log_ctx,
+                page_count=total_pages,
+                feedback=feedback,
+                before_docs=previous_documents,
+                after_docs=documents,
+                filename_fmt=(firm_config or {}).get("doc_filename_format"),
+            )
         except Exception as e:
             app.logger.error("Doc separator redo error (job %s): %s", job_id, e)
             _notify_tool_error("Document Separator (Redo)", str(e), firm_id=firm_id,
@@ -1942,6 +1982,59 @@ def admin_firm_feedback_csv(firm_id):
     return resp
 
 
+@app.route("/admin/firms/<firm_id>/doc-separator-redos")
+@admin_required
+def admin_firm_doc_separator_redos(firm_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
+    items = (
+        tracker_db.list_doc_separator_redo_log(firm_id)
+        if tracker_db.DATABASE_URL else []
+    )
+    return render_template(
+        "admin_doc_separator_redos.html",
+        items=items,
+        firm=firm,
+    )
+
+
+@app.route("/admin/firms/<firm_id>/doc-separator-redos/csv")
+@admin_required
+def admin_firm_doc_separator_redos_csv(firm_id):
+    firm = tracker_db.get_firm(firm_id)
+    if not firm:
+        return redirect(url_for("admin_firms"))
+    items = (
+        tracker_db.list_doc_separator_redo_log(firm_id, limit=10000)
+        if tracker_db.DATABASE_URL else []
+    )
+
+    import csv
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Time (ET)", "Employee Name", "Employee ID", "Pages",
+        "Feedback", "Before", "After",
+    ])
+    for row in items:
+        writer.writerow([
+            _et_time_csv(row.get("created_at")),
+            row.get("employee_name") or "",
+            row.get("employee_id_code") or "",
+            row.get("page_count") if row.get("page_count") is not None else "",
+            row.get("feedback") or "",
+            "\n".join(row.get("before_docs") or []),
+            "\n".join(row.get("after_docs") or []),
+        ])
+    resp = make_response(output.getvalue())
+    resp.headers["Content-Type"] = "text/csv"
+    resp.headers["Content-Disposition"] = (
+        f"attachment; filename=Doc_Separator_Redos_{time.strftime('%m-%d-%Y_%H%M%S')}.csv"
+    )
+    return resp
+
+
 _USAGE_PROVIDER_LABELS = {
     "openai": "OpenAI",
     "google_documentai": "Document AI",
@@ -2362,6 +2455,7 @@ def admin_firm_new():
         usage_dash_show_costs = bool(request.form.get("usage_dashboard_show_costs"))
         usage_dash_pw = (request.form.get("usage_dashboard_password") or "").strip()
         feedback_widget_on = bool(request.form.get("feedback_widget_enabled"))
+        redo_log_on = bool(request.form.get("doc_separator_redo_log_enabled"))
 
         if not all([name, slug, access_code]):
             return render_template("admin_firm_edit.html", firm=None,
@@ -2380,6 +2474,7 @@ def admin_firm_new():
                 "usage_dashboard_show_costs": usage_dash_show_costs,
                 "usage_dashboard_password_plain": usage_dash_pw,
                 "feedback_widget_enabled": feedback_widget_on,
+                "doc_separator_redo_log_enabled": redo_log_on,
                 "tracker_access_code_plain": tracker_code}
         if config.get("tools_enabled", {}).get("tracker") and not tracker_code:
             errors.append("A tracker access code is required when Client Progress Tracker is enabled.")
@@ -2397,7 +2492,8 @@ def admin_firm_new():
                                    usage_dashboard_enabled=usage_dash_on,
                                    usage_dashboard_show_costs=usage_dash_show_costs,
                                    usage_dashboard_password=usage_dash_pw,
-                                   feedback_widget_enabled=feedback_widget_on)
+                                   feedback_widget_enabled=feedback_widget_on,
+                                   doc_separator_redo_log_enabled=redo_log_on)
         except Exception as e:
             if "unique" in str(e).lower():
                 return render_template("admin_firm_edit.html", firm=stub,
@@ -2441,6 +2537,7 @@ def admin_firm_edit(firm_id):
         usage_dash_show_costs = bool(request.form.get("usage_dashboard_show_costs"))
         usage_dash_pw = (request.form.get("usage_dashboard_password") or "").strip() or None
         feedback_widget_on = bool(request.form.get("feedback_widget_enabled"))
+        redo_log_on = bool(request.form.get("doc_separator_redo_log_enabled"))
 
         if not name or not slug:
             return render_template("admin_firm_edit.html", firm=firm,
@@ -2458,6 +2555,7 @@ def admin_firm_edit(firm_id):
         firm["usage_dashboard_enabled"] = usage_dash_on
         firm["usage_dashboard_show_costs"] = usage_dash_show_costs
         firm["feedback_widget_enabled"] = feedback_widget_on
+        firm["doc_separator_redo_log_enabled"] = redo_log_on
         if config.get("tools_enabled", {}).get("tracker") and not tracker_code and not firm.get("tracker_access_code_plain"):
             errors.append("A tracker access code is required when Client Progress Tracker is enabled.")
         if errors:
@@ -2477,7 +2575,8 @@ def admin_firm_edit(firm_id):
                                    usage_dashboard_enabled=usage_dash_on,
                                    usage_dashboard_show_costs=usage_dash_show_costs,
                                    usage_dashboard_password=usage_dash_pw,
-                                   feedback_widget_enabled=feedback_widget_on)
+                                   feedback_widget_enabled=feedback_widget_on,
+                                   doc_separator_redo_log_enabled=redo_log_on)
         except Exception as e:
             if "unique" in str(e).lower():
                 return render_template("admin_firm_edit.html", firm=firm,

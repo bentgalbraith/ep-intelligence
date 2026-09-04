@@ -331,6 +331,38 @@ def _build_filename(doc_info, fmt=None):
     return re.sub(r'[<>:"/\\|?*]', "_", name)
 
 
+def _page_num(value):
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def summarize_split(documents, filename_fmt=None):
+    """Compact one-line summaries of a split, for redo logging. No PDF/OCR."""
+    lines = []
+    for doc in documents or []:
+        if not isinstance(doc, dict):
+            continue
+        start = _page_num(doc.get("start_page"))
+        end = _page_num(doc.get("end_page"))
+        if start is None and end is None:
+            pages = "?"
+        elif end is None or start == end:
+            pages = str(start)
+        else:
+            pages = f"{start}–{end}"
+        dtype = str(doc.get("document_type") or "Document").strip() or "Document"
+        try:
+            filename = _build_filename(doc, fmt=filename_fmt)
+        except Exception:
+            filename = "(filename error)"
+        lines.append(f"{pages} | {dtype} | {filename}")
+    return lines
+
+
 def _split_and_zip(pdf_content, documents, filename_fmt=None):
     """Split a PDF according to document boundaries and return a ZIP buffer."""
     reader = PdfReader(io.BytesIO(pdf_content))

@@ -218,6 +218,27 @@ MIGRATIONS = [
         "CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback (created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_feedback_firm_created ON feedback (firm_id, created_at DESC)",
     ],
+    # v13: optional document-separator redo logging
+    [
+        """ALTER TABLE firms ADD COLUMN IF NOT EXISTS doc_separator_redo_log_enabled
+           BOOLEAN NOT NULL DEFAULT false""",
+        """CREATE TABLE IF NOT EXISTS doc_separator_redo_log (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            firm_id UUID REFERENCES firms(id) ON DELETE SET NULL,
+            firm_name TEXT NOT NULL DEFAULT '',
+            firm_slug TEXT NOT NULL DEFAULT '',
+            employee_id UUID REFERENCES employees(id) ON DELETE SET NULL,
+            employee_id_code TEXT,
+            employee_name TEXT,
+            page_count INT,
+            feedback TEXT NOT NULL,
+            before_docs JSONB NOT NULL DEFAULT '[]',
+            after_docs JSONB NOT NULL DEFAULT '[]'
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_doc_sep_redo_log_created ON doc_separator_redo_log (created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_doc_sep_redo_log_firm ON doc_separator_redo_log (firm_id, created_at DESC)",
+    ],
 ]
 
 
@@ -315,7 +336,8 @@ def seed_firm_if_empty():
 def create_firm(name, slug, access_code, tracker_access_code, config=None,
                 require_employee_login=False, usage_dashboard_enabled=False,
                 usage_dashboard_password="", usage_dashboard_show_costs=False,
-                employee_login_hint="", feedback_widget_enabled=False):
+                employee_login_hint="", feedback_widget_enabled=False,
+                doc_separator_redo_log_enabled=False):
     firm_id = uuid.uuid4()
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -325,8 +347,8 @@ def create_firm(name, slug, access_code, tracker_access_code, config=None,
                    require_employee_login, usage_dashboard_enabled,
                    usage_dashboard_password_hash, usage_dashboard_password_plain,
                    usage_dashboard_show_costs, employee_login_hint,
-                   feedback_widget_enabled)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   feedback_widget_enabled, doc_separator_redo_log_enabled)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     firm_id, name, slug,
                     generate_password_hash(access_code), access_code,
@@ -339,6 +361,7 @@ def create_firm(name, slug, access_code, tracker_access_code, config=None,
                     bool(usage_dashboard_show_costs),
                     (employee_login_hint or "").strip(),
                     bool(feedback_widget_enabled),
+                    bool(doc_separator_redo_log_enabled),
                 ),
             )
     return str(firm_id)
@@ -353,7 +376,8 @@ def get_firm(firm_id):
                           usage_dashboard_enabled,
                           usage_dashboard_show_costs,
                           usage_dashboard_password_plain,
-                          feedback_widget_enabled FROM firms WHERE id = %s""",
+                          feedback_widget_enabled,
+                          doc_separator_redo_log_enabled FROM firms WHERE id = %s""",
                 (firm_id,),
             )
             row = cur.fetchone()
@@ -399,6 +423,7 @@ def delete_firm(firm_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("UPDATE feedback SET firm_id = NULL, employee_id = NULL WHERE firm_id = %s", (firm_id,))
+            cur.execute("UPDATE doc_separator_redo_log SET firm_id = NULL, employee_id = NULL WHERE firm_id = %s", (firm_id,))
             cur.execute("DELETE FROM employees WHERE firm_id = %s", (firm_id,))
             cur.execute("DELETE FROM client_steps WHERE client_id IN (SELECT id FROM clients WHERE firm_id = %s)", (firm_id,))
             cur.execute("DELETE FROM clients WHERE firm_id = %s", (firm_id,))
@@ -410,7 +435,7 @@ def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_acce
                 config=None, require_employee_login=None, employee_login_hint=None,
                 usage_dashboard_enabled=None,
                 usage_dashboard_show_costs=None, usage_dashboard_password=None,
-                feedback_widget_enabled=None):
+                feedback_widget_enabled=None, doc_separator_redo_log_enabled=None):
     sets, params = [], []
     if name is not None:
         sets.append("name = %s")
@@ -451,6 +476,9 @@ def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_acce
     if feedback_widget_enabled is not None:
         sets.append("feedback_widget_enabled = %s")
         params.append(bool(feedback_widget_enabled))
+    if doc_separator_redo_log_enabled is not None:
+        sets.append("doc_separator_redo_log_enabled = %s")
+        params.append(bool(doc_separator_redo_log_enabled))
     if not sets:
         return
     sets.append("updated_at = now()")
@@ -528,6 +556,24 @@ def firm_feedback_widget_enabled(firm_id):
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT feedback_widget_enabled FROM firms WHERE id = %s",
+                (firm_uuid,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return bool(row[0])
+
+
+def firm_doc_separator_redo_log_enabled(firm_id):
+    """True/False for the flag, or None if the firm does not exist."""
+    try:
+        firm_uuid = uuid.UUID(str(firm_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT doc_separator_redo_log_enabled FROM firms WHERE id = %s",
                 (firm_uuid,),
             )
             row = cur.fetchone()
@@ -893,6 +939,91 @@ def list_feedback(limit=500, offset=0, firm_id=None):
                 params,
             )
             return cur.fetchall()
+
+
+def _as_str_list(value):
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return [value] if value else []
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+    return []
+
+
+def create_doc_separator_redo_log(*, firm_id, firm_name="", firm_slug="",
+                                  employee_id=None, employee_id_code=None,
+                                  employee_name=None, page_count=None,
+                                  feedback="", before_docs=None, after_docs=None):
+    feedback = (feedback or "").strip()
+    if not feedback:
+        raise ValueError("Redo feedback is required")
+    if len(feedback) > 8000:
+        feedback = feedback[:8000]
+    log_id = uuid.uuid4()
+    firm_uuid = None
+    if firm_id:
+        try:
+            firm_uuid = uuid.UUID(str(firm_id))
+        except (ValueError, TypeError, AttributeError):
+            firm_uuid = None
+    employee_uuid = None
+    if employee_id:
+        try:
+            employee_uuid = uuid.UUID(str(employee_id))
+        except (ValueError, TypeError, AttributeError):
+            employee_uuid = None
+    if page_count is not None:
+        try:
+            page_count = int(page_count)
+        except (TypeError, ValueError):
+            page_count = None
+    before_docs = _as_str_list(before_docs)
+    after_docs = _as_str_list(after_docs)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO doc_separator_redo_log (
+                       id, firm_id, firm_name, firm_slug, employee_id,
+                       employee_id_code, employee_name, page_count, feedback,
+                       before_docs, after_docs
+                   ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (
+                    log_id, firm_uuid, firm_name or "", firm_slug or "",
+                    employee_uuid, employee_id_code, employee_name,
+                    page_count, feedback,
+                    psycopg2.extras.Json(before_docs),
+                    psycopg2.extras.Json(after_docs),
+                ),
+            )
+    return str(log_id)
+
+
+def list_doc_separator_redo_log(firm_id, limit=500, offset=0):
+    try:
+        firm_uuid = uuid.UUID(str(firm_id))
+    except (ValueError, TypeError, AttributeError):
+        return []
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """SELECT id, created_at, firm_id, firm_name, firm_slug,
+                          employee_id, employee_id_code, employee_name,
+                          page_count, feedback, before_docs, after_docs
+                   FROM doc_separator_redo_log
+                   WHERE firm_id = %s
+                   ORDER BY created_at DESC
+                   LIMIT %s OFFSET %s""",
+                (firm_uuid, limit, offset),
+            )
+            rows = cur.fetchall()
+    for row in rows:
+        row["before_docs"] = _as_str_list(row.get("before_docs"))
+        row["after_docs"] = _as_str_list(row.get("after_docs"))
+    return rows
 
 
 # ---------------------------------------------------------------------------
