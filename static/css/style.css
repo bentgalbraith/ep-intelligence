@@ -3303,3 +3303,9 @@ a.specimen-name:hover {
         right: 1rem;
     }
 }
+
+@media print {
+    .feedback-widget {
+        display: none !important;
+    }
+}
