@@ -3446,7 +3446,7 @@ a.specimen-name:hover {
 }
 
 .sched-info-table tbody tr.is-included td {
-    background: rgba(196, 149, 42, 0.18);
+    background: rgba(234, 88, 12, 0.10);
     color: rgba(0, 0, 0, 0.72);
 }
 
@@ -3455,7 +3455,7 @@ a.specimen-name:hover {
 }
 
 .sched-info-table tbody tr.is-included:hover td {
-    background: rgba(196, 149, 42, 0.34);
+    background: rgba(234, 88, 12, 0.20);
 }
 
 .sched-info-note {

@@ -424,13 +424,16 @@ def build_schedule(raw, config):
             "start": window_start.strftime("%H:%M"),
             "end": window_end.strftime("%H:%M"),
         },
-        "calendars": [
-            {"name": name, "count": mapped_counts[name], "included": True}
-            for name in calendar_lookup
-        ] + [
-            {"name": name, "count": count, "included": False}
-            for name, count in sorted(unmapped.items(), key=lambda kv: (-kv[1], kv[0]))
-        ],
+        "calendars": sorted(
+            [
+                {"name": name, "count": mapped_counts[name], "included": True}
+                for name in calendar_lookup
+            ] + [
+                {"name": name, "count": count, "included": False}
+                for name, count in unmapped.items()
+            ],
+            key=lambda row: (-row["count"], row["name"].lower()),
+        ),
         "unreadable_rows": unreadable,
         "appointment_count": sum(
             len(c["blocks"]) + len(c["before"]) + len(c["after"])

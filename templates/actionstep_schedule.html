@@ -145,7 +145,10 @@
     }
 
     function renderInfo(data) {
-        const calendars = data.calendars || [];
+        const calendars = (data.calendars || []).slice().sort((a, b) => {
+            if (b.count !== a.count) return b.count - a.count;
+            return a.name.localeCompare(b.name);
+        });
         const included = calendars.filter((c) => c.included).length;
         const excluded = calendars.length - included;
         const start = formatMdY(data.pages[0].date);
