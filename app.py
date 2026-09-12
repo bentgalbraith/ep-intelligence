@@ -22,6 +22,12 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from openai import OpenAI
 
+from actionstep_schedule import (
+    ScheduleError,
+    assign_colors as assign_schedule_colors,
+    build_schedule,
+    validate_config as validate_schedule_config,
+)
 from ai_logger import log_ai_call, extract_xai_usage, completion_details, log_context
 from doc_separator import separate_documents, redo_with_feedback, summarize_split, _extract_json
 from ep_export import build_export_csv, build_questionnaire_docx
@@ -349,7 +355,7 @@ def tracker_required(f):
     return decorated
 
 
-_OPT_IN_TOOLS = {"doc_differences", "estate_tax_calc"}
+_OPT_IN_TOOLS = {"doc_differences", "estate_tax_calc", "actionstep_schedule"}
 
 
 def _is_tool_enabled(tool_key):
@@ -1561,6 +1567,55 @@ def api_doc_differences_export():
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Actionstep Schedule Visualizer
+# ---------------------------------------------------------------------------
+
+@app.route("/actionstep-schedule")
+@login_required
+@tool_enabled("actionstep_schedule")
+def actionstep_schedule():
+    return render_template("actionstep_schedule.html", firm_name=session.get("firm_name", ""))
+
+
+@app.route("/api/actionstep-schedule", methods=["POST"])
+@login_required
+@tool_enabled("actionstep_schedule")
+def api_actionstep_schedule():
+    f = request.files.get("csv")
+    if not f or not (f.filename or "").lower().endswith(".csv"):
+        return jsonify({"error": "Please upload a CSV file."}), 400
+
+    raw = f.read()
+    if not raw:
+        return jsonify({"error": "The uploaded file is empty."}), 400
+
+    firm_id = session.get("firm_id")
+    schedule_config = (_get_firm_config(firm_id) or {}).get("actionstep_schedule") or {}
+    if not schedule_config.get("columns"):
+        return jsonify({
+            "error": "This tool has not been set up for your firm yet. "
+                     "Contact your administrator."
+        }), 400
+
+    try:
+        data = build_schedule(raw, schedule_config)
+    except ScheduleError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        app.logger.error("Actionstep schedule error: %s", e)
+        _notify_tool_error("Visualize Actionstep Schedule", str(e), firm_id=firm_id)
+        return jsonify({"error": "Could not build a schedule from this file."}), 500
+
+    if not data["pages"]:
+        return jsonify({
+            "error": "No appointments in this export belong to the calendars "
+                     "set up for your firm."
+        }), 400
+
+    return jsonify(data)
 
 
 # ---------------------------------------------------------------------------
@@ -2853,12 +2908,14 @@ def _parse_config_from_form(form):
         "doc_differences": bool(form.get("tool_doc_differences")),
         "tracker": bool(form.get("tool_tracker")),
         "estate_tax_calc": bool(form.get("tool_estate_tax_calc")),
+        "actionstep_schedule": bool(form.get("tool_actionstep_schedule")),
     }
 
     for key, tool in (
         ("ep_schema", "drafting_notes"),
         ("prospect_schema", "prospect_summarizer"),
         ("tracker_default_steps", "tracker"),
+        ("actionstep_schedule", "actionstep_schedule"),
     ):
         raw = form.get(key, "").strip()
         empty = [] if key == "tracker_default_steps" else {}
@@ -2871,6 +2928,12 @@ def _parse_config_from_form(form):
             if config["tools_enabled"].get(tool):
                 raise ConfigParseError(f"Invalid JSON in {key}: {e}")
             config[key] = empty
+
+    # Colors are assigned here, at save time, so every run of the tool uses the
+    # same color for a given calendar. Existing assignments are never changed.
+    schedule = config.get("actionstep_schedule")
+    if isinstance(schedule, dict):
+        assign_schedule_colors(schedule)
 
     return config
 
@@ -2894,6 +2957,8 @@ def _validate_config(config):
             errors.append("Tracker default steps must be a JSON array")
     if tools.get("doc_separator") and not config.get("doc_filename_format"):
         errors.append("Document filename format is required when Document Separator is enabled")
+    if tools.get("actionstep_schedule"):
+        errors.extend(validate_schedule_config(config.get("actionstep_schedule") or {}))
     return errors
 
 

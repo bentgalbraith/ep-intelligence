@@ -3,6 +3,7 @@
 {% set cfg = firm.config if (firm and firm.config) else {} %}
 
 {% set is_duplicate = duplicate | default(false) %}
+{% set schedule_example = '{"window_start": "08:00", "window_end": "17:00", "columns": [{"label": "Attorney Name", "calendars": [{"name": "Exact Calendar Name From Export"}]}]}' %}
 {% set start_open = error is defined and error %}
 {% set existing_firm = firm and firm.id and not is_duplicate %}
 {% block title %}{{ 'Duplicate Firm' if is_duplicate else ('Edit ' + firm.name if (firm and firm.name) else 'New Firm') }} — Admin — EP Intelligence{% endblock %}
@@ -249,6 +250,22 @@
 
         <section class="admin-section">
             <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_estate_tax_calc" value="1" {{ 'checked' if tools.get('estate_tax_calc') }}> Estate Tax Calculator</label>
+        </section>
+
+        <section class="admin-section{% if start_open %} is-open{% endif %}" data-collapsible>
+            <div class="admin-collapse-row">
+                <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_actionstep_schedule" value="1" data-tool-toggle="actionstep_schedule" {{ 'checked' if tools.get('actionstep_schedule') }}> Visualize Actionstep Schedule</label>
+                <button type="button" class="admin-collapse-btn admin-collapse-btn-icon" aria-expanded="{{ 'true' if start_open else 'false' }}" aria-label="Visualize Actionstep Schedule settings">{{ collapse_chevron() }}</button>
+            </div>
+            <div class="admin-section-body" {% if not start_open %}hidden{% endif %}>
+                <div class="admin-tool-fields" data-tool-fields="actionstep_schedule">
+                    <label class="admin-label">Schedule Settings <span class="admin-req">*</span></label>
+                    <p class="admin-hint">One column per person, in the order they should print. Each column lists the Actionstep calendar names that feed it — names must match the export exactly, and a calendar cannot appear in two columns. <code>window_start</code> and <code>window_end</code> set the printed time range; anything outside it is listed in a note above or below that column.</p>
+                    <p class="admin-hint">Leave <code>color</code> out and one is assigned automatically when you save. Saved colors are never reassigned, so printouts stay consistent run to run. Add a hex value to override one.</p>
+                    <textarea class="admin-textarea admin-textarea-json" name="actionstep_schedule" rows="14" data-required-when-on placeholder='{{ schedule_example }}'>{{ cfg.get('actionstep_schedule', '') | tojson(indent=2) if cfg.get('actionstep_schedule') else '' }}</textarea>
+                    <p class="admin-json-status" data-for="actionstep_schedule"></p>
+                </div>
+            </div>
         </section>
 
     </form>

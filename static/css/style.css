@@ -3370,3 +3370,265 @@ a.specimen-name:hover {
         display: none !important;
     }
 }
+
+/* ── Actionstep schedule ── */
+
+.sched-warning {
+    margin-bottom: 0.75rem;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid rgba(234, 88, 12, 0.35);
+    border-radius: 8px;
+    background: rgba(234, 88, 12, 0.06);
+    color: #9a3412;
+    font-size: 0.75rem;
+    line-height: 1.5;
+}
+
+.sched-summary {
+    margin-bottom: 0.85rem;
+    font-size: 0.75rem;
+    color: rgba(0, 0, 0, 0.45);
+}
+
+.sched-page {
+    margin-bottom: 1.25rem;
+    padding: 0.9rem 1rem 0.8rem;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    overflow-x: auto;
+}
+
+.sched-page-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.55rem;
+}
+
+.sched-date {
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: #1a1a1a;
+}
+
+.sched-window {
+    font-size: 0.6rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(0, 0, 0, 0.4);
+    white-space: nowrap;
+}
+
+.sched-grid {
+    display: grid;
+    grid-template-columns: 2.9rem var(--sched-track);
+    grid-template-rows: auto auto 620px auto;
+    border-right: 1px solid rgba(0, 0, 0, 0.08);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.sched-head {
+    padding: 3px 2px;
+    border-left: 1px solid rgba(0, 0, 0, 0.08);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.14);
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    text-align: center;
+    color: #1a1a1a;
+}
+
+.sched-corner {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.sched-corner--note {
+    border-bottom: none;
+    padding-right: 4px;
+    font-size: 0.45rem;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    text-align: right;
+    color: rgba(0, 0, 0, 0.3);
+}
+
+.sched-note {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 2px 3px;
+    border-left: 1px solid rgba(0, 0, 0, 0.08);
+    font-size: 0.5rem;
+    line-height: 1.25;
+    color: rgba(0, 0, 0, 0.6);
+}
+
+.sched-note--after {
+    border-top: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.sched-note-item {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.sched-note-dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 1px;
+    margin-right: 2px;
+}
+
+.sched-note-time {
+    color: rgba(0, 0, 0, 0.4);
+}
+
+.sched-axis {
+    position: relative;
+}
+
+.sched-axis-mark {
+    position: absolute;
+    right: 4px;
+    transform: translateY(-50%);
+    font-size: 0.5rem;
+    color: rgba(0, 0, 0, 0.4);
+    white-space: nowrap;
+}
+
+.sched-lines {
+    position: relative;
+    z-index: 1;
+    pointer-events: none;
+}
+
+.sched-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.sched-body {
+    position: relative;
+    border-left: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.sched-block {
+    position: absolute;
+    z-index: 2;
+    min-height: 14px;
+    overflow: hidden;
+    padding: 1px 3px;
+    border: 1px solid rgba(0, 0, 0, 0.14);
+    border-radius: 3px;
+    font-size: 0.55rem;
+    line-height: 1.15;
+    color: #1a1a1a;
+}
+
+.sched-block.is-truncated {
+    border-bottom-style: dashed;
+}
+
+.sched-block-title {
+    display: block;
+}
+
+/* ── Print: legal landscape, one page per day ──
+   Scoped to .page-schedule throughout. These rules hide the navbar and form
+   panel and un-constrain the layout, which would break printing of every other
+   page in the app if left global. The matching @page rule lives in
+   templates/actionstep_schedule.html for the same reason. */
+
+@media print {
+    body.page-schedule {
+        height: auto !important;
+        overflow: visible !important;
+        background: #ffffff !important;
+    }
+
+    .page-schedule .navbar,
+    .page-schedule .ep-form-panel,
+    .page-schedule .ai-disclaimer,
+    .page-schedule .mobile-banner,
+    .page-schedule .result-header,
+    .page-schedule .result-elapsed,
+    .page-schedule .result-empty,
+    .page-schedule .sched-warning,
+    .page-schedule .sched-summary {
+        display: none !important;
+    }
+
+    .page-schedule .ep-layout {
+        display: block;
+        height: auto;
+        padding: 0;
+    }
+
+    .page-schedule .ep-panel {
+        overflow: visible;
+    }
+
+    .page-schedule .ep-result-panel {
+        padding: 0;
+        background: #ffffff;
+    }
+
+    .page-schedule .sched-page {
+        margin: 0;
+        padding: 0;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        overflow: hidden;
+        break-after: page;
+        page-break-after: always;
+    }
+
+    .page-schedule .sched-page:last-child {
+        break-after: auto;
+        page-break-after: auto;
+    }
+
+    /* Heights are budgeted against the 7.8in printable area of legal landscape
+       (8.5in less 0.35in margins): 0.36 head + 0.18 column heads + 0.50 + 0.50
+       note rows + 5.90 body = 7.44in. A fixed body keeps the grid geometry
+       identical on every sheet and keeps percentage-positioned blocks
+       resolvable; the caps stop a busy day from spilling onto a second sheet. */
+    .page-schedule .sched-grid {
+        grid-template-columns: 2.6rem var(--sched-track-print);
+        grid-template-rows: auto auto 5.9in auto;
+    }
+
+    .page-schedule .sched-note {
+        max-height: 0.5in;
+        overflow: hidden;
+    }
+
+    .page-schedule .sched-line {
+        border-top-color: rgba(0, 0, 0, 0.18);
+    }
+
+    /* Guarantees a legible block even for very short appointments. */
+    .page-schedule .sched-block {
+        min-height: 0.15in;
+    }
+
+    .page-schedule .sched-block,
+    .page-schedule .sched-note-dot {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}

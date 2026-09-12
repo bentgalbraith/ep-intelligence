@@ -1,0 +1,239 @@
+{% extends "tool_base.html" %}
+{% set page_title = "Visualize Actionstep Schedule" %}
+
+{% block body_class %}page-dashboard page-schedule{% endblock %}
+
+{# @page cannot be scoped by selector, so it lives here rather than in the
+   shared stylesheet, where it would change printing on every other page. #}
+{% block head %}
+<style>
+    @media print {
+        @page {
+            size: legal landscape;
+            margin: 0.35in;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block form_panel %}
+<form class="ep-form" id="schedule-form">
+    <label class="field-label">Upload Actionstep Schedule Export</label>
+    <div class="file-drop-zone" id="drop-zone">
+        <input type="file" id="schedule-input" accept=".csv,text/csv" hidden>
+        <svg class="drop-zone-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/>
+        </svg>
+        <span class="drop-zone-text" id="drop-zone-text">Drag & drop the Appointments List CSV here, or click to browse</span>
+    </div>
+    <button type="submit" class="btn-pill btn-generate" id="btn-visualize" disabled>
+        <span class="btn-label">Visualize</span>
+        <span class="spinner" hidden></span>
+    </button>
+</form>
+{% endblock %}
+
+{% block result_header %}
+<div class="result-header" id="result-header" style="display:none">
+    <button type="button" class="btn-download btn-download--primary" id="btn-print">PRINT / SAVE AS PDF</button>
+</div>
+{% endblock %}
+
+{% block tool_scripts %}
+<script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('schedule-input');
+    const dropText = document.getElementById('drop-zone-text');
+    const resultHeader = document.getElementById('result-header');
+
+    let selectedFile = null;
+
+    function isCsv(file) {
+        return file.name.toLowerCase().endsWith('.csv');
+    }
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) selectFile(fileInput.files[0]);
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (file && isCsv(file)) selectFile(file);
+    });
+
+    function selectFile(file) {
+        selectedFile = file;
+        dropText.textContent = file.name;
+        dropZone.classList.add('has-file');
+        tool.btn.disabled = false;
+    }
+
+    const tool = initToolForm({
+        formId: 'schedule-form',
+        btnId: 'btn-visualize',
+        async onSubmit({ setLoading, showResult, showError, hasRun }) {
+            if (!selectedFile) return;
+
+            const state = setLoading(true);
+            resultHeader.style.display = 'none';
+            state.btnLabel.textContent = 'Building...';
+
+            try {
+                const fd = new FormData();
+                fd.append('csv', selectedFile);
+
+                const res = await fetchWithTimeout('{{ url_for("api_actionstep_schedule") }}', {
+                    method: 'POST',
+                    body: fd,
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Something went wrong');
+
+                showResult(renderSchedule(data));
+                resultHeader.style.display = 'flex';
+            } catch (err) {
+                resultHeader.style.display = 'none';
+                showError(err.message);
+            } finally {
+                const s = setLoading(false);
+                tool.btn.disabled = !selectedFile;
+                s.btnLabel.textContent = hasRun() ? 'Rebuild' : 'Visualize';
+            }
+        }
+    });
+
+    function noteList(items) {
+        if (!items.length) return '';
+        let html = '';
+        for (const item of items) {
+            html += `<span class="sched-note-item" title="${escapeAttr(item.title)}">`
+                + `<span class="sched-note-dot" style="background:${escapeAttr(item.color)}"></span>`
+                + `<span class="sched-note-time">${escapeHtml(item.time_label)}</span> `
+                + escapeHtml(item.title)
+                + `</span>`;
+        }
+        return html;
+    }
+
+    function renderSchedule(data) {
+        const windowLabel = `${formatWindow(data.window.start)} – ${formatWindow(data.window.end)}`;
+        let html = '';
+
+        if (data.unmapped.length) {
+            const many = data.unmapped.length !== 1;
+            const names = data.unmapped
+                .map((u) => `${escapeHtml(u.name)} (${u.count})`)
+                .join(', ');
+            html += `<div class="sched-warning">
+                <strong>Not shown:</strong> ${data.unmapped.length} calendar${many ? 's' : ''}
+                in this export ${many ? 'are' : 'is'} not set up for your firm — ${names}.
+                Ask your administrator to add ${many ? 'them' : 'it'} if ${many ? 'they belong' : 'it belongs'} on the printout.
+            </div>`;
+        }
+
+        if (data.unreadable_rows) {
+            html += `<div class="sched-warning">
+                <strong>Skipped:</strong> ${data.unreadable_rows}
+                row${data.unreadable_rows === 1 ? '' : 's'} had no readable start date and
+                ${data.unreadable_rows === 1 ? 'is' : 'are'} not on the printout.
+            </div>`;
+        }
+
+        html += `<p class="sched-summary">${data.pages.length} day${data.pages.length === 1 ? '' : 's'},
+            ${data.appointment_count} appointment${data.appointment_count === 1 ? '' : 's'}.
+            One page per day, sized for legal paper in landscape.</p>`;
+
+        for (const page of data.pages) {
+            html += renderPage(page, data, windowLabel);
+        }
+        return html;
+    }
+
+    function formatWindow(hhmm) {
+        const [h, m] = hhmm.split(':').map(Number);
+        const suffix = h < 12 ? 'am' : 'pm';
+        const hour = h % 12 === 0 ? 12 : h % 12;
+        return `${hour}:${String(m).padStart(2, '0')} ${suffix}`;
+    }
+
+    function renderPage(page, data, windowLabel) {
+        // The track lists are passed as whole values because CSS does not allow
+        // a custom property as the repeat() count.
+        const cols = page.columns.length;
+        let html = `<section class="sched-page" style="`
+            + `--sched-track:repeat(${cols}, minmax(96px, 1fr));`
+            + `--sched-track-print:repeat(${cols}, 1fr)">`;
+
+        html += `<header class="sched-page-head">
+            <h3 class="sched-date">${escapeHtml(page.date_label)}</h3>
+            <span class="sched-window">${escapeHtml(windowLabel)}</span>
+        </header>`;
+
+        html += '<div class="sched-grid">';
+
+        // Row 1: column headings.
+        html += '<div class="sched-cell sched-corner" style="grid-column:1;grid-row:1"></div>';
+        page.columns.forEach((col, i) => {
+            html += `<div class="sched-cell sched-head" style="grid-column:${i + 2};grid-row:1">${escapeHtml(col.label)}</div>`;
+        });
+
+        // Row 2: items that start before the window.
+        const anyBefore = page.columns.some((c) => c.before.length);
+        html += `<div class="sched-cell sched-corner sched-corner--note" style="grid-column:1;grid-row:2">${anyBefore ? 'Earlier' : ''}</div>`;
+        page.columns.forEach((col, i) => {
+            html += `<div class="sched-cell sched-note" style="grid-column:${i + 2};grid-row:2">${noteList(col.before)}</div>`;
+        });
+
+        // Row 3: the time grid.
+        html += '<div class="sched-cell sched-axis" style="grid-column:1;grid-row:3">';
+        for (const mark of data.hours) {
+            html += `<span class="sched-axis-mark" style="top:${mark.top_pct}%">${escapeHtml(mark.label)}</span>`;
+        }
+        html += '</div>';
+
+        html += `<div class="sched-lines" style="grid-column:2 / -1;grid-row:3">`;
+        for (const mark of data.hours) {
+            html += `<span class="sched-line" style="top:${mark.top_pct}%"></span>`;
+        }
+        html += '</div>';
+
+        page.columns.forEach((col, i) => {
+            html += `<div class="sched-cell sched-body" style="grid-column:${i + 2};grid-row:3">`;
+            for (const block of col.blocks) {
+                const width = 100 / block.lanes;
+                const left = block.lane * width;
+                html += `<div class="sched-block${block.truncated ? ' is-truncated' : ''}"
+                    style="top:${block.top_pct}%;height:${block.height_pct}%;left:${left}%;width:${width}%;background:${escapeAttr(block.color)}"
+                    title="${escapeAttr(block.time_label + ' — ' + block.title)}">
+                    <span class="sched-block-title">${escapeHtml(block.title)}</span>
+                </div>`;
+            }
+            html += '</div>';
+        });
+
+        // Row 4: items that start after the window.
+        const anyAfter = page.columns.some((c) => c.after.length);
+        html += `<div class="sched-cell sched-corner sched-corner--note" style="grid-column:1;grid-row:4">${anyAfter ? 'Later' : ''}</div>`;
+        page.columns.forEach((col, i) => {
+            html += `<div class="sched-cell sched-note sched-note--after" style="grid-column:${i + 2};grid-row:4">${noteList(col.after)}</div>`;
+        });
+
+        html += '</div></section>';
+        return html;
+    }
+
+    document.getElementById('btn-print').addEventListener('click', () => window.print());
+</script>
+{% endblock %}
