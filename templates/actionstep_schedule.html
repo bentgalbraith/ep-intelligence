@@ -103,6 +103,8 @@
 
                 showResult(renderSchedule(data));
                 resultHeader.style.display = 'flex';
+                document.getElementById('result-content').style.display = 'flex';
+                document.getElementById('result-content').style.flexDirection = 'column';
             } catch (err) {
                 resultHeader.style.display = 'none';
                 showError(err.message);
@@ -128,47 +130,38 @@
     }
 
     function renderSchedule(data) {
-        const windowLabel = `${formatWindow(data.window.start)} – ${formatWindow(data.window.end)}`;
-        let html = '';
-
-        if (data.unmapped.length) {
-            const many = data.unmapped.length !== 1;
-            const names = data.unmapped
-                .map((u) => `${escapeHtml(u.name)} (${u.count})`)
-                .join(', ');
-            html += `<div class="sched-warning">
-                <strong>Not shown:</strong> ${data.unmapped.length} calendar${many ? 's' : ''}
-                in this export ${many ? 'are' : 'is'} not set up for your firm — ${names}.
-                Ask your administrator to add ${many ? 'them' : 'it'} if ${many ? 'they belong' : 'it belongs'} on the printout.
-            </div>`;
-        }
-
-        if (data.unreadable_rows) {
-            html += `<div class="sched-warning">
-                <strong>Skipped:</strong> ${data.unreadable_rows}
-                row${data.unreadable_rows === 1 ? '' : 's'} had no readable start date and
-                ${data.unreadable_rows === 1 ? 'is' : 'are'} not on the printout.
-            </div>`;
-        }
-
-        html += `<p class="sched-summary">${data.pages.length} day${data.pages.length === 1 ? '' : 's'},
-            ${data.appointment_count} appointment${data.appointment_count === 1 ? '' : 's'}.
-            One page per day, sized for legal paper in landscape.</p>`;
-
+        let html = `<div class="sched-screen">${renderInfo(data)}</div>`;
+        html += '<div class="sched-print">';
         for (const page of data.pages) {
-            html += renderPage(page, data, windowLabel);
+            html += renderPage(page, data);
         }
+        html += '</div>';
         return html;
     }
 
-    function formatWindow(hhmm) {
-        const [h, m] = hhmm.split(':').map(Number);
-        const suffix = h < 12 ? 'am' : 'pm';
-        const hour = h % 12 === 0 ? 12 : h % 12;
-        return `${hour}:${String(m).padStart(2, '0')} ${suffix}`;
+    function renderInfo(data) {
+        const days = data.pages.length === 1 ? 'day' : 'days';
+        const appts = data.appointment_count === 1 ? 'appointment' : 'appointments';
+        let html = `<p class="sched-info-summary">${data.pages.length} ${days} · ${data.appointment_count} ${appts}. One page per day, legal landscape.</p>`;
+
+        if (data.unmapped.length) {
+            html += `<table class="sched-info-table">
+                <caption>In this export, not on the printout</caption>
+                <thead><tr><th>Calendar</th><th>Appointments</th></tr></thead><tbody>`;
+            for (const u of data.unmapped) {
+                html += `<tr><td>${escapeHtml(u.name)}</td><td>${u.count}</td></tr>`;
+            }
+            html += '</tbody></table>';
+        }
+
+        if (data.unreadable_rows) {
+            const rows = data.unreadable_rows === 1 ? 'row' : 'rows';
+            html += `<p class="sched-info-note">${data.unreadable_rows} ${rows} had no readable start date and ${data.unreadable_rows === 1 ? 'is' : 'are'} not on the printout.</p>`;
+        }
+        return `<div class="sched-info">${html}</div>`;
     }
 
-    function renderPage(page, data, windowLabel) {
+    function renderPage(page, data) {
         // The track lists are passed as whole values because CSS does not allow
         // a custom property as the repeat() count.
         const cols = page.columns.length;
@@ -178,7 +171,6 @@
 
         html += `<header class="sched-page-head">
             <h3 class="sched-date">${escapeHtml(page.date_label)}</h3>
-            <span class="sched-window">${escapeHtml(windowLabel)}</span>
         </header>`;
 
         html += '<div class="sched-grid">';
