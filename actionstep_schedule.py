@@ -331,6 +331,7 @@ def build_schedule(raw, config):
     )
 
     days = {}
+    mapped_counts = {name: 0 for name in calendar_lookup}
     unmapped = {}
     for appt in appointments:
         mapping = calendar_lookup.get(appt["calendar"])
@@ -338,6 +339,7 @@ def build_schedule(raw, config):
             if appt["calendar"]:
                 unmapped[appt["calendar"]] = unmapped.get(appt["calendar"], 0) + 1
             continue
+        mapped_counts[appt["calendar"]] += 1
         col_index, color = mapping
         day = appt["start"].date()
         bucket = days.setdefault(day, [[] for _ in columns_config])
@@ -422,9 +424,12 @@ def build_schedule(raw, config):
             "start": window_start.strftime("%H:%M"),
             "end": window_end.strftime("%H:%M"),
         },
-        "unmapped": [
-            {"name": name, "count": count}
-            for name, count in sorted(unmapped.items(), key=lambda kv: -kv[1])
+        "calendars": [
+            {"name": name, "count": mapped_counts[name], "included": True}
+            for name in calendar_lookup
+        ] + [
+            {"name": name, "count": count, "included": False}
+            for name, count in sorted(unmapped.items(), key=lambda kv: (-kv[1], kv[0]))
         ],
         "unreadable_rows": unreadable,
         "appointment_count": sum(

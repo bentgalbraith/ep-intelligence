@@ -139,17 +139,28 @@
         return html;
     }
 
-    function renderInfo(data) {
-        const days = data.pages.length === 1 ? 'day' : 'days';
-        const appts = data.appointment_count === 1 ? 'appointment' : 'appointments';
-        let html = `<p class="sched-info-summary">${data.pages.length} ${days} · ${data.appointment_count} ${appts}. One page per day, legal landscape.</p>`;
+    function formatMdY(iso) {
+        const [year, month, day] = iso.split('-').map(Number);
+        return `${month}/${day}/${year}`;
+    }
 
-        if (data.unmapped.length) {
+    function renderInfo(data) {
+        const calendars = data.calendars || [];
+        const included = calendars.filter((c) => c.included).length;
+        const excluded = calendars.length - included;
+        const start = formatMdY(data.pages[0].date);
+        const end = formatMdY(data.pages[data.pages.length - 1].date);
+        const apptWord = data.appointment_count === 1 ? 'appointment' : 'appointments';
+        const includedWord = included === 1 ? 'calendar' : 'calendars';
+
+        let html = `<p class="sched-info-summary">${escapeHtml(start)} through ${escapeHtml(end)} · ${data.appointment_count} ${apptWord} · ${included} ${includedWord} included, ${excluded} excluded</p>`;
+
+        if (calendars.length) {
             html += `<table class="sched-info-table">
-                <caption>In this export, not on the printout</caption>
                 <thead><tr><th>Calendar</th><th>Appointments</th></tr></thead><tbody>`;
-            for (const u of data.unmapped) {
-                html += `<tr><td>${escapeHtml(u.name)}</td><td>${u.count}</td></tr>`;
+            for (const cal of calendars) {
+                const rowClass = cal.included ? ' class="is-included"' : '';
+                html += `<tr${rowClass}><td>${escapeHtml(cal.name)}</td><td>${cal.count}</td></tr>`;
             }
             html += '</tbody></table>';
         }

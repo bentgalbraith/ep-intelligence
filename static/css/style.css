@@ -3376,7 +3376,7 @@ a.specimen-name:hover {
 .page-schedule .ep-result-panel {
     display: flex;
     flex-direction: column;
-    padding-bottom: 3.5rem;
+    overflow: hidden;
 }
 
 .page-schedule .result-header {
@@ -3395,6 +3395,11 @@ a.specimen-name:hover {
 .page-schedule .result-content {
     flex: 1;
     min-height: 0;
+}
+
+.page-schedule .result-content {
+    overflow-y: auto;
+    padding-bottom: 2.5rem;
 }
 
 .page-schedule .sched-screen {
@@ -3416,21 +3421,14 @@ a.specimen-name:hover {
     border-collapse: collapse;
 }
 
-.sched-info-table caption {
-    caption-side: top;
-    text-align: left;
-    margin-bottom: 0.4rem;
-    font-size: 0.7rem;
-    color: rgba(0, 0, 0, 0.4);
-}
-
 .sched-info-table th,
 .sched-info-table td {
-    padding: 0.4rem 0;
+    padding: 0.4rem 0.55rem;
     border-bottom: 1px solid rgba(0, 0, 0, 0.06);
     text-align: left;
     font-weight: 400;
     color: rgba(0, 0, 0, 0.55);
+    transition: background 0.15s ease;
 }
 
 .sched-info-table th {
@@ -3445,6 +3443,19 @@ a.specimen-name:hover {
 .sched-info-table th:last-child {
     text-align: right;
     font-variant-numeric: tabular-nums;
+}
+
+.sched-info-table tbody tr.is-included td {
+    background: rgba(196, 149, 42, 0.18);
+    color: rgba(0, 0, 0, 0.72);
+}
+
+.sched-info-table tbody tr:hover td {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.sched-info-table tbody tr.is-included:hover td {
+    background: rgba(196, 149, 42, 0.34);
 }
 
 .sched-info-note {
@@ -3642,6 +3653,8 @@ a.specimen-name:hover {
 
     .page-schedule .result-content {
         display: block !important;
+        overflow: visible;
+        padding: 0;
     }
 
     .page-schedule .sched-page {
