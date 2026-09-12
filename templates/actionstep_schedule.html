@@ -10,7 +10,10 @@
     @media print {
         @page {
             size: legal landscape;
-            margin: 0.35in;
+            /* 0.35in leaves room for Chrome's date/URL footer; 0.33in does not.
+               0.25in is below that cutoff with a little slack, and still above
+               typical printer hardware margins. */
+            margin: 0.25in;
         }
     }
 </style>
@@ -132,9 +135,10 @@
     function renderSchedule(data) {
         let html = `<div class="sched-screen">${renderInfo(data)}</div>`;
         html += '<div class="sched-print">';
-        for (const page of data.pages) {
-            html += renderPage(page, data);
-        }
+        const total = data.pages.length;
+        data.pages.forEach((page, i) => {
+            html += renderPage(page, data, i + 1, total);
+        });
         html += '</div>';
         return html;
     }
@@ -175,7 +179,7 @@
         return `<div class="sched-info">${html}</div>`;
     }
 
-    function renderPage(page, data) {
+    function renderPage(page, data, pageNum, pageTotal) {
         // The track lists are passed as whole values because CSS does not allow
         // a custom property as the repeat() count.
         const cols = page.columns.length;
@@ -185,6 +189,7 @@
 
         html += `<header class="sched-page-head">
             <h3 class="sched-date">${escapeHtml(page.date_label)}</h3>
+            <span class="sched-page-num">${pageNum} of ${pageTotal}</span>
         </header>`;
 
         html += '<div class="sched-grid">';
