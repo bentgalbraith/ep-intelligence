@@ -288,11 +288,17 @@ def _fmt_time(value):
     return f"{hour}{suffix}"
 
 
-def _assign_lanes(blocks):
-    """Give each block a lane within its overlap cluster.
+def _overlaps(a, b):
+    return a["start"] < b["end"] and b["start"] < a["end"]
 
-    Blocks that do not overlap anything keep the column's full width; only the
-    overlapping span is subdivided. Mutates and returns the list.
+
+def _assign_lanes(blocks):
+    """Give each block a lane within its overlap cluster, then stretch.
+
+    A connected overlap group is subdivided into enough lanes for the busiest
+    moment. Each block then grows right through any lane that stays empty for
+    its whole duration, so a 2-item stretch is not stuck at 1/3 width just
+    because a 3-item collision happened earlier in the day. Mutates the list.
     """
     blocks.sort(key=lambda b: (b["start"], b["end"]))
 
@@ -324,7 +330,17 @@ def _assign_lanes(blocks):
                 lane_ends.append(block["end"])
         width = len(lane_ends)
         for block in group:
+            occupied = {
+                other["lane"]
+                for other in group
+                if other is not block and _overlaps(block, other)
+            }
+            span = 1
+            lane = block["lane"]
+            while lane + span < width and (lane + span) not in occupied:
+                span += 1
             block["lanes"] = width
+            block["span"] = span
     return blocks
 
 

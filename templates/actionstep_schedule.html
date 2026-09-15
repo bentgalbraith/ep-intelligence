@@ -315,8 +315,11 @@
         page.columns.forEach((col, i) => {
             html += `<div class="sched-cell sched-body" style="grid-column:${i + 2};grid-row:${bodyRow}">`;
             for (const block of col.blocks) {
-                const width = 100 / block.lanes;
-                const left = block.lane * width;
+                const lanes = block.lanes || 1;
+                const span = block.span || 1;
+                const colW = 100 / lanes;
+                const width = colW * span;
+                const left = block.lane * colW;
                 html += `<div class="sched-block${block.truncated ? ' is-truncated' : ''}"
                     style="top:${block.top_pct}%;height:${block.height_pct}%;left:${left}%;width:${width}%;background:${escapeAttr(block.color)}"
                     title="${escapeAttr(block.time_label + ' — ' + block.title)}">
@@ -325,6 +328,10 @@
             }
             html += '</div>';
         });
+
+        if (!anyAfter) {
+            html += `<div class="sched-grid-end" style="grid-column:1 / -1;grid-row:${bodyRow}"></div>`;
+        }
 
         if (anyAfter) {
             html += `<div class="sched-cell sched-corner sched-corner--note" style="grid-column:1;grid-row:${afterRow}">Later</div>`;
