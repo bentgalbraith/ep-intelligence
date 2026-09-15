@@ -3687,11 +3687,6 @@ a.specimen-name:hover {
     border-top: 1px solid rgba(0, 0, 0, 0.07);
 }
 
-.sched-line--end {
-    top: auto;
-    bottom: 5px;
-}
-
 .sched-body {
     position: relative;
     height: 620px;
@@ -3773,7 +3768,7 @@ a.specimen-name:hover {
         border-radius: 0;
         box-shadow: none;
         overflow: hidden;
-        height: 7.95in;
+        height: 7.6in;
         break-after: page;
         page-break-after: always;
     }
@@ -3800,6 +3795,7 @@ a.specimen-name:hover {
        content (and share leftover height) without a second sheet. */
     .page-schedule .sched-grid {
         grid-template-columns: 2.6rem var(--sched-track-print);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.22);
     }
 
     .page-schedule .sched-axis,

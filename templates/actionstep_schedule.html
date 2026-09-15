@@ -135,14 +135,14 @@
         return html;
     }
 
-    // Legal-landscape printable height is 8.0in; each .sched-page is 7.95in
-    // so Chrome cannot spill a blank leftover sheet. Earlier and Later are
-    // content-sized (no line clamp, no "+N more"): one long note can use
-    // four lines, and a quiet Later band leaves that height for Earlier.
-    // Whatever is left after both bands goes to the day grid. Type shrinks
-    // only if the grid would otherwise drop below a usable size.
+    // Legal-landscape printable height is 8.0in. Chrome's date/URL footer
+    // eats the last ~0.3in even with @page margin 0.25in, so the page is
+    // budgeted shorter than the box and the day grid is capped. That keeps
+    // Later (and the grid's bottom rule) above the clip, instead of flush
+    // with the sheet edge.
     const PRINT = {
-        pageIn: 7.88,
+        pageIn: 7.50,
+        bodyMaxIn: 5.9,
         bodyMinIn: 5.0,
         bodyFloorIn: 2.8,
         fontMaxRem: 0.5,
@@ -154,28 +154,32 @@
         const grid = pageEl.querySelector('.sched-grid');
         const body = pageEl.querySelector('.sched-body');
         const colHead = pageEl.querySelector('.sched-head');
-        if (!grid || !body || !colHead) return 5.9;
+        if (!grid || !body || !colHead) return PRINT.bodyMaxIn;
         const headPx = head ? head.getBoundingClientRect().height : 0;
         const colHeadPx = colHead.getBoundingClientRect().height;
         const notesPx = grid.getBoundingClientRect().height
             - body.getBoundingClientRect().height
             - colHeadPx;
-        return (PRINT.pageIn * 96 - headPx - colHeadPx - notesPx - 4) / 96;
+        return (PRINT.pageIn * 96 - headPx - colHeadPx - notesPx - 16) / 96;
     }
 
     function fitMeasuredPage(pageEl) {
         let font = PRINT.fontMaxRem;
         pageEl.style.setProperty('--sched-note-fs', font + 'rem');
-        pageEl.style.setProperty('--sched-body-h', '5.9in');
+        pageEl.style.setProperty('--sched-body-h', PRINT.bodyMaxIn + 'in');
 
         let body = leftoverBodyIn(pageEl);
-        if (body >= PRINT.bodyMinIn) return { font, body };
+        if (body >= PRINT.bodyMinIn) {
+            return { font, body: Math.min(PRINT.bodyMaxIn, body) };
+        }
 
         while (font > PRINT.fontMinRem + 0.005) {
             font = Math.round((font - 0.02) * 100) / 100;
             pageEl.style.setProperty('--sched-note-fs', font + 'rem');
             body = leftoverBodyIn(pageEl);
-            if (body >= PRINT.bodyMinIn) return { font, body };
+            if (body >= PRINT.bodyMinIn) {
+                return { font, body: Math.min(PRINT.bodyMaxIn, body) };
+            }
         }
 
         return {
@@ -267,7 +271,7 @@
         // The track lists are passed as whole values because CSS does not allow
         // a custom property as the repeat() count.
         const cols = page.columns.length;
-        fit = fit || { body: 5.9, font: PRINT.fontMaxRem };
+        fit = fit || { body: PRINT.bodyMaxIn, font: PRINT.fontMaxRem };
         let html = `<section class="sched-page" style="`
             + `--sched-track:repeat(${cols}, minmax(96px, 1fr));`
             + `--sched-track-print:repeat(${cols}, 1fr);`
@@ -302,9 +306,6 @@
         for (const mark of data.hours) {
             html += `<span class="sched-axis-mark" style="top:${mark.top_pct}%">${escapeHtml(mark.label)}</span>`;
         }
-        if (!anyAfter) {
-            html += '<span class="sched-line sched-line--end"></span>';
-        }
         html += '</div>';
 
         html += `<div class="sched-lines" style="grid-column:2 / -1;grid-row:${bodyRow}">`;
@@ -312,9 +313,6 @@
             // The 0% line sits on the heading border when there is no Earlier row.
             if (!anyBefore && mark.top_pct === 0) continue;
             html += `<span class="sched-line" style="top:${mark.top_pct}%"></span>`;
-        }
-        if (!anyAfter) {
-            html += '<span class="sched-line sched-line--end"></span>';
         }
         html += '</div>';
 
