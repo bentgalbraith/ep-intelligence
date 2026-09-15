@@ -3484,12 +3484,12 @@ a.specimen-name:hover {
     position: sticky;
     top: 0;
     z-index: 1;
-    background: #eceae4;
+    background: #ffffff;
     font-size: 0.6rem;
     font-weight: 500;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: rgba(0, 0, 0, 0.45);
+    color: rgba(0, 0, 0, 0.4);
     box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
 }
 
@@ -3499,17 +3499,22 @@ a.specimen-name:hover {
     font-variant-numeric: tabular-nums;
 }
 
+.sched-info-table tbody tr td {
+    background: #f2f2f0;
+    color: rgba(0, 0, 0, 0.5);
+}
+
 .sched-info-table tbody tr.is-included td {
-    background: rgba(46, 125, 50, 0.10);
+    background: rgba(46, 125, 50, 0.16);
     color: rgba(0, 0, 0, 0.72);
 }
 
 .sched-info-table tbody tr:hover td {
-    background: rgba(0, 0, 0, 0.05);
+    background: #e8e8e4;
 }
 
 .sched-info-table tbody tr.is-included:hover td {
-    background: rgba(46, 125, 50, 0.18);
+    background: rgba(46, 125, 50, 0.24);
 }
 
 .sched-info-note {
