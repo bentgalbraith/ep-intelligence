@@ -3403,17 +3403,66 @@ a.specimen-name:hover {
 }
 
 .page-schedule .sched-screen {
-    margin-top: auto;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     width: 100%;
 }
 
 .sched-info {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     font-size: 0.75rem;
     color: rgba(0, 0, 0, 0.45);
 }
 
 .sched-info-summary {
-    margin: 0 0 1rem;
+    flex-shrink: 0;
+    margin: 0 0 0.75rem;
+}
+
+.sched-info-scroll-wrap {
+    flex: 1;
+    min-height: 8rem;
+    position: relative;
+}
+
+.sched-info-scroll-wrap::after {
+    content: "";
+    position: absolute;
+    left: 1px;
+    right: 9px;
+    bottom: 1px;
+    height: 1.6rem;
+    pointer-events: none;
+    border-radius: 0 0 7px 7px;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #ffffff);
+}
+
+.sched-info-scroll {
+    height: 100%;
+    overflow-y: scroll;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.sched-info-scroll::-webkit-scrollbar {
+    width: 8px;
+}
+
+.sched-info-scroll::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.sched-info-scroll::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.22);
+    border-radius: 4px;
 }
 
 .sched-info-table {
@@ -3432,11 +3481,16 @@ a.specimen-name:hover {
 }
 
 .sched-info-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #ffffff;
     font-size: 0.6rem;
     font-weight: 500;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: rgba(0, 0, 0, 0.35);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
 }
 
 .sched-info-table td:last-child,
@@ -3446,7 +3500,7 @@ a.specimen-name:hover {
 }
 
 .sched-info-table tbody tr.is-included td {
-    background: rgba(234, 88, 12, 0.10);
+    background: rgba(46, 125, 50, 0.10);
     color: rgba(0, 0, 0, 0.72);
 }
 
@@ -3455,10 +3509,11 @@ a.specimen-name:hover {
 }
 
 .sched-info-table tbody tr.is-included:hover td {
-    background: rgba(234, 88, 12, 0.20);
+    background: rgba(46, 125, 50, 0.18);
 }
 
 .sched-info-note {
+    flex-shrink: 0;
     margin: 0.75rem 0 0;
 }
 
@@ -3504,7 +3559,6 @@ a.specimen-name:hover {
 .sched-grid {
     display: grid;
     grid-template-columns: 2.9rem var(--sched-track);
-    grid-template-rows: auto auto 620px auto;
     border-right: 1px solid rgba(0, 0, 0, 0.08);
     border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
@@ -3553,9 +3607,8 @@ a.specimen-name:hover {
 
 .sched-note-item {
     display: block;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .sched-note-dot {
@@ -3573,6 +3626,7 @@ a.specimen-name:hover {
 
 .sched-axis {
     position: relative;
+    height: 620px;
 }
 
 .sched-axis-mark {
@@ -3588,6 +3642,7 @@ a.specimen-name:hover {
     position: relative;
     z-index: 1;
     pointer-events: none;
+    height: 620px;
 }
 
 .sched-line {
@@ -3599,6 +3654,7 @@ a.specimen-name:hover {
 
 .sched-body {
     position: relative;
+    height: 620px;
     border-left: 1px solid rgba(0, 0, 0, 0.08);
 }
 
@@ -3686,17 +3742,22 @@ a.specimen-name:hover {
     }
 
     /* Heights are budgeted against the 8.0in printable area of legal landscape
-       (8.5in less 0.25in margins): 0.36 head + 0.18 column heads + 0.50 + 0.50
-       note rows + 5.90 body = 7.44in. A fixed body keeps the grid geometry
-       identical on every sheet and keeps percentage-positioned blocks
-       resolvable; the caps stop a busy day from spilling onto a second sheet. */
+       (8.5in less 0.25in margins). A fixed body keeps the grid geometry identical
+       on every sheet and keeps percentage-positioned blocks resolvable; the note
+       caps stop a busy day from spilling onto a second sheet. Empty Earlier/Later
+       rows are omitted so they cannot add a double rule. */
     .page-schedule .sched-grid {
         grid-template-columns: 2.6rem var(--sched-track-print);
-        grid-template-rows: auto auto 5.9in auto;
+    }
+
+    .page-schedule .sched-axis,
+    .page-schedule .sched-lines,
+    .page-schedule .sched-body {
+        height: 5.9in;
     }
 
     .page-schedule .sched-note {
-        max-height: 0.5in;
+        max-height: 0.75in;
         overflow: hidden;
     }
 

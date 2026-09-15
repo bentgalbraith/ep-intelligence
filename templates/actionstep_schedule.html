@@ -150,6 +150,7 @@
 
     function renderInfo(data) {
         const calendars = (data.calendars || []).slice().sort((a, b) => {
+            if (a.included !== b.included) return a.included ? -1 : 1;
             if (b.count !== a.count) return b.count - a.count;
             return a.name.localeCompare(b.name);
         });
@@ -163,13 +164,13 @@
         let html = `<p class="sched-info-summary">${escapeHtml(start)} through ${escapeHtml(end)} · ${data.appointment_count} ${apptWord} · ${included} ${includedWord} included, ${excluded} excluded</p>`;
 
         if (calendars.length) {
-            html += `<table class="sched-info-table">
+            html += `<div class="sched-info-scroll-wrap"><div class="sched-info-scroll"><table class="sched-info-table">
                 <thead><tr><th>Calendar</th><th>Appointments</th></tr></thead><tbody>`;
             for (const cal of calendars) {
                 const rowClass = cal.included ? ' class="is-included"' : '';
                 html += `<tr${rowClass}><td>${escapeHtml(cal.name)}</td><td>${cal.count}</td></tr>`;
             }
-            html += '</tbody></table>';
+            html += '</tbody></table></div></div>';
         }
 
         if (data.unreadable_rows) {
@@ -192,36 +193,41 @@
             <span class="sched-page-num">${pageNum} of ${pageTotal}</span>
         </header>`;
 
+        const anyBefore = page.columns.some((c) => c.before.length);
+        const anyAfter = page.columns.some((c) => c.after.length);
+        const bodyRow = anyBefore ? 3 : 2;
+        const afterRow = bodyRow + 1;
+
         html += '<div class="sched-grid">';
 
-        // Row 1: column headings.
         html += '<div class="sched-cell sched-corner" style="grid-column:1;grid-row:1"></div>';
         page.columns.forEach((col, i) => {
             html += `<div class="sched-cell sched-head" style="grid-column:${i + 2};grid-row:1">${escapeHtml(col.label)}</div>`;
         });
 
-        // Row 2: items that start before the window.
-        const anyBefore = page.columns.some((c) => c.before.length);
-        html += `<div class="sched-cell sched-corner sched-corner--note" style="grid-column:1;grid-row:2">${anyBefore ? 'Earlier' : ''}</div>`;
-        page.columns.forEach((col, i) => {
-            html += `<div class="sched-cell sched-note" style="grid-column:${i + 2};grid-row:2">${noteList(col.before)}</div>`;
-        });
+        if (anyBefore) {
+            html += '<div class="sched-cell sched-corner sched-corner--note" style="grid-column:1;grid-row:2">Earlier</div>';
+            page.columns.forEach((col, i) => {
+                html += `<div class="sched-cell sched-note" style="grid-column:${i + 2};grid-row:2">${noteList(col.before)}</div>`;
+            });
+        }
 
-        // Row 3: the time grid.
-        html += '<div class="sched-cell sched-axis" style="grid-column:1;grid-row:3">';
+        html += `<div class="sched-cell sched-axis" style="grid-column:1;grid-row:${bodyRow}">`;
         for (const mark of data.hours) {
             html += `<span class="sched-axis-mark" style="top:${mark.top_pct}%">${escapeHtml(mark.label)}</span>`;
         }
         html += '</div>';
 
-        html += `<div class="sched-lines" style="grid-column:2 / -1;grid-row:3">`;
+        html += `<div class="sched-lines" style="grid-column:2 / -1;grid-row:${bodyRow}">`;
         for (const mark of data.hours) {
+            // The 0% line sits on the heading border when there is no Earlier row.
+            if (!anyBefore && mark.top_pct === 0) continue;
             html += `<span class="sched-line" style="top:${mark.top_pct}%"></span>`;
         }
         html += '</div>';
 
         page.columns.forEach((col, i) => {
-            html += `<div class="sched-cell sched-body" style="grid-column:${i + 2};grid-row:3">`;
+            html += `<div class="sched-cell sched-body" style="grid-column:${i + 2};grid-row:${bodyRow}">`;
             for (const block of col.blocks) {
                 const width = 100 / block.lanes;
                 const left = block.lane * width;
@@ -234,12 +240,12 @@
             html += '</div>';
         });
 
-        // Row 4: items that start after the window.
-        const anyAfter = page.columns.some((c) => c.after.length);
-        html += `<div class="sched-cell sched-corner sched-corner--note" style="grid-column:1;grid-row:4">${anyAfter ? 'Later' : ''}</div>`;
-        page.columns.forEach((col, i) => {
-            html += `<div class="sched-cell sched-note sched-note--after" style="grid-column:${i + 2};grid-row:4">${noteList(col.after)}</div>`;
-        });
+        if (anyAfter) {
+            html += `<div class="sched-cell sched-corner sched-corner--note" style="grid-column:1;grid-row:${afterRow}">Later</div>`;
+            page.columns.forEach((col, i) => {
+                html += `<div class="sched-cell sched-note sched-note--after" style="grid-column:${i + 2};grid-row:${afterRow}">${noteList(col.after)}</div>`;
+            });
+        }
 
         html += '</div></section>';
         return html;

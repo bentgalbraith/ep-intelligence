@@ -252,10 +252,12 @@ def read_rows(raw):
 # ---------------------------------------------------------------------------
 
 def _fmt_time(value):
-    """12-hour label without platform-specific strftime padding flags."""
+    """Compact 12-hour label for print (6a, 6:30p). No platform strftime flags."""
     hour = value.hour % 12 or 12
-    suffix = "am" if value.hour < 12 else "pm"
-    return f"{hour}:{value.minute:02d} {suffix}"
+    suffix = "a" if value.hour < 12 else "p"
+    if value.minute:
+        return f"{hour}:{value.minute:02d}{suffix}"
+    return f"{hour}{suffix}"
 
 
 def _assign_lanes(blocks):
@@ -432,7 +434,7 @@ def build_schedule(raw, config):
                 {"name": name, "count": count, "included": False}
                 for name, count in unmapped.items()
             ],
-            key=lambda row: (-row["count"], row["name"].lower()),
+            key=lambda row: (not row["included"], -row["count"], row["name"].lower()),
         ),
         "unreadable_rows": unreadable,
         "appointment_count": sum(
