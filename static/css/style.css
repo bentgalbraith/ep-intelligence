@@ -3484,13 +3484,13 @@ a.specimen-name:hover {
     position: sticky;
     top: 0;
     z-index: 1;
-    background: #ffffff;
+    background: #eceae4;
     font-size: 0.6rem;
     font-weight: 500;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: rgba(0, 0, 0, 0.35);
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
+    color: rgba(0, 0, 0, 0.45);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
 }
 
 .sched-info-table td:last-child,

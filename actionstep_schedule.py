@@ -33,7 +33,24 @@ REQUIRED_HEADERS = ["Calendar Name", "Appointment Title", "Start", "End"]
 # few-weeks export is under a thousand rows.
 MAX_ROWS = 20000
 
-_DATE_FORMATS = ("%m/%d/%Y %H:%M", "%m/%d/%Y %H:%M:%S")
+# Actionstep ships 24-hour times. Excel rewrites them on save (2-digit year,
+# 12-hour AM/PM, seconds, ISO). Try the original first, then Excel's variants.
+_DATE_FORMATS = (
+    "%m/%d/%Y %H:%M",
+    "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%y %H:%M",
+    "%m/%d/%y %H:%M:%S",
+    "%m/%d/%Y %I:%M %p",
+    "%m/%d/%Y %I:%M:%S %p",
+    "%m/%d/%y %I:%M %p",
+    "%m/%d/%y %I:%M:%S %p",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S",
+    "%m/%d/%Y",
+    "%m/%d/%y",
+    "%Y-%m-%d",
+)
 
 _HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
@@ -186,8 +203,14 @@ def validate_config(config):
 # ---------------------------------------------------------------------------
 
 def decode_csv(raw):
-    """Decode an Actionstep export. Exports are Windows-1252, not UTF-8."""
-    for encoding in ("utf-8-sig", "cp1252", "latin-1"):
+    """Decode an Actionstep export or an Excel resave of one."""
+    encodings = ["utf-8-sig"]
+    # Excel's "Unicode CSV" is UTF-16 with a BOM. Without a BOM, utf-16 will
+    # "succeed" on ordinary 8-bit CSVs and produce garbage headers.
+    if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
+        encodings.append("utf-16")
+    encodings.extend(["cp1252", "latin-1"])
+    for encoding in encodings:
         try:
             return raw.decode(encoding)
         except UnicodeDecodeError:
@@ -196,9 +219,12 @@ def decode_csv(raw):
 
 
 def _parse_dt(value):
-    text = (value or "").strip()
+    text = " ".join((value or "").split())
     if not text:
         return None
+    # Excel sometimes writes 2:00PM with no space, or a trailing timezone.
+    text = re.sub(r"(?i)(?<=\d)(am|pm)\b", r" \1", text)
+    text = re.sub(r"\s+(?:UTC|GMT|[+-]\d{2}:?\d{2})$", "", text)
     for fmt in _DATE_FORMATS:
         try:
             return datetime.datetime.strptime(text, fmt)
@@ -214,7 +240,8 @@ def read_rows(raw):
     if not reader.fieldnames:
         raise ScheduleError("The CSV appears to be empty.")
 
-    headers = {(h or "").strip() for h in reader.fieldnames}
+    reader.fieldnames = [(h or "").strip() for h in reader.fieldnames]
+    headers = set(reader.fieldnames)
     missing = [h for h in REQUIRED_HEADERS if h not in headers]
     if missing:
         raise ScheduleError(
@@ -232,12 +259,13 @@ def read_rows(raw):
             continue
         if end is None or end < start:
             end = start
+        flag = (row.get("All Day Flag") or "").strip().upper()
         appointments.append({
             "calendar": (row.get("Calendar Name") or "").strip(),
             "title": " ".join((row.get("Appointment Title") or "").split()),
             "start": start,
             "end": end,
-            "all_day": (row.get("All Day Flag") or "").strip().upper() == "T",
+            "all_day": flag in {"T", "TRUE", "1", "Y", "YES"},
         })
         if len(appointments) > MAX_ROWS:
             raise ScheduleError(
