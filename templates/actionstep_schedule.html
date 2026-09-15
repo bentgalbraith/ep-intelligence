@@ -105,6 +105,10 @@
                 if (!res.ok) throw new Error(data.error || 'Something went wrong');
 
                 showResult(renderSchedule(data));
+                const resultRoot = document.getElementById('result-content');
+                const refit = () => fitPrintNotes(resultRoot);
+                if (document.fonts && document.fonts.ready) document.fonts.ready.then(refit);
+                else refit();
                 resultHeader.style.display = 'flex';
                 document.getElementById('result-content').style.display = 'flex';
                 document.getElementById('result-content').style.flexDirection = 'column';
@@ -123,8 +127,7 @@
         if (!items.length) return '';
         let html = '';
         for (const item of items) {
-            html += `<span class="sched-note-item" title="${escapeAttr(item.title)}">`
-                + `<span class="sched-note-dot" style="background:${escapeAttr(item.color)}"></span>`
+            html += `<span class="sched-note-item" style="background:${escapeAttr(item.color)}">`
                 + `<span class="sched-note-time">${escapeHtml(item.time_label)}</span> `
                 + escapeHtml(item.title)
                 + `</span>`;
@@ -132,12 +135,92 @@
         return html;
     }
 
+    // Legal-landscape printable height is 8.0in; each .sched-page is 7.95in
+    // so Chrome cannot spill a blank leftover sheet. Earlier and Later are
+    // content-sized (no line clamp, no "+N more"): one long note can use
+    // four lines, and a quiet Later band leaves that height for Earlier.
+    // Whatever is left after both bands goes to the day grid. Type shrinks
+    // only if the grid would otherwise drop below a usable size.
+    const PRINT = {
+        pageIn: 7.88,
+        bodyMinIn: 5.0,
+        bodyFloorIn: 2.8,
+        fontMaxRem: 0.5,
+        fontMinRem: 0.36,
+    };
+
+    function leftoverBodyIn(pageEl) {
+        const head = pageEl.querySelector('.sched-page-head');
+        const grid = pageEl.querySelector('.sched-grid');
+        const body = pageEl.querySelector('.sched-body');
+        const colHead = pageEl.querySelector('.sched-head');
+        if (!grid || !body || !colHead) return 5.9;
+        const headPx = head ? head.getBoundingClientRect().height : 0;
+        const colHeadPx = colHead.getBoundingClientRect().height;
+        const notesPx = grid.getBoundingClientRect().height
+            - body.getBoundingClientRect().height
+            - colHeadPx;
+        return (PRINT.pageIn * 96 - headPx - colHeadPx - notesPx - 4) / 96;
+    }
+
+    function fitMeasuredPage(pageEl) {
+        let font = PRINT.fontMaxRem;
+        pageEl.style.setProperty('--sched-note-fs', font + 'rem');
+        pageEl.style.setProperty('--sched-body-h', '5.9in');
+
+        let body = leftoverBodyIn(pageEl);
+        if (body >= PRINT.bodyMinIn) return { font, body };
+
+        while (font > PRINT.fontMinRem + 0.005) {
+            font = Math.round((font - 0.02) * 100) / 100;
+            pageEl.style.setProperty('--sched-note-fs', font + 'rem');
+            body = leftoverBodyIn(pageEl);
+            if (body >= PRINT.bodyMinIn) return { font, body };
+        }
+
+        return {
+            font: PRINT.fontMinRem,
+            body: Math.max(PRINT.bodyFloorIn, leftoverBodyIn(pageEl)),
+        };
+    }
+
+    function measurePageFits(data) {
+        const total = data.pages.length;
+        const probe = document.createElement('div');
+        probe.className = 'sched-print-measure';
+        probe.setAttribute('aria-hidden', 'true');
+        probe.innerHTML = data.pages.map((page, i) =>
+            renderPage(page, data, i + 1, total)).join('');
+        document.body.appendChild(probe);
+        void probe.offsetHeight;
+        const fits = Array.from(probe.querySelectorAll('.sched-page')).map(fitMeasuredPage);
+        probe.remove();
+        return fits;
+    }
+
+    function fitPrintNotes(root) {
+        const src = root && root.querySelector('.sched-print');
+        if (!src) return;
+        const probe = src.cloneNode(true);
+        probe.className = 'sched-print-measure';
+        probe.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(probe);
+        const srcPages = src.querySelectorAll('.sched-page');
+        probe.querySelectorAll('.sched-page').forEach((el, i) => {
+            const fit = fitMeasuredPage(el);
+            srcPages[i].style.setProperty('--sched-body-h', fit.body.toFixed(3) + 'in');
+            srcPages[i].style.setProperty('--sched-note-fs', fit.font + 'rem');
+        });
+        probe.remove();
+    }
+
     function renderSchedule(data) {
         let html = `<div class="sched-screen">${renderInfo(data)}</div>`;
         html += '<div class="sched-print">';
         const total = data.pages.length;
+        const fits = document.body ? measurePageFits(data) : [];
         data.pages.forEach((page, i) => {
-            html += renderPage(page, data, i + 1, total);
+            html += renderPage(page, data, i + 1, total, fits[i]);
         });
         html += '</div>';
         return html;
@@ -180,13 +263,16 @@
         return `<div class="sched-info">${html}</div>`;
     }
 
-    function renderPage(page, data, pageNum, pageTotal) {
+    function renderPage(page, data, pageNum, pageTotal, fit) {
         // The track lists are passed as whole values because CSS does not allow
         // a custom property as the repeat() count.
         const cols = page.columns.length;
+        fit = fit || { body: 5.9, font: PRINT.fontMaxRem };
         let html = `<section class="sched-page" style="`
             + `--sched-track:repeat(${cols}, minmax(96px, 1fr));`
-            + `--sched-track-print:repeat(${cols}, 1fr)">`;
+            + `--sched-track-print:repeat(${cols}, 1fr);`
+            + `--sched-body-h:${Number(fit.body).toFixed(3)}in;`
+            + `--sched-note-fs:${fit.font}rem">`;
 
         html += `<header class="sched-page-head">
             <h3 class="sched-date">${escapeHtml(page.date_label)}</h3>
@@ -251,6 +337,12 @@
         return html;
     }
 
-    document.getElementById('btn-print').addEventListener('click', () => window.print());
+    document.getElementById('btn-print').addEventListener('click', () => {
+        fitPrintNotes(document.getElementById('result-content'));
+        window.print();
+    });
+    window.addEventListener('beforeprint', () => {
+        fitPrintNotes(document.getElementById('result-content'));
+    });
 </script>
 {% endblock %}

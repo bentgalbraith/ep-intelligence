@@ -3528,6 +3528,42 @@ a.specimen-name:hover {
     }
 }
 
+/* Off-screen print geometry used to measure real Earlier/Later wrap height
+   so the day grid can shrink (and Earlier can take Later's unused space)
+   without a character-count guess. */
+.sched-print-measure {
+    position: absolute;
+    left: -200vw;
+    top: 0;
+    width: 13.5in;
+    pointer-events: none;
+    visibility: hidden;
+}
+
+.sched-print-measure .sched-page {
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: visible;
+    width: 13.5in;
+}
+
+.sched-print-measure .sched-page-head {
+    margin-bottom: 0.08in;
+}
+
+.sched-print-measure .sched-grid {
+    grid-template-columns: 2.6rem var(--sched-track-print);
+}
+
+.sched-print-measure .sched-axis,
+.sched-print-measure .sched-lines,
+.sched-print-measure .sched-body {
+    height: var(--sched-body-h, 5.9in);
+}
+
 .sched-page {
     margin-bottom: 1.25rem;
     padding: 0.9rem 1rem 0.8rem;
@@ -3598,12 +3634,12 @@ a.specimen-name:hover {
 .sched-note {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2px;
     padding: 2px 3px;
     border-left: 1px solid rgba(0, 0, 0, 0.08);
-    font-size: 0.5rem;
+    font-size: var(--sched-note-fs, 0.5rem);
     line-height: 1.25;
-    color: rgba(0, 0, 0, 0.6);
+    color: #1a1a1a;
 }
 
 .sched-note--after {
@@ -3612,21 +3648,15 @@ a.specimen-name:hover {
 
 .sched-note-item {
     display: block;
+    padding: 1px 4px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 2px;
     overflow-wrap: anywhere;
     word-break: break-word;
 }
 
-.sched-note-dot {
-    display: inline-block;
-    width: 5px;
-    height: 5px;
-    border: 1px solid rgba(0, 0, 0, 0.15);
-    border-radius: 1px;
-    margin-right: 2px;
-}
-
 .sched-note-time {
-    color: rgba(0, 0, 0, 0.4);
+    color: rgba(0, 0, 0, 0.55);
 }
 
 .sched-axis {
@@ -3731,12 +3761,14 @@ a.specimen-name:hover {
     }
 
     .page-schedule .sched-page {
+        box-sizing: border-box;
         margin: 0;
         padding: 0;
         border: none;
         border-radius: 0;
         box-shadow: none;
         overflow: hidden;
+        height: 7.95in;
         break-after: page;
         page-break-after: always;
     }
@@ -3746,11 +3778,21 @@ a.specimen-name:hover {
         page-break-after: auto;
     }
 
-    /* Heights are budgeted against the 8.0in printable area of legal landscape
-       (8.5in less 0.25in margins). A fixed body keeps the grid geometry identical
-       on every sheet and keeps percentage-positioned blocks resolvable; the note
-       caps stop a busy day from spilling onto a second sheet. Empty Earlier/Later
-       rows are omitted so they cannot add a double rule. */
+    .page-schedule .sched-print-measure,
+    .page-schedule .sched-print-measure .sched-page {
+        height: auto !important;
+        overflow: visible !important;
+        display: block !important;
+        visibility: hidden;
+    }
+
+    .page-schedule .sched-page-head {
+        margin-bottom: 0.08in;
+    }
+
+    /* Printable area is 8.0in. Each page sets --sched-body-h / --sched-note-fs
+       from a live wrap measurement so Earlier and Later grow with their
+       content (and share leftover height) without a second sheet. */
     .page-schedule .sched-grid {
         grid-template-columns: 2.6rem var(--sched-track-print);
     }
@@ -3758,12 +3800,11 @@ a.specimen-name:hover {
     .page-schedule .sched-axis,
     .page-schedule .sched-lines,
     .page-schedule .sched-body {
-        height: 5.9in;
+        height: var(--sched-body-h, 5.9in);
     }
 
     .page-schedule .sched-note {
-        max-height: 0.75in;
-        overflow: hidden;
+        overflow: visible;
     }
 
     .page-schedule .sched-line {
@@ -3776,7 +3817,7 @@ a.specimen-name:hover {
     }
 
     .page-schedule .sched-block,
-    .page-schedule .sched-note-dot {
+    .page-schedule .sched-note-item {
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
     }
