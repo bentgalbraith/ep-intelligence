@@ -1071,6 +1071,7 @@ def _run_doc_separate(job_id, pdf_content, firm_id, firm_config, log_ctx=None):
             _notify_tool_error("Document Separator", str(e), firm_id=firm_id,
                                firm_name=_jobs[job_id].get("firm_name"),
                                firm_slug=_jobs[job_id].get("firm_slug"),
+                               employee_id_code=(log_ctx or {}).get("employee_id_code"),
                                details=getattr(e, "details", None))
             with _jobs_lock:
                 _jobs[job_id].update({"status": "error", "error": str(e)})
@@ -1305,6 +1306,7 @@ def _run_doc_separate_redo(job_id, pdf_content, page_texts, total_pages,
             _notify_tool_error("Document Separator (Redo)", str(e), firm_id=firm_id,
                                firm_name=_jobs[job_id].get("firm_name"),
                                firm_slug=_jobs[job_id].get("firm_slug"),
+                               employee_id_code=(log_ctx or {}).get("employee_id_code"),
                                details=getattr(e, "details", None))
             with _jobs_lock:
                 _jobs[job_id].update({"status": "error", "error": str(e)})
@@ -1388,6 +1390,7 @@ def _run_prospect_summarize(job_id, pdf_contents, notes, firm_id, firm_config, l
             _notify_tool_error("Prospect Summarizer", str(e), firm_id=firm_id,
                                firm_name=_jobs[job_id].get("firm_name"),
                                firm_slug=_jobs[job_id].get("firm_slug"),
+                               employee_id_code=(log_ctx or {}).get("employee_id_code"),
                                details=getattr(e, "details", None))
             with _jobs_lock:
                 _jobs[job_id].update({"status": "error", "error": str(e)})
@@ -3016,7 +3019,7 @@ def _send_error_alert(e):
 
 
 def _notify_tool_error(tool_name, error, firm_id=None, firm_name=None, firm_slug=None,
-                       details=None):
+                       details=None, employee_id_code=None):
     """Send alert for tool errors that don't trigger the 500 error handler."""
     if not RESEND_API_KEY or not _can_send_alert():
         return
@@ -3024,6 +3027,8 @@ def _notify_tool_error(tool_name, error, firm_id=None, firm_name=None, firm_slug
         firm_name = session.get("firm_name", "N/A") if has_request_context() else "N/A"
     if firm_slug is None:
         firm_slug = session.get("firm_slug", "N/A") if has_request_context() else "N/A"
+    if employee_id_code is None and has_request_context():
+        employee_id_code = session.get("employee_code")
 
     tb = traceback.format_exc()
     req_url = f"{request.method} {request.url}" if has_request_context() else "background job"
@@ -3047,11 +3052,16 @@ def _notify_tool_error(tool_name, error, firm_id=None, firm_name=None, firm_slug
         if rows:
             details_html = "<h3>Model diagnostics</h3>" + "".join(rows) + "<hr>"
 
+    employee_html = ""
+    if employee_id_code:
+        employee_html = f"<p><strong>Employee ID:</strong> {_e(employee_id_code)}</p>"
+
     body = (
         f"<h2>Tool Error: {_e(tool_name)}</h2>"
         f"<p><strong>Time:</strong> {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}</p>"
         f"<p><strong>URL:</strong> {_e(req_url)}</p>"
         f"<p><strong>Firm:</strong> {_e(firm_name)} ({_e(firm_slug)})</p>"
+        f"{employee_html}"
         f"<p><strong>Error:</strong> {_e(error)}</p>"
         f"{details_html}"
         f"<pre style=\"font-size:12px;white-space:pre-wrap;\">{_e(tb)}</pre>"
