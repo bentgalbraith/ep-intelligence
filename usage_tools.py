@@ -6,8 +6,10 @@ SQL. Admin usage stays uncollapsed (every log row, including steps).
 1. TOOL_LABELS  — human name for admin and for the parent product on the firm
    dashboard.
 2. STEP_OF      — internal step of an existing product (OCR, extra API hops).
-   Firm dashboard: hide from uses, by-tool, charts, and the per-use list.
-   Costs still count in Total / Model / OCR via `provider`, not via this map.
+   Firm dashboard: hide successful steps from uses, by-tool, charts, and the
+   per-use list. Failed steps count as a use of the parent (no parent row is
+   written when the step fails). Costs still count in Total / Model / OCR via
+   `provider`, not via this map.
 3. ALIAS_OF     — same product, different log key (redo, retry). Firm dashboard:
    count as a use of the parent; do not show a separate tool row.
 """
@@ -41,20 +43,25 @@ def _sql_literal(value):
 
 
 def firm_product_tool_sql(column="l.tool"):
-    """SQL expr that maps alias keys to the parent product. Steps are unchanged."""
-    if not ALIAS_OF:
+    """SQL expr that maps alias and step keys to the parent product."""
+    mapping = {**STEP_OF, **ALIAS_OF}
+    if not mapping:
         return column
     whens = " ".join(
         f"WHEN {column} = {_sql_literal(src)} THEN {_sql_literal(dst)}"
-        for src, dst in sorted(ALIAS_OF.items())
+        for src, dst in sorted(mapping.items())
     )
     return f"CASE {whens} ELSE {column} END"
 
 
-def firm_step_not_in_sql(column="l.tool"):
-    """SQL excluding internal steps. TRUE when the map is empty."""
+def firm_use_row_sql(column="l.tool", status_column="l.status"):
+    """TRUE for rows that count as a firm-facing use.
+
+    Successful internal steps are hidden. Failed steps count as the parent.
+    TRUE when the map is empty.
+    """
     keys = sorted(STEP_OF)
     if not keys:
         return "TRUE"
     joined = ", ".join(_sql_literal(k) for k in keys)
-    return f"{column} NOT IN ({joined})"
+    return f"({column} NOT IN ({joined}) OR {status_column} = 'error')"

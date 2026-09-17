@@ -1203,22 +1203,22 @@ def _require_firm_id(firm_id):
 
 def _firm_usage_where(days, firm_id):
     where, params = _usage_filters(days, firm_id, None)
-    not_step = usage_tools.firm_step_not_in_sql()
-    where = f"{where} AND {not_step}" if where else f"WHERE {not_step}"
+    use_row = usage_tools.firm_use_row_sql()
+    where = f"{where} AND {use_row}" if where else f"WHERE {use_row}"
     return where, params
 
 
 def firm_usage_overview(firm_id, days=None):
     firm_id = _require_firm_id(firm_id)
     where, params = _usage_filters(days, firm_id, None)
-    not_step = usage_tools.firm_step_not_in_sql()
+    use_row = usage_tools.firm_use_row_sql()
     tool_expr = usage_tools.firm_product_tool_sql()
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 f"""SELECT
-                        COUNT(*) FILTER (WHERE {not_step}) AS calls,
-                        COUNT(DISTINCT CASE WHEN {not_step} THEN {tool_expr} END) AS tools,
+                        COUNT(*) FILTER (WHERE {use_row}) AS calls,
+                        COUNT(DISTINCT CASE WHEN {use_row} THEN {tool_expr} END) AS tools,
                         MAX(l.timestamp) AS last_seen,
                         COALESCE(SUM(l.cost_usd), 0) AS cost,
                         COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'openai'), 0) AS cost_openai,
