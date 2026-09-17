@@ -344,6 +344,14 @@
         return html;
     }
 
+    const pageTitle = document.title;
+    window.addEventListener('beforeprint', () => {
+        document.title = `Actionstep_Schedule_${exportTimestamp()}`;
+    });
+    window.addEventListener('afterprint', () => {
+        document.title = pageTitle;
+    });
+
     document.getElementById('btn-print').addEventListener('click', () => {
         fitPrintNotes(document.getElementById('result-content'));
         window.print();
