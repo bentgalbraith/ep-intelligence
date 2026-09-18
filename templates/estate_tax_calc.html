@@ -1333,6 +1333,21 @@
         });
     }
 
+    let usageLogged = false;
+    function logEstateTaxUse() {
+        if (usageLogged) return;
+        usageLogged = true;
+        fetch('{{ url_for("api_estate_tax_calc_use") }}', {
+            method: 'POST',
+            credentials: 'same-origin',
+            keepalive: true,
+        }).then(function (res) {
+            if (!res.ok) usageLogged = false;
+        }).catch(function () {
+            usageLogged = false;
+        });
+    }
+
     moneyInputs.forEach(input => {
         input.addEventListener('focus', function () {
             input.value = input.value.replace(/,/g, '');
@@ -1340,15 +1355,25 @@
         input.addEventListener('blur', function () {
             formatMoneyInput(input);
         });
-        input.addEventListener('input', scheduleCalculation);
+        input.addEventListener('input', function () {
+            scheduleCalculation();
+            logEstateTaxUse();
+        });
     });
 
-    form.elements.annual_growth_rate.addEventListener('input', scheduleCalculation);
+    form.elements.annual_growth_rate.addEventListener('input', function () {
+        scheduleCalculation();
+        logEstateTaxUse();
+    });
     form.addEventListener('change', function (event) {
-        if (event.target.name === 'filing_status') updateFilingStatus();
+        if (event.target.name === 'filing_status') {
+            updateFilingStatus();
+            logEstateTaxUse();
+        }
     });
     form.addEventListener('submit', function (event) {
         event.preventDefault();
+        logEstateTaxUse();
         calculate({ reportErrors: true, scrollToResults: true });
     });
 

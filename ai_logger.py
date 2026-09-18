@@ -1,4 +1,4 @@
-"""Centralized AI usage logger — writes every AI call to the ai_usage_log table."""
+"""Centralized usage logger — writes tool uses to the ai_usage_log table."""
 
 import contextvars
 import logging
@@ -146,7 +146,19 @@ def log_ai_call(
         finally:
             conn.close()
     except Exception:
-        log.error("Failed to write AI usage log: %s", traceback.format_exc())
+        log.error("Failed to write usage log: %s", traceback.format_exc())
+
+
+def log_tool_use(*, tool, status, firm_id=None, execution_ms=None, notes=None):
+    """Log a non-AI product use. Same table as log_ai_call; provider is local."""
+    log_ai_call(
+        provider="local",
+        tool=tool,
+        status=status,
+        firm_id=firm_id,
+        execution_ms=execution_ms,
+        notes=notes,
+    )
 
 
 def extract_xai_usage(response):

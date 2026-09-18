@@ -10,6 +10,7 @@ alwaysApply: true
 - Add a display name to `TOOL_LABELS`.
 - If it is an internal step of an existing product (OCR, extra API hop), add it to `STEP_OF`. The firm dashboard hides successful steps from uses / by-tool / charts; failed steps count as the parent product. Costs still roll up via `provider` (openai vs google_documentai).
 - If it is the same product under another key (redo, retry), add it to `ALIAS_OF`.
+- Non-AI tools: add a `TOOL_LABELS` key and log with `log_tool_use` (same table, provider `local`).
 - Leave admin `/admin/usage` uncollapsed so steps stay visible there.
 - Do not show per-tool costs on the firm dashboard.
 - Firm-facing cost KPIs and the cost chart are gated by `usage_dashboard_show_costs` (off by default).

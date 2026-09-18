@@ -28,7 +28,7 @@ from actionstep_schedule import (
     build_schedule,
     validate_config as validate_schedule_config,
 )
-from ai_logger import log_ai_call, extract_xai_usage, completion_details, log_context
+from ai_logger import log_ai_call, log_tool_use, extract_xai_usage, completion_details, log_context
 from doc_separator import separate_documents, redo_with_feedback, summarize_split, _extract_json
 from ep_export import build_export_csv, build_questionnaire_docx
 from prospect_summarizer import extract_prospect_documents, build_summary_docx, PROSPECT_SCHEMA
@@ -904,6 +904,14 @@ def estate_tax_calculator():
     return render_template("estate_tax_calc.html", firm_name=session.get("firm_name", ""))
 
 
+@app.route("/api/estate-tax-calc/use", methods=["POST"])
+@login_required
+@tool_enabled("estate_tax_calc")
+def api_estate_tax_calc_use():
+    log_tool_use(tool="estate_tax_calc", status="success", firm_id=session.get("firm_id"))
+    return ("", 204)
+
+
 
 # ---------------------------------------------------------------------------
 # Drafting Notes
@@ -1505,8 +1513,14 @@ def api_doc_differences():
         return jsonify({"error": "The uploaded file is empty."}), 400
 
     firm_id = session.get("firm_id")
+    call_start = time.time()
     specimens = tracker_db.list_specimen_documents(firm_id)
     if not specimens:
+        log_tool_use(
+            tool="doc_differences", status="error", firm_id=firm_id,
+            execution_ms=int((time.time() - call_start) * 1000),
+            notes="No specimen documents configured",
+        )
         return jsonify({"error": "No specimen documents configured for your firm. Contact your administrator."}), 400
 
     full_specimens = []
@@ -1518,9 +1532,19 @@ def api_doc_differences():
     try:
         rankings = rank_specimens(upload_bytes, full_specimens)
     except Exception as e:
+        log_tool_use(
+            tool="doc_differences", status="error", firm_id=firm_id,
+            execution_ms=int((time.time() - call_start) * 1000),
+            notes=traceback.format_exc(),
+        )
         app.logger.error("Doc differences ranking error: %s", e)
         _notify_tool_error("Document Differences", str(e))
         return jsonify({"error": "Failed to process document."}), 500
+
+    log_tool_use(
+        tool="doc_differences", status="success", firm_id=firm_id,
+        execution_ms=int((time.time() - call_start) * 1000),
+    )
 
     upload_name = f.filename.rsplit(".", 1)[0] if f.filename else "Document"
 
@@ -1596,8 +1620,14 @@ def api_actionstep_schedule():
         return jsonify({"error": "The uploaded file is empty."}), 400
 
     firm_id = session.get("firm_id")
+    call_start = time.time()
     schedule_config = (_get_firm_config(firm_id) or {}).get("actionstep_schedule") or {}
     if not schedule_config.get("columns"):
+        log_tool_use(
+            tool="actionstep_schedule", status="error", firm_id=firm_id,
+            execution_ms=int((time.time() - call_start) * 1000),
+            notes="Tool not configured",
+        )
         return jsonify({
             "error": "This tool has not been set up for your firm yet. "
                      "Contact your administrator."
@@ -1606,18 +1636,38 @@ def api_actionstep_schedule():
     try:
         data = build_schedule(raw, schedule_config)
     except ScheduleError as e:
+        log_tool_use(
+            tool="actionstep_schedule", status="error", firm_id=firm_id,
+            execution_ms=int((time.time() - call_start) * 1000),
+            notes=str(e),
+        )
         return jsonify({"error": str(e)}), 400
     except Exception as e:
+        log_tool_use(
+            tool="actionstep_schedule", status="error", firm_id=firm_id,
+            execution_ms=int((time.time() - call_start) * 1000),
+            notes=traceback.format_exc(),
+        )
         app.logger.error("Actionstep schedule error: %s", e)
         _notify_tool_error("Visualize Actionstep Schedule", str(e), firm_id=firm_id)
         return jsonify({"error": "Could not build a schedule from this file."}), 500
 
+    elapsed_ms = int((time.time() - call_start) * 1000)
     if not data["pages"]:
+        log_tool_use(
+            tool="actionstep_schedule", status="error", firm_id=firm_id,
+            execution_ms=elapsed_ms,
+            notes="No matching appointments",
+        )
         return jsonify({
             "error": "No appointments in this export belong to the calendars "
                      "set up for your firm."
         }), 400
 
+    log_tool_use(
+        tool="actionstep_schedule", status="success", firm_id=firm_id,
+        execution_ms=elapsed_ms,
+    )
     return jsonify(data)
 
 
@@ -1655,6 +1705,7 @@ def api_tracker_auth():
 def client_progress():
     if not session.get("tracker_authenticated"):
         return redirect(url_for("dashboard"))
+    log_tool_use(tool="tracker", status="success", firm_id=session.get("firm_id"))
     return render_template("client_progress.html", firm_name=session.get("firm_name", ""))
 
 
@@ -2153,6 +2204,7 @@ def admin_firm_doc_separator_redos_csv(firm_id):
 _USAGE_PROVIDER_LABELS = {
     "openai": "OpenAI",
     "google_documentai": "Document AI",
+    "local": "Local",
 }
 
 

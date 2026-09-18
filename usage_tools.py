@@ -21,6 +21,10 @@ TOOL_LABELS = {
     "doc_separator_redo": "Document Separator (Redo)",
     "prospect_summarizer": "Prospect Summarizer",
     "prospect_summarizer_ocr": "Prospect Summarizer (OCR)",
+    "doc_differences": "Identify Document Differences",
+    "estate_tax_calc": "Estate Tax Calculator",
+    "actionstep_schedule": "Visualize Actionstep Schedule",
+    "tracker": "Client Progress Tracker",
 }
 
 # log key -> parent product key
