@@ -252,6 +252,10 @@
             <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_estate_tax_calc" value="1" {{ 'checked' if tools.get('estate_tax_calc') }}> Estate Tax Calculator</label>
         </section>
 
+        <section class="admin-section">
+            <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_community_property_trust_calc" value="1" {{ 'checked' if tools.get('community_property_trust_calc') }}> Community Property Trust Calculator</label>
+        </section>
+
         <section class="admin-section{% if start_open %} is-open{% endif %}" data-collapsible>
             <div class="admin-collapse-row">
                 <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_actionstep_schedule" value="1" data-tool-toggle="actionstep_schedule" {{ 'checked' if tools.get('actionstep_schedule') }}> Visualize Actionstep Schedule</label>

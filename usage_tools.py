@@ -23,6 +23,7 @@ TOOL_LABELS = {
     "prospect_summarizer_ocr": "Prospect Summarizer (OCR)",
     "doc_differences": "Identify Document Differences",
     "estate_tax_calc": "Estate Tax Calculator",
+    "community_property_trust_calc": "Community Property Trust Calculator",
     "actionstep_schedule": "Visualize Actionstep Schedule",
     "tracker": "Client Progress Tracker",
 }

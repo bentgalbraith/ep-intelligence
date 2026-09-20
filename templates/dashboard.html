@@ -62,6 +62,16 @@
             <span class="tool-label">Estate Tax Calculator</span>
         </a>
         {% endif %}
+        {% if te.get('community_property_trust_calc') %}
+        <a href="{{ url_for('community_property_trust_calculator') }}" class="tool-card">
+            <div class="tool-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 21h18"/><path d="M6 21V8l6-5 6 5v13"/><path d="M10 21v-6h4v6"/>
+                </svg>
+            </div>
+            <span class="tool-label">Community Property Trust Calculator</span>
+        </a>
+        {% endif %}
         {% if te.get('actionstep_schedule') %}
         <a href="{{ url_for('actionstep_schedule') }}" class="tool-card">
             <div class="tool-icon">

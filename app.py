@@ -355,7 +355,12 @@ def tracker_required(f):
     return decorated
 
 
-_OPT_IN_TOOLS = {"doc_differences", "estate_tax_calc", "actionstep_schedule"}
+_OPT_IN_TOOLS = {
+    "doc_differences",
+    "estate_tax_calc",
+    "community_property_trust_calc",
+    "actionstep_schedule",
+}
 
 
 def _is_tool_enabled(tool_key):
@@ -911,6 +916,31 @@ def api_estate_tax_calc_use():
     log_tool_use(tool="estate_tax_calc", status="success", firm_id=session.get("firm_id"))
     return ("", 204)
 
+
+# ---------------------------------------------------------------------------
+# Community Property Trust Calculator
+# ---------------------------------------------------------------------------
+
+@app.route("/community-property-trust-calculator")
+@login_required
+@tool_enabled("community_property_trust_calc")
+def community_property_trust_calculator():
+    return render_template(
+        "community_property_trust_calc.html",
+        firm_name=session.get("firm_name", ""),
+    )
+
+
+@app.route("/api/community-property-trust-calc/use", methods=["POST"])
+@login_required
+@tool_enabled("community_property_trust_calc")
+def api_community_property_trust_calc_use():
+    log_tool_use(
+        tool="community_property_trust_calc",
+        status="success",
+        firm_id=session.get("firm_id"),
+    )
+    return ("", 204)
 
 
 # ---------------------------------------------------------------------------
@@ -2963,6 +2993,7 @@ def _parse_config_from_form(form):
         "doc_differences": bool(form.get("tool_doc_differences")),
         "tracker": bool(form.get("tool_tracker")),
         "estate_tax_calc": bool(form.get("tool_estate_tax_calc")),
+        "community_property_trust_calc": bool(form.get("tool_community_property_trust_calc")),
         "actionstep_schedule": bool(form.get("tool_actionstep_schedule")),
     }
 
