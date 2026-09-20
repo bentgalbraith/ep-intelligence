@@ -132,7 +132,9 @@
     }
 
     .tax-headline {
-        padding: 44px 0 30px;
+        padding: 36px 0 0;
+        margin-top: 28px;
+        border-top: 1px solid var(--tax-line);
     }
 
     .tax-headline-label {
@@ -194,12 +196,65 @@
     }
 
     .cpt-scenario-tax {
-        margin: 0 0 22px;
+        margin: 0 0 18px;
         font-size: clamp(1.8rem, 4vw, 2.6rem);
         font-weight: 600;
         letter-spacing: -0.055em;
         line-height: 1;
         font-variant-numeric: tabular-nums;
+    }
+
+    .cpt-composition {
+        margin: 0 0 20px;
+    }
+
+    .cpt-composition-bar {
+        display: flex;
+        width: 100%;
+        height: 34px;
+        overflow: hidden;
+        background: #ebe6df;
+        border-radius: 8px;
+    }
+
+    .cpt-composition-segment {
+        width: 0;
+        min-width: 0;
+        transition: width 650ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .cpt-composition-segment--basis {
+        background: #d8d2c8;
+    }
+
+    .cpt-composition-segment--stepup {
+        background: var(--tax-orange);
+    }
+
+    .cpt-composition-segment--gain {
+        background: var(--tax-ink);
+    }
+
+    .cpt-composition-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 20px;
+        margin: 16px 0 0;
+        color: var(--tax-muted);
+        font-size: 0.75rem;
+    }
+
+    .cpt-composition-legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .cpt-swatch {
+        width: 9px;
+        height: 9px;
+        flex: 0 0 auto;
+        border-radius: 50%;
     }
 
     .cpt-fact {
@@ -225,57 +280,6 @@
         white-space: nowrap;
     }
 
-    .cpt-bars {
-        display: grid;
-        gap: 16px;
-        margin-top: 36px;
-    }
-
-    .cpt-bar-row {
-        display: grid;
-        grid-template-columns: minmax(120px, 0.34fr) minmax(0, 1fr) 7.5rem;
-        align-items: center;
-        gap: 16px;
-    }
-
-    .cpt-bar-label {
-        color: var(--tax-muted);
-        font-size: 0.72rem;
-        font-weight: 650;
-        letter-spacing: 0.07em;
-        text-transform: uppercase;
-    }
-
-    .cpt-bar-track {
-        height: 14px;
-        overflow: hidden;
-        background: #ebe6df;
-        border-radius: 999px;
-    }
-
-    .cpt-bar-fill {
-        width: 0;
-        height: 100%;
-        border-radius: inherit;
-        transition: width 650ms cubic-bezier(0.22, 1, 0.36, 1);
-    }
-
-    .cpt-bar-fill--traditional {
-        background: var(--tax-ink);
-    }
-
-    .cpt-bar-fill--cpt {
-        background: var(--tax-orange);
-    }
-
-    .cpt-bar-value {
-        text-align: right;
-        font-size: 0.95rem;
-        font-weight: 600;
-        letter-spacing: -0.03em;
-        font-variant-numeric: tabular-nums;
-    }
-
     @media (max-width: 760px) {
         .tax-shell {
             width: min(100% - 28px, 1000px);
@@ -285,24 +289,6 @@
         .tax-fields,
         .cpt-compare {
             grid-template-columns: 1fr;
-        }
-
-        .cpt-bar-row {
-            grid-template-columns: 1fr auto;
-            gap: 8px 12px;
-        }
-
-        .cpt-bar-label {
-            grid-column: 1;
-        }
-
-        .cpt-bar-value {
-            grid-column: 2;
-            grid-row: 1;
-        }
-
-        .cpt-bar-track {
-            grid-column: 1 / -1;
         }
     }
 
@@ -437,7 +423,8 @@
         }
 
         .tax-headline {
-            padding: 10px 0 8px;
+            padding: 12px 0 0;
+            margin-top: 16px;
         }
 
         .tax-headline-label {
@@ -474,8 +461,23 @@
         }
 
         .cpt-scenario-tax {
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             font-size: 16pt;
+        }
+
+        .cpt-composition {
+            margin-bottom: 10px;
+        }
+
+        .cpt-composition-bar {
+            height: 14px;
+            border-radius: 4px;
+        }
+
+        .cpt-composition-legend {
+            margin-top: 8px;
+            font-size: 7pt;
+            gap: 6px 12px;
         }
 
         .cpt-fact {
@@ -488,28 +490,6 @@
 
         .cpt-fact-value {
             font-size: 9.5pt;
-        }
-
-        .cpt-bars {
-            margin-top: 18px;
-            gap: 8px;
-        }
-
-        .cpt-bar-row {
-            grid-template-columns: 1.1in minmax(0, 1fr) 0.95in;
-            gap: 8px;
-        }
-
-        .cpt-bar-label {
-            font-size: 6.5pt;
-        }
-
-        .cpt-bar-track {
-            height: 8px;
-        }
-
-        .cpt-bar-value {
-            font-size: 8.5pt;
         }
     }
 </style>
@@ -562,16 +542,22 @@
     </section>
 
     <section class="tax-results" id="result-content" hidden>
-        <div class="tax-headline">
-            <p class="tax-headline-label">Federal capital gains tax saved</p>
-            <p class="tax-headline-value" id="tax-saved" aria-live="polite" aria-atomic="true">$0</p>
-        </div>
-
         <div class="cpt-compare">
             <article class="cpt-scenario cpt-scenario--traditional">
                 <p class="cpt-scenario-kicker">Traditional ownership</p>
                 <p class="cpt-scenario-tax-label">Federal capital gains tax (23.8%)</p>
                 <p class="cpt-scenario-tax" id="tax-traditional">$0</p>
+                <div class="cpt-composition">
+                    <div class="cpt-composition-bar" id="bar-traditional" role="img" aria-label="How fair market value is treated">
+                        <div class="cpt-composition-segment cpt-composition-segment--basis" id="seg-basis-traditional"></div>
+                        <div class="cpt-composition-segment cpt-composition-segment--stepup" id="seg-stepup-traditional"></div>
+                        <div class="cpt-composition-segment cpt-composition-segment--gain" id="seg-gain-traditional"></div>
+                    </div>
+                </div>
+                <div class="cpt-fact">
+                    <span class="cpt-fact-label">Step-up in basis</span>
+                    <strong class="cpt-fact-value" id="stepup-traditional">$0</strong>
+                </div>
                 <div class="cpt-fact">
                     <span class="cpt-fact-label">Basis after death</span>
                     <strong class="cpt-fact-value" id="basis-traditional">$0</strong>
@@ -586,6 +572,17 @@
                 <p class="cpt-scenario-kicker">Community Property Trust</p>
                 <p class="cpt-scenario-tax-label">Federal capital gains tax (23.8%)</p>
                 <p class="cpt-scenario-tax" id="tax-cpt">$0</p>
+                <div class="cpt-composition">
+                    <div class="cpt-composition-bar" id="bar-cpt" role="img" aria-label="How fair market value is treated">
+                        <div class="cpt-composition-segment cpt-composition-segment--basis" id="seg-basis-cpt"></div>
+                        <div class="cpt-composition-segment cpt-composition-segment--stepup" id="seg-stepup-cpt"></div>
+                        <div class="cpt-composition-segment cpt-composition-segment--gain" id="seg-gain-cpt"></div>
+                    </div>
+                </div>
+                <div class="cpt-fact">
+                    <span class="cpt-fact-label">Step-up in basis</span>
+                    <strong class="cpt-fact-value" id="stepup-cpt">$0</strong>
+                </div>
                 <div class="cpt-fact">
                     <span class="cpt-fact-label">Basis after death</span>
                     <strong class="cpt-fact-value" id="basis-cpt">$0</strong>
@@ -597,21 +594,15 @@
             </article>
         </div>
 
-        <div class="cpt-bars" aria-hidden="true">
-            <div class="cpt-bar-row">
-                <span class="cpt-bar-label">Traditional</span>
-                <div class="cpt-bar-track">
-                    <div class="cpt-bar-fill cpt-bar-fill--traditional" id="bar-traditional"></div>
-                </div>
-                <span class="cpt-bar-value" id="bar-tax-traditional">$0</span>
-            </div>
-            <div class="cpt-bar-row">
-                <span class="cpt-bar-label">CPT</span>
-                <div class="cpt-bar-track">
-                    <div class="cpt-bar-fill cpt-bar-fill--cpt" id="bar-cpt"></div>
-                </div>
-                <span class="cpt-bar-value" id="bar-tax-cpt">$0</span>
-            </div>
+        <div class="cpt-composition-legend" aria-hidden="true">
+            <span><i class="cpt-swatch" style="background:#d8d2c8;"></i>Original basis</span>
+            <span><i class="cpt-swatch" style="background:#ea580c;"></i>Step-up in basis</span>
+            <span><i class="cpt-swatch" style="background:#1d1d1b;"></i>Taxable capital gain</span>
+        </div>
+
+        <div class="tax-headline">
+            <p class="tax-headline-label">Federal capital gains tax saved</p>
+            <p class="tax-headline-value" id="tax-saved" aria-live="polite" aria-atomic="true">$0</p>
         </div>
     </section>
 </main>
@@ -687,6 +678,17 @@
         animationFrames.set(element, requestAnimationFrame(frame));
     }
 
+    function setSegmentWidth(id, amount, total) {
+        const el = document.getElementById(id);
+        el.style.width = (total > 0 ? (Math.max(0, amount) / total) * 100 : 0) + '%';
+    }
+
+    function describeComposition(label, originalBasis, stepUp, gain) {
+        return label + ': original basis ' + currency.format(originalBasis)
+            + ', step-up ' + currency.format(stepUp)
+            + ', taxable gain ' + currency.format(gain);
+    }
+
     function calculate(options) {
         const settings = options || {};
         const basis = validateMoneyInput(form.elements.asset_basis);
@@ -698,31 +700,47 @@
         }
 
         const builtInGain = fmv - basis;
-        const basisTraditional = basis + builtInGain / 2;
-        const basisCpt = fmv;
+        const stepUpTraditional = builtInGain / 2;
+        const stepUpCpt = builtInGain;
+        const basisTraditional = basis + stepUpTraditional;
+        const basisCpt = basis + stepUpCpt;
         const gainTraditional = Math.max(0, fmv - basisTraditional);
         const gainCpt = Math.max(0, fmv - basisCpt);
         const taxTraditional = gainTraditional * FEDERAL_CG_RATE;
         const taxCpt = gainCpt * FEDERAL_CG_RATE;
         const taxSaved = Math.max(0, taxTraditional - taxCpt);
-        const barMax = Math.max(taxTraditional, taxCpt, 0);
+        const originalBasisShare = Math.max(0, Math.min(basis, fmv));
+        const stepUpShareTraditional = Math.max(0, Math.min(stepUpTraditional, fmv - originalBasisShare));
+        const stepUpShareCpt = Math.max(0, Math.min(stepUpCpt, fmv - originalBasisShare));
+        const gainShareTraditional = Math.max(0, fmv - originalBasisShare - stepUpShareTraditional);
+        const gainShareCpt = Math.max(0, fmv - originalBasisShare - stepUpShareCpt);
 
         resultContent.hidden = false;
 
-        animateCurrency(document.getElementById('tax-saved'), taxSaved);
+        setSegmentWidth('seg-basis-traditional', originalBasisShare, fmv);
+        setSegmentWidth('seg-stepup-traditional', stepUpShareTraditional, fmv);
+        setSegmentWidth('seg-gain-traditional', gainShareTraditional, fmv);
+        setSegmentWidth('seg-basis-cpt', originalBasisShare, fmv);
+        setSegmentWidth('seg-stepup-cpt', stepUpShareCpt, fmv);
+        setSegmentWidth('seg-gain-cpt', gainShareCpt, fmv);
+        document.getElementById('bar-traditional').setAttribute(
+            'aria-label',
+            describeComposition('Traditional ownership', originalBasisShare, stepUpShareTraditional, gainShareTraditional)
+        );
+        document.getElementById('bar-cpt').setAttribute(
+            'aria-label',
+            describeComposition('Community Property Trust', originalBasisShare, stepUpShareCpt, gainShareCpt)
+        );
+
         animateCurrency(document.getElementById('tax-traditional'), taxTraditional);
         animateCurrency(document.getElementById('tax-cpt'), taxCpt);
+        animateCurrency(document.getElementById('stepup-traditional'), stepUpTraditional);
+        animateCurrency(document.getElementById('stepup-cpt'), stepUpCpt);
         animateCurrency(document.getElementById('basis-traditional'), basisTraditional);
         animateCurrency(document.getElementById('basis-cpt'), basisCpt);
         animateCurrency(document.getElementById('gain-traditional'), gainTraditional);
         animateCurrency(document.getElementById('gain-cpt'), gainCpt);
-        animateCurrency(document.getElementById('bar-tax-traditional'), taxTraditional);
-        animateCurrency(document.getElementById('bar-tax-cpt'), taxCpt);
-
-        document.getElementById('bar-traditional').style.width =
-            (barMax > 0 ? (taxTraditional / barMax) * 100 : 0) + '%';
-        document.getElementById('bar-cpt').style.width =
-            (barMax > 0 ? (taxCpt / barMax) * 100 : 0) + '%';
+        animateCurrency(document.getElementById('tax-saved'), taxSaved);
 
         if (settings.scrollToResults) {
             resultContent.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
