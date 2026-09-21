@@ -132,9 +132,8 @@
     }
 
     .tax-headline {
-        padding: 36px 0 0;
-        margin-top: 28px;
-        border-top: 1px solid var(--tax-line);
+        padding: 0 0 28px;
+        text-align: center;
     }
 
     .tax-headline-label {
@@ -176,7 +175,7 @@
     }
 
     .cpt-scenario-kicker {
-        margin: 0 0 10px;
+        margin: 0 0 16px;
         color: var(--tax-muted);
         font-size: 0.68rem;
         font-weight: 650;
@@ -189,14 +188,14 @@
     }
 
     .cpt-scenario-tax-label {
-        margin: 0 0 6px;
+        margin: 16px 0 6px;
         color: var(--tax-muted);
         font-size: 0.72rem;
         font-weight: 500;
     }
 
     .cpt-scenario-tax {
-        margin: 0 0 18px;
+        margin: 0;
         font-size: clamp(1.8rem, 4vw, 2.6rem);
         font-weight: 600;
         letter-spacing: -0.055em;
@@ -204,78 +203,116 @@
         font-variant-numeric: tabular-nums;
     }
 
-    .cpt-composition {
+    .cpt-flow {
+        display: grid;
+        gap: 10px;
         margin: 0 0 20px;
     }
 
-    .cpt-composition-bar {
-        display: flex;
-        width: 100%;
-        height: 34px;
-        overflow: hidden;
-        background: #ebe6df;
-        border-radius: 8px;
+    .cpt-flow-row {
+        display: grid;
+        grid-template-columns: 4.6rem minmax(0, 1fr);
+        gap: 12px;
+        align-items: center;
     }
 
-    .cpt-composition-segment {
+    .cpt-flow-label {
+        margin: 0;
+        color: var(--tax-muted);
+        font-size: 0.68rem;
+        font-weight: 650;
+        letter-spacing: 0.07em;
+        line-height: 1.2;
+        text-align: right;
+        text-transform: uppercase;
+    }
+
+    .cpt-flow-track {
+        position: relative;
+        height: 22px;
+    }
+
+    .cpt-flow-seg {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
         width: 0;
-        min-width: 0;
-        transition: width 650ms cubic-bezier(0.22, 1, 0.36, 1);
+        transition: left 650ms cubic-bezier(0.22, 1, 0.36, 1), width 650ms cubic-bezier(0.22, 1, 0.36, 1);
     }
 
-    .cpt-composition-segment--basis {
-        background: #d8d2c8;
+    .cpt-flow-seg--basis {
+        border-radius: 6px 0 0 6px;
+        background: #cfc8bd;
     }
 
-    .cpt-composition-segment--stepup {
+    .cpt-flow-seg--increase {
+        border-radius: 0 6px 6px 0;
+        background: #f5c5a7;
+    }
+
+    .cpt-flow-seg--stepup {
+        border-radius: 6px 0 0 6px;
         background: var(--tax-orange);
     }
 
-    .cpt-composition-segment--gain {
+    .cpt-flow-seg--unstepped {
+        border-radius: 0 6px 6px 0;
+        background: #7a746c;
+    }
+
+    .cpt-flow-seg--taxable {
+        border-radius: 6px;
         background: var(--tax-ink);
     }
 
-    .cpt-composition-legend {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px 20px;
-        margin: 16px 0 0;
-        color: var(--tax-muted);
-        font-size: 0.75rem;
+    .cpt-flow-seg--solo {
+        border-radius: 6px;
     }
 
-    .cpt-composition-legend span {
+    .cpt-flow-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 14px;
+        margin: 2px 0 0;
+        margin-left: calc(4.6rem + 12px);
+        color: var(--tax-muted);
+        font-size: 0.68rem;
+    }
+
+    .cpt-flow-legend span {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
+        gap: 7px;
     }
 
     .cpt-swatch {
-        width: 9px;
-        height: 9px;
+        width: 8px;
+        height: 8px;
         flex: 0 0 auto;
         border-radius: 50%;
     }
 
     .cpt-fact {
         display: flex;
-        align-items: baseline;
+        align-items: center;
         justify-content: space-between;
         gap: 16px;
-        padding: 12px 0 0;
+        padding: 10px 0;
         border-top: 1px solid var(--tax-line);
     }
 
     .cpt-fact-label {
         color: var(--tax-muted);
         font-size: 0.78rem;
-        line-height: 1.35;
+        line-height: 1;
     }
 
     .cpt-fact-value {
         font-size: 1.05rem;
         font-weight: 600;
         letter-spacing: -0.03em;
+        line-height: 1;
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
     }
@@ -423,8 +460,8 @@
         }
 
         .tax-headline {
-            padding: 12px 0 0;
-            margin-top: 16px;
+            padding: 0 0 12px;
+            margin-top: 0;
         }
 
         .tax-headline-label {
@@ -456,32 +493,43 @@
         }
 
         .cpt-scenario-tax-label {
-            margin-bottom: 2px;
+            margin: 8px 0 2px;
             font-size: 7pt;
         }
 
         .cpt-scenario-tax {
-            margin-bottom: 8px;
             font-size: 16pt;
         }
 
-        .cpt-composition {
+        .cpt-flow {
+            gap: 5px;
             margin-bottom: 10px;
         }
 
-        .cpt-composition-bar {
-            height: 14px;
-            border-radius: 4px;
+        .cpt-flow-row {
+            grid-template-columns: 0.72in minmax(0, 1fr);
+            gap: 8px;
         }
 
-        .cpt-composition-legend {
-            margin-top: 8px;
-            font-size: 7pt;
-            gap: 6px 12px;
+        .cpt-flow-label {
+            font-size: 6pt;
+        }
+
+        .cpt-flow-track {
+            height: 11px;
+        }
+
+        .cpt-flow-legend {
+            margin-left: calc(0.72in + 8px);
+        }
+
+        .cpt-flow-legend {
+            font-size: 6.5pt;
+            gap: 5px 10px;
         }
 
         .cpt-fact {
-            padding-top: 6px;
+            padding: 5px 0;
         }
 
         .cpt-fact-label {
@@ -527,14 +575,14 @@
                     <label class="tax-label" for="asset-basis">Asset Basis</label>
                     <div class="tax-input-wrap">
                         <span class="tax-prefix" aria-hidden="true">$</span>
-                        <input class="tax-input" id="asset-basis" name="asset_basis" type="text" inputmode="decimal" autocomplete="off" placeholder="0" data-default-zero>
+                        <input class="tax-input" id="asset-basis" name="asset_basis" type="text" inputmode="decimal" autocomplete="off" placeholder="0">
                     </div>
                 </div>
                 <div class="tax-field">
                     <label class="tax-label" for="fmv-at-death">FMV at Death + Sale</label>
                     <div class="tax-input-wrap">
                         <span class="tax-prefix" aria-hidden="true">$</span>
-                        <input class="tax-input" id="fmv-at-death" name="fmv_at_death" type="text" inputmode="decimal" autocomplete="off" placeholder="0" data-default-zero>
+                        <input class="tax-input" id="fmv-at-death" name="fmv_at_death" type="text" inputmode="decimal" autocomplete="off" placeholder="0">
                     </div>
                 </div>
             </div>
@@ -542,17 +590,53 @@
     </section>
 
     <section class="tax-results" id="result-content" hidden>
+        <div class="tax-headline">
+            <p class="tax-headline-label">Tax savings with a CPT</p>
+            <p class="tax-headline-value" id="tax-saved" aria-live="polite" aria-atomic="true">$0</p>
+        </div>
         <div class="cpt-compare">
             <article class="cpt-scenario cpt-scenario--traditional">
                 <p class="cpt-scenario-kicker">Traditional ownership</p>
-                <p class="cpt-scenario-tax-label">Federal capital gains tax (23.8%)</p>
-                <p class="cpt-scenario-tax" id="tax-traditional">$0</p>
-                <div class="cpt-composition">
-                    <div class="cpt-composition-bar" id="bar-traditional" role="img" aria-label="How fair market value is treated">
-                        <div class="cpt-composition-segment cpt-composition-segment--basis" id="seg-basis-traditional"></div>
-                        <div class="cpt-composition-segment cpt-composition-segment--stepup" id="seg-stepup-traditional"></div>
-                        <div class="cpt-composition-segment cpt-composition-segment--gain" id="seg-gain-traditional"></div>
+                <div class="cpt-flow" id="flow-traditional" role="img" aria-label="How the property, step-up, and tax line up">
+                    <div class="cpt-flow-row">
+                        <p class="cpt-flow-label">Property</p>
+                        <div class="cpt-flow-track">
+                            <div class="cpt-flow-seg cpt-flow-seg--basis" id="trad-basis"></div>
+                            <div class="cpt-flow-seg cpt-flow-seg--increase" id="trad-increase"></div>
+                        </div>
                     </div>
+                    <div class="cpt-flow-row">
+                        <p class="cpt-flow-label">Increase</p>
+                        <div class="cpt-flow-track">
+                            <div class="cpt-flow-seg cpt-flow-seg--stepup" id="trad-stepup"></div>
+                            <div class="cpt-flow-seg cpt-flow-seg--unstepped" id="trad-unstepped"></div>
+                        </div>
+                    </div>
+                    <div class="cpt-flow-row">
+                        <p class="cpt-flow-label">Taxes</p>
+                        <div class="cpt-flow-track">
+                            <div class="cpt-flow-seg cpt-flow-seg--taxable" id="trad-taxable"></div>
+                        </div>
+                    </div>
+                    <div class="cpt-flow-legend" aria-hidden="true">
+                        <span><i class="cpt-swatch" style="background:#cfc8bd;"></i>Basis</span>
+                        <span><i class="cpt-swatch" style="background:#f5c5a7;"></i>Increase</span>
+                        <span><i class="cpt-swatch" style="background:#ea580c;"></i>Step-up</span>
+                        <span><i class="cpt-swatch" style="background:#7a746c;"></i>No step-up</span>
+                        <span><i class="cpt-swatch" style="background:#1d1d1b;"></i>Taxes</span>
+                    </div>
+                </div>
+                <div class="cpt-fact">
+                    <span class="cpt-fact-label">Asset Basis</span>
+                    <strong class="cpt-fact-value" id="orig-traditional">$0</strong>
+                </div>
+                <div class="cpt-fact">
+                    <span class="cpt-fact-label">FMV at death + sale</span>
+                    <strong class="cpt-fact-value" id="fmv-traditional">$0</strong>
+                </div>
+                <div class="cpt-fact">
+                    <span class="cpt-fact-label">Increase in value</span>
+                    <strong class="cpt-fact-value" id="increase-traditional">$0</strong>
                 </div>
                 <div class="cpt-fact">
                     <span class="cpt-fact-label">Step-up in basis</span>
@@ -566,18 +650,52 @@
                     <span class="cpt-fact-label">Taxable capital gain</span>
                     <strong class="cpt-fact-value" id="gain-traditional">$0</strong>
                 </div>
+                <p class="cpt-scenario-tax-label">Federal capital gains tax (23.8%)</p>
+                <p class="cpt-scenario-tax" id="tax-traditional">$0</p>
             </article>
 
             <article class="cpt-scenario cpt-scenario--cpt">
                 <p class="cpt-scenario-kicker">Community Property Trust</p>
-                <p class="cpt-scenario-tax-label">Federal capital gains tax (23.8%)</p>
-                <p class="cpt-scenario-tax" id="tax-cpt">$0</p>
-                <div class="cpt-composition">
-                    <div class="cpt-composition-bar" id="bar-cpt" role="img" aria-label="How fair market value is treated">
-                        <div class="cpt-composition-segment cpt-composition-segment--basis" id="seg-basis-cpt"></div>
-                        <div class="cpt-composition-segment cpt-composition-segment--stepup" id="seg-stepup-cpt"></div>
-                        <div class="cpt-composition-segment cpt-composition-segment--gain" id="seg-gain-cpt"></div>
+                <div class="cpt-flow" id="flow-cpt" role="img" aria-label="How the property, step-up, and tax line up">
+                    <div class="cpt-flow-row">
+                        <p class="cpt-flow-label">Property</p>
+                        <div class="cpt-flow-track">
+                            <div class="cpt-flow-seg cpt-flow-seg--basis" id="cpt-basis-seg"></div>
+                            <div class="cpt-flow-seg cpt-flow-seg--increase" id="cpt-increase"></div>
+                        </div>
                     </div>
+                    <div class="cpt-flow-row">
+                        <p class="cpt-flow-label">Increase</p>
+                        <div class="cpt-flow-track">
+                            <div class="cpt-flow-seg cpt-flow-seg--stepup" id="cpt-stepup-seg"></div>
+                            <div class="cpt-flow-seg cpt-flow-seg--unstepped" id="cpt-unstepped"></div>
+                        </div>
+                    </div>
+                    <div class="cpt-flow-row">
+                        <p class="cpt-flow-label">Taxes</p>
+                        <div class="cpt-flow-track">
+                            <div class="cpt-flow-seg cpt-flow-seg--taxable" id="cpt-taxable"></div>
+                        </div>
+                    </div>
+                    <div class="cpt-flow-legend" aria-hidden="true">
+                        <span><i class="cpt-swatch" style="background:#cfc8bd;"></i>Basis</span>
+                        <span><i class="cpt-swatch" style="background:#f5c5a7;"></i>Increase</span>
+                        <span><i class="cpt-swatch" style="background:#ea580c;"></i>Step-up</span>
+                        <span><i class="cpt-swatch" style="background:#7a746c;"></i>No step-up</span>
+                        <span><i class="cpt-swatch" style="background:#1d1d1b;"></i>Taxes</span>
+                    </div>
+                </div>
+                <div class="cpt-fact">
+                    <span class="cpt-fact-label">Asset Basis</span>
+                    <strong class="cpt-fact-value" id="orig-cpt">$0</strong>
+                </div>
+                <div class="cpt-fact">
+                    <span class="cpt-fact-label">FMV at death + sale</span>
+                    <strong class="cpt-fact-value" id="fmv-cpt">$0</strong>
+                </div>
+                <div class="cpt-fact">
+                    <span class="cpt-fact-label">Increase in value</span>
+                    <strong class="cpt-fact-value" id="increase-cpt">$0</strong>
                 </div>
                 <div class="cpt-fact">
                     <span class="cpt-fact-label">Step-up in basis</span>
@@ -591,18 +709,9 @@
                     <span class="cpt-fact-label">Taxable capital gain</span>
                     <strong class="cpt-fact-value" id="gain-cpt">$0</strong>
                 </div>
+                <p class="cpt-scenario-tax-label">Federal capital gains tax (23.8%)</p>
+                <p class="cpt-scenario-tax" id="tax-cpt">$0</p>
             </article>
-        </div>
-
-        <div class="cpt-composition-legend" aria-hidden="true">
-            <span><i class="cpt-swatch" style="background:#d8d2c8;"></i>Original basis</span>
-            <span><i class="cpt-swatch" style="background:#ea580c;"></i>Step-up in basis</span>
-            <span><i class="cpt-swatch" style="background:#1d1d1b;"></i>Taxable capital gain</span>
-        </div>
-
-        <div class="tax-headline">
-            <p class="tax-headline-label">Federal capital gains tax saved</p>
-            <p class="tax-headline-value" id="tax-saved" aria-live="polite" aria-atomic="true">$0</p>
         </div>
     </section>
 </main>
@@ -632,10 +741,14 @@
         return Number(normalized);
     }
 
+    function hasEnteredAmount(input) {
+        return String(input.value).replace(/[$,\s]/g, '') !== '';
+    }
+
     function validateMoneyInput(input) {
-        if (input.hasAttribute('data-default-zero') && input.value.trim() === '') {
-            input.setCustomValidity('');
-            return 0;
+        if (!hasEnteredAmount(input)) {
+            input.setCustomValidity('Enter a dollar amount.');
+            return NaN;
         }
         const value = parseMoney(input.value);
         input.setCustomValidity(Number.isFinite(value) && value >= 0 ? '' : 'Enter a non-negative dollar amount.');
@@ -643,7 +756,7 @@
     }
 
     function formatMoneyInput(input) {
-        if (input.hasAttribute('data-default-zero') && input.value.trim() === '') {
+        if (!hasEnteredAmount(input)) {
             input.setCustomValidity('');
             return;
         }
@@ -678,23 +791,59 @@
         animationFrames.set(element, requestAnimationFrame(frame));
     }
 
-    function setSegmentWidth(id, amount, total) {
+    function placeSegment(id, start, size, total) {
         const el = document.getElementById(id);
-        el.style.width = (total > 0 ? (Math.max(0, amount) / total) * 100 : 0) + '%';
+        const width = total > 0 ? (Math.max(0, size) / total) * 100 : 0;
+        el.style.left = (total > 0 ? (Math.max(0, start) / total) * 100 : 0) + '%';
+        el.style.width = width + '%';
+        el.hidden = width < 0.05;
+        return !el.hidden;
     }
 
-    function describeComposition(label, originalBasis, stepUp, gain) {
-        return label + ': original basis ' + currency.format(originalBasis)
-            + ', step-up ' + currency.format(stepUp)
-            + ', taxable gain ' + currency.format(gain);
+    function setPairRounding(leftId, rightId) {
+        const left = document.getElementById(leftId);
+        const right = document.getElementById(rightId);
+        const both = !left.hidden && !right.hidden;
+        left.classList.toggle('cpt-flow-seg--solo', !both && !left.hidden);
+        right.classList.toggle('cpt-flow-seg--solo', !both && !right.hidden);
+    }
+
+    function setFlow(ids, originalBasis, increase, stepUp, tax, total) {
+        const stepped = Math.max(0, Math.min(stepUp, increase));
+        const unstepped = Math.max(0, increase - stepped);
+        placeSegment(ids.basis, 0, originalBasis, total);
+        placeSegment(ids.increase, originalBasis, increase, total);
+        placeSegment(ids.stepup, originalBasis, stepped, total);
+        placeSegment(ids.unstepped, originalBasis + stepped, unstepped, total);
+        placeSegment(ids.taxable, Math.max(0, total - tax), tax, total);
+        setPairRounding(ids.basis, ids.increase);
+        setPairRounding(ids.stepup, ids.unstepped);
     }
 
     function calculate(options) {
         const settings = options || {};
-        const basis = validateMoneyInput(form.elements.asset_basis);
-        const fmv = validateMoneyInput(form.elements.fmv_at_death);
+        const basisInput = form.elements.asset_basis;
+        const fmvInput = form.elements.fmv_at_death;
+        const ready = hasEnteredAmount(basisInput) && hasEnteredAmount(fmvInput);
+
+        if (!ready) {
+            resultContent.hidden = true;
+            if (settings.reportErrors) {
+                validateMoneyInput(basisInput);
+                validateMoneyInput(fmvInput);
+                form.reportValidity();
+            } else {
+                if (!hasEnteredAmount(basisInput)) basisInput.setCustomValidity('');
+                if (!hasEnteredAmount(fmvInput)) fmvInput.setCustomValidity('');
+            }
+            return;
+        }
+
+        const basis = validateMoneyInput(basisInput);
+        const fmv = validateMoneyInput(fmvInput);
 
         if (!Number.isFinite(basis) || !Number.isFinite(fmv)) {
+            resultContent.hidden = true;
             if (settings.reportErrors) form.reportValidity();
             return;
         }
@@ -709,37 +858,54 @@
         const taxTraditional = gainTraditional * FEDERAL_CG_RATE;
         const taxCpt = gainCpt * FEDERAL_CG_RATE;
         const taxSaved = Math.max(0, taxTraditional - taxCpt);
-        const originalBasisShare = Math.max(0, Math.min(basis, fmv));
-        const stepUpShareTraditional = Math.max(0, Math.min(stepUpTraditional, fmv - originalBasisShare));
-        const stepUpShareCpt = Math.max(0, Math.min(stepUpCpt, fmv - originalBasisShare));
-        const gainShareTraditional = Math.max(0, fmv - originalBasisShare - stepUpShareTraditional);
-        const gainShareCpt = Math.max(0, fmv - originalBasisShare - stepUpShareCpt);
 
         resultContent.hidden = false;
 
-        setSegmentWidth('seg-basis-traditional', originalBasisShare, fmv);
-        setSegmentWidth('seg-stepup-traditional', stepUpShareTraditional, fmv);
-        setSegmentWidth('seg-gain-traditional', gainShareTraditional, fmv);
-        setSegmentWidth('seg-basis-cpt', originalBasisShare, fmv);
-        setSegmentWidth('seg-stepup-cpt', stepUpShareCpt, fmv);
-        setSegmentWidth('seg-gain-cpt', gainShareCpt, fmv);
-        document.getElementById('bar-traditional').setAttribute(
+        const originalBasis = Math.max(0, Math.min(basis, fmv));
+        const increase = Math.max(0, fmv - basis);
+        const scale = Math.max(fmv, 0);
+        setFlow({
+            basis: 'trad-basis',
+            increase: 'trad-increase',
+            stepup: 'trad-stepup',
+            unstepped: 'trad-unstepped',
+            taxable: 'trad-taxable',
+        }, originalBasis, increase, Math.max(0, stepUpTraditional), taxTraditional, scale);
+        setFlow({
+            basis: 'cpt-basis-seg',
+            increase: 'cpt-increase',
+            stepup: 'cpt-stepup-seg',
+            unstepped: 'cpt-unstepped',
+            taxable: 'cpt-taxable',
+        }, originalBasis, increase, Math.max(0, stepUpCpt), taxCpt, scale);
+        document.getElementById('flow-traditional').setAttribute(
             'aria-label',
-            describeComposition('Traditional ownership', originalBasisShare, stepUpShareTraditional, gainShareTraditional)
+            'Traditional ownership: original basis ' + currency.format(originalBasis)
+                + ', increase ' + currency.format(increase)
+                + ', of which ' + currency.format(Math.max(0, stepUpTraditional)) + ' is stepped up and '
+                + currency.format(taxTraditional) + ' is tax.'
         );
-        document.getElementById('bar-cpt').setAttribute(
+        document.getElementById('flow-cpt').setAttribute(
             'aria-label',
-            describeComposition('Community Property Trust', originalBasisShare, stepUpShareCpt, gainShareCpt)
+            'Community Property Trust: original basis ' + currency.format(originalBasis)
+                + ', increase ' + currency.format(increase)
+                + ' is fully stepped up, leaving ' + currency.format(taxCpt) + ' of tax.'
         );
 
-        animateCurrency(document.getElementById('tax-traditional'), taxTraditional);
-        animateCurrency(document.getElementById('tax-cpt'), taxCpt);
+        animateCurrency(document.getElementById('orig-traditional'), basis);
+        animateCurrency(document.getElementById('orig-cpt'), basis);
+        animateCurrency(document.getElementById('fmv-traditional'), fmv);
+        animateCurrency(document.getElementById('fmv-cpt'), fmv);
+        animateCurrency(document.getElementById('increase-traditional'), increase);
+        animateCurrency(document.getElementById('increase-cpt'), increase);
         animateCurrency(document.getElementById('stepup-traditional'), stepUpTraditional);
         animateCurrency(document.getElementById('stepup-cpt'), stepUpCpt);
         animateCurrency(document.getElementById('basis-traditional'), basisTraditional);
         animateCurrency(document.getElementById('basis-cpt'), basisCpt);
         animateCurrency(document.getElementById('gain-traditional'), gainTraditional);
         animateCurrency(document.getElementById('gain-cpt'), gainCpt);
+        animateCurrency(document.getElementById('tax-traditional'), taxTraditional);
+        animateCurrency(document.getElementById('tax-cpt'), taxCpt);
         animateCurrency(document.getElementById('tax-saved'), taxSaved);
 
         if (settings.scrollToResults) {
@@ -791,7 +957,6 @@
     });
 
     moneyInputs.forEach(formatMoneyInput);
-    calculate();
 })();
 </script>
 {% endblock %}
