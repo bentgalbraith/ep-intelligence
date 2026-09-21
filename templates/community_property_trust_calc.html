@@ -507,8 +507,8 @@
         }
 
         .cpt-flow-row {
-            grid-template-columns: 0.72in minmax(0, 1fr);
-            gap: 8px;
+            grid-template-columns: 0.55in minmax(0, 1fr);
+            gap: 6px;
         }
 
         .cpt-flow-label {
@@ -520,12 +520,20 @@
         }
 
         .cpt-flow-legend {
-            margin-left: calc(0.72in + 8px);
+            margin-left: calc(0.55in + 6px);
+            font-size: 6pt;
+            gap: 3px 6px;
+            flex-wrap: nowrap;
         }
 
-        .cpt-flow-legend {
-            font-size: 6.5pt;
-            gap: 5px 10px;
+        .cpt-flow-legend span {
+            gap: 4px;
+            flex: 0 0 auto;
+        }
+
+        .cpt-flow-legend .cpt-swatch {
+            width: 6px;
+            height: 6px;
         }
 
         .cpt-fact {
