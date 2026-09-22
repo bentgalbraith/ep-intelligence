@@ -25,6 +25,7 @@ TOOL_LABELS = {
     "estate_tax_calc": "Estate Tax Calculator",
     "community_property_trust_calc": "Community Property Trust Calculator",
     "compare_diagram_drafts": "Compare EP Diagram vs. Drafts",
+    "compare_diagram_drafts_batch": "Compare EP Diagram vs. Drafts (batch)",
     "actionstep_schedule": "Visualize Actionstep Schedule",
     "tracker": "Client Progress Tracker",
 }
@@ -33,6 +34,7 @@ TOOL_LABELS = {
 STEP_OF = {
     "doc_separator_ocr": "doc_separator",
     "prospect_summarizer_ocr": "prospect_summarizer",
+    "compare_diagram_drafts_batch": "compare_diagram_drafts",
 }
 
 ALIAS_OF = {

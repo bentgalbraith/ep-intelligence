@@ -34,6 +34,7 @@
 {% endblock %}
 
 {% block tool_scripts %}
+<script src="{{ url_for('static', filename='js/compare-diagram-drafts.js') }}"></script>
 <script>
     const pptxDrop = document.getElementById('pptx-drop');
     const pptxInput = document.getElementById('pptx-input');
@@ -44,6 +45,7 @@
 
     let pptxFile = null;
     let docxFiles = [];
+    let tool;
     const MAX_WORD_DOCS = {{ max_word_docs|int }};
 
     function isPptx(file) {
@@ -59,6 +61,7 @@
     }
 
     function updateSubmit() {
+        if (!tool) return;
         tool.btn.disabled = !(pptxFile && docxFiles.length);
     }
 
@@ -146,13 +149,7 @@
         }
     }
 
-    function renderComparison(text) {
-        const paragraphs = String(text || '').split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-        if (!paragraphs.length) return '<p class="result-empty-text">No comparison was returned.</p>';
-        return paragraphs.map((p) => `<p class="compare-result">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join('');
-    }
-
-    const tool = initToolForm({
+    tool = initToolForm({
         formId: 'compare-form',
         btnId: 'btn-compare',
         async onSubmit({ setLoading, showResult, showError, btnLabel, hasRun }) {
@@ -181,7 +178,7 @@
                 }
 
                 const result = await pollJob(uploadData.job_id);
-                showResult(renderComparison(result.comparison));
+                showResult(renderCompareReport(result.comparison));
             } catch (err) {
                 showError(err.message);
             } finally {
@@ -191,5 +188,7 @@
             }
         }
     });
+
+    bindComparePrint(tool.resultContent);
 </script>
 {% endblock %}

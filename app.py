@@ -1636,6 +1636,12 @@ def _run_compare_diagram_drafts(job_id, diagram_text, drafts, firm_id, firm_conf
 
     with log_context(**(log_ctx or {})):
         try:
+            def _heartbeat(_msg=None):
+                with _jobs_lock:
+                    job = _jobs.get(job_id)
+                    if job:
+                        job["ts"] = time.time()
+
             comparison = compare_diagram_to_drafts(
                 diagram_text,
                 drafts,
@@ -1643,6 +1649,7 @@ def _run_compare_diagram_drafts(job_id, diagram_text, drafts, firm_id, firm_conf
                 model=OPENAI_MODEL,
                 firm_id=firm_id,
                 firm_config=firm_config,
+                on_progress=_heartbeat,
             )
             with _jobs_lock:
                 job = _jobs.get(job_id)
@@ -1694,13 +1701,11 @@ def api_compare_diagram_drafts():
     from compare_diagram_drafts import (
         CompareError,
         MAX_FILE_BYTES,
-        MAX_TOTAL_CHARS,
         MAX_WORD_DOCS,
         extract_docx_text,
         extract_pptx_text,
         is_docx_bytes,
         is_pptx_bytes,
-        payload_char_count,
         safe_filename,
         zip_is_oversized,
     )
@@ -1760,11 +1765,6 @@ def api_compare_diagram_drafts():
         }), 400
     if not any(text for _, text in extracted_drafts):
         return jsonify({"error": "No readable text was found in the Word document(s)."}), 400
-    if payload_char_count(diagram_text, extracted_drafts) > MAX_TOTAL_CHARS:
-        return jsonify({
-            "error": "These documents are too large to compare at once. "
-                     "Remove some Word documents and try again."
-        }), 400
 
     firm_id = session.get("firm_id")
     firm_config = {}
