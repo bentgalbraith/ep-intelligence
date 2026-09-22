@@ -1,0 +1,219 @@
+{% extends "tool_base.html" %}
+{% set page_title = "Compare EP Diagram vs. Drafts" %}
+
+{% block form_panel %}
+<form class="ep-form" id="compare-form">
+    <label class="field-label" for="pptx-input">Diagram</label>
+    <div class="file-upload-group">
+        <div class="file-drop-zone file-drop-zone--compact" id="pptx-drop">
+            <input type="file" id="pptx-input" accept=".pptx" hidden>
+            <svg class="drop-zone-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>
+            </svg>
+            <span class="drop-zone-text">Drag & drop a PowerPoint (.pptx) here, or click to browse</span>
+        </div>
+        <div class="file-list" id="pptx-list"></div>
+    </div>
+
+    <label class="field-label" for="docx-input">Drafts</label>
+    <div class="file-upload-group">
+        <div class="file-drop-zone file-drop-zone--compact" id="docx-drop">
+            <input type="file" id="docx-input" accept=".docx" multiple hidden>
+            <svg class="drop-zone-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/>
+            </svg>
+            <span class="drop-zone-text">Drag & drop Word document(s) (.docx) here, or click to browse</span>
+        </div>
+        <div class="file-list" id="docx-list"></div>
+    </div>
+
+    <button type="submit" class="btn-pill btn-generate" id="btn-compare" disabled>
+        <span class="btn-label">Compare</span>
+        <span class="spinner" hidden></span>
+    </button>
+</form>
+{% endblock %}
+
+{% block tool_scripts %}
+<script>
+    const pptxDrop = document.getElementById('pptx-drop');
+    const pptxInput = document.getElementById('pptx-input');
+    const pptxList = document.getElementById('pptx-list');
+    const docxDrop = document.getElementById('docx-drop');
+    const docxInput = document.getElementById('docx-input');
+    const docxList = document.getElementById('docx-list');
+
+    let pptxFile = null;
+    let docxFiles = [];
+    const MAX_WORD_DOCS = {{ max_word_docs|int }};
+
+    function isPptx(file) {
+        return file && file.name.toLowerCase().endsWith('.pptx');
+    }
+
+    function isDocx(file) {
+        return file && file.name.toLowerCase().endsWith('.docx');
+    }
+
+    function fileKey(file) {
+        return [file.name, file.size, file.lastModified].join('\0');
+    }
+
+    function updateSubmit() {
+        tool.btn.disabled = !(pptxFile && docxFiles.length);
+    }
+
+    function renderPptxList() {
+        if (!pptxFile) {
+            pptxList.innerHTML = '';
+            pptxDrop.classList.remove('has-file');
+            updateSubmit();
+            return;
+        }
+        pptxDrop.classList.add('has-file');
+        pptxList.innerHTML = `<div class="file-list-item">
+            <span class="file-list-name">${escapeHtml(pptxFile.name)}</span>
+            <button type="button" class="file-list-remove" data-pptx-remove title="Remove">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+                </svg>
+            </button>
+        </div>`;
+        updateSubmit();
+    }
+
+    function renderDocxList() {
+        if (!docxFiles.length) {
+            docxList.innerHTML = '';
+            updateSubmit();
+            return;
+        }
+        docxList.innerHTML = docxFiles.map((file, i) =>
+            `<div class="file-list-item">
+                <span class="file-list-name">${escapeHtml(file.name)}</span>
+                <button type="button" class="file-list-remove" data-docx-idx="${i}" title="Remove">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+                    </svg>
+                </button>
+            </div>`
+        ).join('');
+        updateSubmit();
+    }
+
+    function setPptx(file) {
+        if (!isPptx(file)) return;
+        pptxFile = file;
+        renderPptxList();
+    }
+
+    function addDocxFiles(files) {
+        const existing = new Set(docxFiles.map(fileKey));
+        for (const file of files) {
+            if (!isDocx(file) || existing.has(fileKey(file))) continue;
+            if (docxFiles.length >= MAX_WORD_DOCS) break;
+            existing.add(fileKey(file));
+            docxFiles.push(file);
+        }
+        renderDocxList();
+    }
+
+    function bindDropZone(zone, input, onFiles) {
+        zone.addEventListener('click', () => input.click());
+        input.addEventListener('change', () => {
+            if (input.files.length) onFiles(input.files);
+            input.value = '';
+        });
+        zone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            zone.classList.add('drag-over');
+        });
+        zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+        zone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            zone.classList.remove('drag-over');
+            if (e.dataTransfer.files.length) onFiles(e.dataTransfer.files);
+        });
+    }
+
+    bindDropZone(pptxDrop, pptxInput, (files) => setPptx(files[0]));
+    bindDropZone(docxDrop, docxInput, addDocxFiles);
+
+    pptxList.addEventListener('click', (e) => {
+        if (!e.target.closest('[data-pptx-remove]')) return;
+        pptxFile = null;
+        renderPptxList();
+    });
+
+    docxList.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-docx-idx]');
+        if (!btn) return;
+        docxFiles.splice(parseInt(btn.dataset.docxIdx, 10), 1);
+        renderDocxList();
+    });
+
+    function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+    const STATUS_URL_TEMPLATE = '{{ url_for("api_compare_diagram_drafts_status", job_id="__JID__") }}';
+
+    async function pollJob(jobId) {
+        const url = STATUS_URL_TEMPLATE.replace('__JID__', jobId);
+        while (true) {
+            await sleep(3000);
+            const res = await fetchWithTimeout(url);
+            const data = await res.json().catch(() => ({}));
+            if (data.status === 'processing') continue;
+            if (data.status === 'error' || !res.ok) {
+                throw new Error(data.error || 'Processing failed');
+            }
+            return data;
+        }
+    }
+
+    function renderComparison(text) {
+        const paragraphs = String(text || '').split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+        if (!paragraphs.length) return '<p class="result-empty-text">No comparison was returned.</p>';
+        return paragraphs.map((p) => `<p class="compare-result">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join('');
+    }
+
+    const tool = initToolForm({
+        formId: 'compare-form',
+        btnId: 'btn-compare',
+        async onSubmit({ setLoading, showResult, showError, btnLabel, hasRun }) {
+            if (!pptxFile || !docxFiles.length) return;
+
+            const state = setLoading(true);
+            state.btnLabel.textContent = 'Comparing...';
+
+            try {
+                const fd = new FormData();
+                fd.append('diagram', pptxFile);
+                for (const file of docxFiles) fd.append('drafts', file);
+
+                const uploadRes = await fetchWithTimeout('{{ url_for("api_compare_diagram_drafts") }}', {
+                    method: 'POST',
+                    body: fd,
+                });
+                const uploadData = await uploadRes.json().catch(() => ({}));
+                if (!uploadRes.ok) {
+                    throw new Error(
+                        uploadData.error
+                        || (uploadRes.status === 413
+                            ? 'Those files are too large to upload at once.'
+                            : 'Something went wrong')
+                    );
+                }
+
+                const result = await pollJob(uploadData.job_id);
+                showResult(renderComparison(result.comparison));
+            } catch (err) {
+                showError(err.message);
+            } finally {
+                const s = setLoading(false);
+                updateSubmit();
+                s.btnLabel.textContent = hasRun() ? 'Re-Compare' : 'Compare';
+            }
+        }
+    });
+</script>
+{% endblock %}

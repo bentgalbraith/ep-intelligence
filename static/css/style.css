@@ -1035,9 +1035,20 @@ h1 {
     to { transform: rotate(360deg); }
 }
 
-.is-loading .field-textarea {
+.is-loading .field-textarea,
+.is-loading .file-drop-zone,
+.is-loading .file-list-remove {
     opacity: 0.4;
     pointer-events: none;
+}
+
+.compare-result {
+    margin: 0 0 1rem;
+    line-height: 1.7;
+}
+
+.compare-result:last-child {
+    margin-bottom: 0;
 }
 
 /* ── File drop zone ── */

@@ -24,6 +24,7 @@ TOOL_LABELS = {
     "doc_differences": "Identify Document Differences",
     "estate_tax_calc": "Estate Tax Calculator",
     "community_property_trust_calc": "Community Property Trust Calculator",
+    "compare_diagram_drafts": "Compare EP Diagram vs. Drafts",
     "actionstep_schedule": "Visualize Actionstep Schedule",
     "tracker": "Client Progress Tracker",
 }

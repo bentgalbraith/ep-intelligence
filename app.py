@@ -359,6 +359,7 @@ _OPT_IN_TOOLS = {
     "doc_differences",
     "estate_tax_calc",
     "community_property_trust_calc",
+    "compare_diagram_drafts",
     "actionstep_schedule",
 }
 
@@ -1624,6 +1625,201 @@ def api_doc_differences_export():
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Compare EP Diagram vs. Drafts
+# ---------------------------------------------------------------------------
+
+def _run_compare_diagram_drafts(job_id, diagram_text, drafts, firm_id, firm_config, log_ctx=None):
+    from compare_diagram_drafts import CompareError, compare_diagram_to_drafts
+
+    with log_context(**(log_ctx or {})):
+        try:
+            comparison = compare_diagram_to_drafts(
+                diagram_text,
+                drafts,
+                openai_client,
+                model=OPENAI_MODEL,
+                firm_id=firm_id,
+                firm_config=firm_config,
+            )
+            with _jobs_lock:
+                job = _jobs.get(job_id)
+                if job:
+                    job.update({"status": "complete", "comparison": comparison})
+        except CompareError as e:
+            with _jobs_lock:
+                job = _jobs.get(job_id)
+                if job:
+                    job.update({"status": "error", "error": str(e)})
+        except Exception as e:
+            app.logger.error("Compare EP diagram vs. drafts error (job %s): %s", job_id, e)
+            with _jobs_lock:
+                job = _jobs.get(job_id) or {}
+            _notify_tool_error(
+                "Compare EP Diagram vs. Drafts",
+                str(e),
+                firm_id=firm_id,
+                firm_name=job.get("firm_name"),
+                firm_slug=job.get("firm_slug"),
+                employee_id_code=(log_ctx or {}).get("employee_id_code"),
+                details=getattr(e, "details", None),
+            )
+            with _jobs_lock:
+                job = _jobs.get(job_id)
+                if job:
+                    job.update({
+                        "status": "error",
+                        "error": "Failed to compare the documents. Please try again.",
+                    })
+
+
+@app.route("/compare-diagram-vs-drafts")
+@login_required
+@tool_enabled("compare_diagram_drafts")
+def compare_diagram_drafts():
+    from compare_diagram_drafts import MAX_WORD_DOCS
+    return render_template(
+        "compare_diagram_drafts.html",
+        firm_name=session.get("firm_name", ""),
+        max_word_docs=MAX_WORD_DOCS,
+    )
+
+
+@app.route("/api/compare-diagram-vs-drafts", methods=["POST"])
+@login_required
+@tool_enabled("compare_diagram_drafts")
+def api_compare_diagram_drafts():
+    from compare_diagram_drafts import (
+        CompareError,
+        MAX_FILE_BYTES,
+        MAX_TOTAL_CHARS,
+        MAX_WORD_DOCS,
+        extract_docx_text,
+        extract_pptx_text,
+        is_docx_bytes,
+        is_pptx_bytes,
+        payload_char_count,
+        safe_filename,
+        zip_is_oversized,
+    )
+
+    diagram = request.files.get("diagram")
+    drafts = request.files.getlist("drafts")
+
+    if not diagram or not (diagram.filename or "").strip():
+        return jsonify({"error": "Upload a PowerPoint diagram (.pptx)."}), 400
+    if not (diagram.filename or "").lower().endswith(".pptx"):
+        return jsonify({"error": "The diagram must be a .pptx PowerPoint file."}), 400
+
+    pptx_bytes = diagram.read()
+    if not pptx_bytes:
+        return jsonify({"error": "The PowerPoint file is empty."}), 400
+    if len(pptx_bytes) > MAX_FILE_BYTES:
+        return jsonify({"error": "The PowerPoint file is too large."}), 400
+    if not is_pptx_bytes(pptx_bytes):
+        return jsonify({"error": "The diagram must be a valid .pptx PowerPoint file."}), 400
+    if zip_is_oversized(pptx_bytes):
+        return jsonify({"error": "The PowerPoint file is too large."}), 400
+
+    named_drafts = [f for f in drafts if f and (f.filename or "").strip()]
+    if not named_drafts:
+        return jsonify({"error": "Upload at least one Word document (.docx)."}), 400
+    if len(named_drafts) > MAX_WORD_DOCS:
+        return jsonify({"error": f"You can compare up to {MAX_WORD_DOCS} Word documents at a time."}), 400
+
+    extracted_drafts = []
+    for f in named_drafts:
+        filename = f.filename
+        if not filename.lower().endswith(".docx"):
+            return jsonify({"error": f"'{filename}' is not a .docx Word document."}), 400
+        data = f.read()
+        if not data:
+            return jsonify({"error": f"'{filename}' is empty."}), 400
+        if len(data) > MAX_FILE_BYTES:
+            return jsonify({"error": f"'{filename}' is too large."}), 400
+        if not is_docx_bytes(data):
+            return jsonify({"error": f"'{filename}' is not a valid .docx Word document."}), 400
+        if zip_is_oversized(data):
+            return jsonify({"error": f"'{filename}' is too large."}), 400
+        try:
+            extracted_drafts.append((safe_filename(filename), extract_docx_text(data)))
+        except CompareError:
+            return jsonify({"error": f"Could not read '{filename}'. Upload a .docx Word document."}), 400
+
+    try:
+        diagram_text = extract_pptx_text(pptx_bytes)
+    except CompareError as e:
+        return jsonify({"error": str(e)}), 400
+
+    if not diagram_text:
+        return jsonify({
+            "error": "No readable text was found in the PowerPoint. "
+                     "If the diagram is image-only, this version cannot compare it."
+        }), 400
+    if not any(text for _, text in extracted_drafts):
+        return jsonify({"error": "No readable text was found in the Word document(s)."}), 400
+    if payload_char_count(diagram_text, extracted_drafts) > MAX_TOTAL_CHARS:
+        return jsonify({
+            "error": "These documents are too large to compare at once. "
+                     "Remove some Word documents and try again."
+        }), 400
+
+    firm_id = session.get("firm_id")
+    firm_config = {}
+    if firm_id:
+        try:
+            firm_config = _get_firm_config(firm_id) or {}
+        except Exception:
+            app.logger.warning("Compare EP diagram vs. drafts: firm config lookup failed", exc_info=True)
+            firm_config = {}
+    log_ctx = _session_log_ctx()
+
+    job_id = uuid.uuid4().hex
+    with _jobs_lock:
+        _purge_stale(_jobs)
+        _jobs[job_id] = {
+            "status": "processing",
+            "tool": "compare_diagram_drafts",
+            "firm_id": firm_id,
+            "ts": time.time(),
+            "firm_name": session.get("firm_name"),
+            "firm_slug": session.get("firm_slug"),
+            "log_ctx": log_ctx,
+        }
+
+    _executor.submit(
+        _run_compare_diagram_drafts,
+        job_id,
+        diagram_text,
+        extracted_drafts,
+        firm_id,
+        firm_config,
+        log_ctx,
+    )
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/compare-diagram-vs-drafts/status/<job_id>")
+@login_required
+@tool_enabled("compare_diagram_drafts")
+def api_compare_diagram_drafts_status(job_id):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+
+    if not job or job.get("tool") != "compare_diagram_drafts":
+        return jsonify({"error": "Job not found or expired."}), 404
+    if job.get("firm_id") not in (None, session.get("firm_id")):
+        return jsonify({"error": "Job not found or expired."}), 404
+
+    if job["status"] == "processing":
+        return jsonify({"status": "processing"})
+
+    if job["status"] == "error":
+        return jsonify({"status": "error", "error": job.get("error") or "Processing failed"}), 500
+
+    return jsonify({"status": "complete", "comparison": job.get("comparison") or ""})
 
 
 # ---------------------------------------------------------------------------
@@ -2994,6 +3190,7 @@ def _parse_config_from_form(form):
         "tracker": bool(form.get("tool_tracker")),
         "estate_tax_calc": bool(form.get("tool_estate_tax_calc")),
         "community_property_trust_calc": bool(form.get("tool_community_property_trust_calc")),
+        "compare_diagram_drafts": bool(form.get("tool_compare_diagram_drafts")),
         "actionstep_schedule": bool(form.get("tool_actionstep_schedule")),
     }
 
