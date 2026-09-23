@@ -267,6 +267,9 @@
             </div>
             <div class="admin-section-body" {% if not start_open %}hidden{% endif %}>
                 <div class="admin-tool-fields" data-tool-fields="actionstep_schedule">
+                    {% set schedule_cfg = cfg.get('actionstep_schedule') if cfg.get('actionstep_schedule') is mapping else {} %}
+                    <label class="admin-toggle"><input type="checkbox" name="schedule_include_other" value="1" {{ 'checked' if schedule_cfg.get('include_other') is true }}> Include an Other column</label>
+                    <p class="admin-hint">When on, calendars that are not assigned to a person are collected in a final Other column, each item prefixed with its calendar name. Off by default.</p>
                     <label class="admin-label">Schedule Settings <span class="admin-req">*</span></label>
                     <p class="admin-hint">One column per person, in the order they should print. Each column lists the Actionstep calendar names that feed it — names must match the export exactly, and a calendar cannot appear in two columns. <code>window_start</code> and <code>window_end</code> set the printed time range; anything outside it is listed in a note above or below that column.</p>
                     <p class="admin-hint">Leave <code>color</code> out and one is assigned automatically when you save. Saved colors are never reassigned, so printouts stay consistent run to run. Add a hex value to override one.</p>

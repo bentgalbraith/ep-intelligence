@@ -3246,6 +3246,11 @@ def _parse_config_from_form(form):
     schedule = config.get("actionstep_schedule")
     if isinstance(schedule, dict):
         assign_schedule_colors(schedule)
+        include_other = bool(form.get("schedule_include_other"))
+        if include_other or any(key != "include_other" for key in schedule):
+            schedule["include_other"] = include_other
+        else:
+            schedule.pop("include_other", None)
 
     return config
 

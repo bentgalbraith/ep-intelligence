@@ -9,6 +9,7 @@ Firm config shape (stored in firms.config["actionstep_schedule"]):
     {
       "window_start": "08:00",
       "window_end": "17:00",
+      "include_other": false,
       "columns": [
         {"label": "Zach",
          "calendars": [
@@ -24,6 +25,7 @@ Calendar names match exactly. Colors are assigned once at config-save time
 
 import csv
 import datetime
+import hashlib
 import io
 import re
 
@@ -140,13 +142,58 @@ def assign_colors(config):
     return config
 
 
+def include_other_column(config):
+    """True only when the firm has explicitly turned the Other column on."""
+    return isinstance(config, dict) and config.get("include_other") is True
+
+
+def other_calendar_color(name, reserved=None):
+    """Pick a palette color for an Other-column calendar.
+
+    Starts at a hash of the name so the preferred slot is stable. Colors in
+    reserved (named columns, already-assigned Other calendars) are skipped.
+    """
+    reserved = {color.lower() for color in (reserved or []) if color}
+    digest = hashlib.sha256((name or "").encode("utf-8")).digest()
+    start = int.from_bytes(digest[:4], "big") % len(PALETTE)
+    for offset in range(len(PALETTE)):
+        color = PALETTE[(start + offset) % len(PALETTE)]
+        if color.lower() not in reserved:
+            return color
+    return PALETTE[start]
+
+
+def _assign_other_colors(names, reserved=None):
+    """Give each Other calendar a distinct, deterministic color.
+
+    Names are assigned in sorted order from a hash-preferred palette slot so a
+    given set of calendars always gets the same colors. Slots already used by
+    named columns, or by an earlier Other calendar, are skipped.
+    """
+    taken = {color.lower() for color in (reserved or []) if color}
+    assigned = {}
+    for name in sorted(names, key=lambda value: value.lower()):
+        color = other_calendar_color(name, taken)
+        assigned[name] = color
+        taken.add(color.lower())
+    return assigned
+
+
 def validate_config(config):
     """Return a list of human-readable problems with a firm's tool config."""
     errors = []
     if not isinstance(config, dict):
         return ["Actionstep schedule settings must be a JSON object"]
-    if not config:
-        return ["Actionstep schedule settings are required when the tool is enabled"]
+
+    if "include_other" in config and not isinstance(config.get("include_other"), bool):
+        errors.append("Actionstep schedule include_other must be true or false")
+
+    # The Other-column flag can sit on an otherwise empty object after a save.
+    # That is not a configured tool.
+    material = {key: value for key, value in config.items() if key != "include_other"}
+    if not material:
+        errors.append("Actionstep schedule settings are required when the tool is enabled")
+        return errors
 
     try:
         start = parse_hhmm(config.get("window_start"), "window_start")
@@ -344,6 +391,73 @@ def _assign_lanes(blocks):
     return blocks
 
 
+def _display_title(appt, prefix_calendar=False):
+    title = appt["title"] or "(no title)"
+    if prefix_calendar and appt["calendar"]:
+        return f"{appt['calendar']}: {title}"
+    return title
+
+
+def _place_day_column(day_items, day, window_start, window_end, span_minutes,
+                      prefix_calendar=False):
+    """Split one column's appointments into grid blocks and earlier/later notes."""
+    blocks = []
+    before = []
+    after = []
+    for appt, color in day_items:
+        start, end = appt["start"], appt["end"]
+        item = {
+            "title": _display_title(appt, prefix_calendar),
+            "color": color,
+            "calendar": appt["calendar"],
+            "time_label": _fmt_time(start)
+            if start == end
+            else f"{_fmt_time(start)}\u2013{_fmt_time(end)}",
+        }
+
+        if appt["all_day"]:
+            item["reason"] = "all day"
+            before.append(item)
+            continue
+        if start == end:
+            item["reason"] = "no duration"
+            before.append(item)
+            continue
+        if start.time() < window_start:
+            item["reason"] = "before window"
+            before.append(item)
+            continue
+        if start.time() >= window_end:
+            item["reason"] = "after window"
+            after.append(item)
+            continue
+
+        # Runs past the window (or past midnight): clamp to the grid.
+        limit = datetime.datetime.combine(day, window_end)
+        clamped_end = min(end, limit)
+        offset = (
+            start.hour * 60 + start.minute
+            - window_start.hour * 60 - window_start.minute
+        )
+        duration = max(
+            int((clamped_end - start).total_seconds() // 60), 1
+        )
+        item.update({
+            "start": start,
+            "end": clamped_end,
+            "top_pct": round(offset * 100 / span_minutes, 4),
+            "height_pct": round(duration * 100 / span_minutes, 4),
+            "truncated": clamped_end < end,
+        })
+        blocks.append(item)
+
+    _assign_lanes(blocks)
+    for block in blocks:
+        block.pop("start", None)
+        block.pop("end", None)
+    return blocks, before, after
+
+
 def build_schedule(raw, config):
     """Turn an export plus firm config into printable per-day page data."""
     errors = validate_config(config)
@@ -371,6 +485,22 @@ def build_schedule(raw, config):
         )
 
     columns_config = config["columns"]
+    show_other = include_other_column(config)
+    print_columns = [
+        {"label": _as_text(column.get("label")) or "", "prefix_calendar": False}
+        for column in columns_config
+    ]
+    if show_other:
+        print_columns.append({"label": "Other", "prefix_calendar": True})
+    other_index = len(columns_config) if show_other else None
+    reserved_colors = [color for _, color in calendar_lookup.values()]
+    other_names = {
+        appt["calendar"]
+        for appt in appointments
+        if show_other and appt["calendar"] and appt["calendar"] not in calendar_lookup
+    }
+    other_colors = _assign_other_colors(other_names, reserved_colors)
+
     span_minutes = (
         window_end.hour * 60 + window_end.minute
         - window_start.hour * 60 - window_start.minute
@@ -378,80 +508,39 @@ def build_schedule(raw, config):
 
     days = {}
     mapped_counts = {name: 0 for name in calendar_lookup}
+    other_counts = {}
     unmapped = {}
     for appt in appointments:
         mapping = calendar_lookup.get(appt["calendar"])
         if mapping is None:
-            if appt["calendar"]:
-                unmapped[appt["calendar"]] = unmapped.get(appt["calendar"], 0) + 1
-            continue
-        mapped_counts[appt["calendar"]] += 1
+            if show_other and appt["calendar"]:
+                mapping = (other_index, other_colors[appt["calendar"]])
+                other_counts[appt["calendar"]] = other_counts.get(appt["calendar"], 0) + 1
+            else:
+                if appt["calendar"]:
+                    unmapped[appt["calendar"]] = unmapped.get(appt["calendar"], 0) + 1
+                continue
+        else:
+            mapped_counts[appt["calendar"]] += 1
         col_index, color = mapping
         day = appt["start"].date()
-        bucket = days.setdefault(day, [[] for _ in columns_config])
+        bucket = days.setdefault(day, [[] for _ in print_columns])
         bucket[col_index].append((appt, color))
 
     pages = []
     for day in sorted(days):
         page_columns = []
-        for col_index, column_config in enumerate(columns_config):
-            blocks = []
-            before = []
-            after = []
-            for appt, color in days[day][col_index]:
-                start, end = appt["start"], appt["end"]
-                item = {
-                    "title": appt["title"] or "(no title)",
-                    "color": color,
-                    "calendar": appt["calendar"],
-                    "time_label": _fmt_time(start)
-                    if start == end
-                    else f"{_fmt_time(start)}\u2013{_fmt_time(end)}",
-                }
-
-                if appt["all_day"]:
-                    item["reason"] = "all day"
-                    before.append(item)
-                    continue
-                if start == end:
-                    item["reason"] = "no duration"
-                    before.append(item)
-                    continue
-                if start.time() < window_start:
-                    item["reason"] = "before window"
-                    before.append(item)
-                    continue
-                if start.time() >= window_end:
-                    item["reason"] = "after window"
-                    after.append(item)
-                    continue
-
-                # Runs past the window (or past midnight): clamp to the grid.
-                limit = datetime.datetime.combine(day, window_end)
-                clamped_end = min(end, limit)
-                offset = (
-                    start.hour * 60 + start.minute
-                    - window_start.hour * 60 - window_start.minute
-                )
-                duration = max(
-                    int((clamped_end - start).total_seconds() // 60), 1
-                )
-                item.update({
-                    "start": start,
-                    "end": clamped_end,
-                    "top_pct": round(offset * 100 / span_minutes, 4),
-                    "height_pct": round(duration * 100 / span_minutes, 4),
-                    "truncated": clamped_end < end,
-                })
-                blocks.append(item)
-
-            _assign_lanes(blocks)
-            for block in blocks:
-                block.pop("start", None)
-                block.pop("end", None)
-
+        for col_index, column in enumerate(print_columns):
+            blocks, before, after = _place_day_column(
+                days[day][col_index],
+                day,
+                window_start,
+                window_end,
+                span_minutes,
+                prefix_calendar=column["prefix_calendar"],
+            )
             page_columns.append({
-                "label": column_config.get("label") or "",
+                "label": column["label"],
                 "blocks": blocks,
                 "before": before,
                 "after": after,
@@ -474,6 +563,9 @@ def build_schedule(raw, config):
             [
                 {"name": name, "count": mapped_counts[name], "included": True}
                 for name in calendar_lookup
+            ] + [
+                {"name": name, "count": count, "included": True}
+                for name, count in other_counts.items()
             ] + [
                 {"name": name, "count": count, "included": False}
                 for name, count in unmapped.items()
