@@ -3809,6 +3809,10 @@ a.specimen-name:hover {
     height: var(--sched-body-h, 5.9in);
 }
 
+.sched-print-measure .sched-block {
+    min-height: 0.15in;
+}
+
 .sched-page {
     margin-bottom: 1.25rem;
     padding: 0.9rem 1rem 0.8rem;
@@ -3942,8 +3946,8 @@ a.specimen-name:hover {
     position: absolute;
     z-index: 2;
     min-height: 14px;
-    overflow: hidden;
-    padding: 1px 3px;
+    overflow: visible;
+    padding: 0;
     border: 1px solid rgba(0, 0, 0, 0.14);
     border-radius: 3px;
     font-size: 0.55rem;
@@ -3957,6 +3961,11 @@ a.specimen-name:hover {
 
 .sched-block-title {
     display: block;
+    margin: 1px 3px 0;
+    max-height: calc(100% - 2px);
+    overflow: hidden;
+    hyphens: manual;
+    -webkit-hyphens: manual;
 }
 
 /* ── Print: legal landscape, one page per day ──

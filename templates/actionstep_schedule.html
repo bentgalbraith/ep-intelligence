@@ -43,6 +43,7 @@
 {% endblock %}
 
 {% block tool_scripts %}
+<script src="{{ url_for('static', filename='js/actionstep-schedule.js') }}"></script>
 <script>
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('schedule-input');
@@ -216,6 +217,7 @@
             srcPages[i].style.setProperty('--sched-note-fs', fit.font + 'rem');
         });
         probe.remove();
+        fitScheduleBubbles(src);
     }
 
     function renderSchedule(data) {
@@ -327,7 +329,7 @@
                 html += `<div class="sched-block${block.truncated ? ' is-truncated' : ''}"
                     style="top:${block.top_pct}%;height:${block.height_pct}%;left:${left}%;width:${width}%;background:${escapeAttr(block.color)}"
                     title="${escapeAttr(block.time_label + ' — ' + block.title)}">
-                    <span class="sched-block-title">${escapeHtml(block.title)}</span>
+                    <span class="sched-block-title" lang="en">${escapeHtml(block.title)}</span>
                 </div>`;
             }
             html += '</div>';
