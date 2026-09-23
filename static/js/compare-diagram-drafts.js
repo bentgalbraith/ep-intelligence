@@ -14,22 +14,20 @@ function renderCompareReport(report) {
     const verdict = allowed[report.verdict] ? report.verdict : 'incomplete';
     const sections = report.sections.map(renderCompareSection).join('');
     return `<div class="compare-report">
-        ${renderCompareVerdict(report, verdict, false)}
+        ${renderCompareVerdict(report, verdict)}
         ${sections}
-        ${renderCompareVerdict(report, verdict, true)}
     </div>`;
 }
 
-function renderCompareVerdict(report, verdict, isFoot) {
-    const footClass = isFoot ? ' compare-verdict--foot' : '';
-    const summary = isFoot
-        ? ''
-        : `<p class="compare-verdict-summary">${escapeHtml(report.summary || '')}</p>`;
-    const kicker = isFoot ? 'Final conclusion' : 'Conclusion';
-    return `<section class="compare-verdict compare-verdict--${escapeAttr(verdict)}${footClass}">
-        <p class="compare-verdict-kicker">${kicker}</p>
+function renderCompareVerdict(report, verdict) {
+    const summary = (report.summary || '').trim();
+    const summaryHtml = summary
+        ? `<p class="compare-verdict-summary">${escapeHtml(summary)}</p>`
+        : '';
+    return `<section class="compare-verdict compare-verdict--${escapeAttr(verdict)}">
+        <p class="compare-verdict-kicker">Conclusion</p>
         <p class="compare-verdict-label">${escapeHtml(report.verdict_label || verdict)}</p>
-        ${summary}
+        ${summaryHtml}
     </section>`;
 }
 

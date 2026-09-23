@@ -1822,6 +1822,35 @@ def api_compare_diagram_drafts_status(job_id):
     return jsonify({"status": "complete", "comparison": job.get("comparison") or ""})
 
 
+@app.route("/api/compare-diagram-vs-drafts/docx", methods=["POST"])
+@login_required
+@tool_enabled("compare_diagram_drafts")
+def api_compare_diagram_drafts_docx():
+    from compare_diagram_drafts import CompareError, build_compare_docx
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "No comparison to export."}), 400
+    report = data.get("comparison")
+    filenames = data.get("filenames") or []
+    if not report:
+        return jsonify({"error": "No comparison to export."}), 400
+
+    try:
+        buf = build_compare_docx(report, filenames=filenames)
+        return Response(
+            buf.getvalue(),
+            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": "attachment; filename=Compare_EP_Diagram_vs_Drafts.docx"},
+        )
+    except CompareError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        app.logger.error("Compare EP diagram vs. drafts DOCX export error: %s", e)
+        _notify_tool_error("Compare EP Diagram vs. Drafts DOCX", str(e))
+        return jsonify({"error": "Could not build the Word document."}), 500
+
+
 # ---------------------------------------------------------------------------
 # Actionstep Schedule Visualizer
 # ---------------------------------------------------------------------------

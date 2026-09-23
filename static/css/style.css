@@ -1063,30 +1063,21 @@ h1 {
 
 .compare-verdict {
     background: #ffffff;
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    border-left: 3px solid #8a8a8a;
+    border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: 8px;
     padding: 0.9rem 1.1rem 1rem;
 }
 
-.compare-verdict--congruent {
-    border-left-color: #3d8b5a;
-    background: rgba(61, 139, 90, 0.05);
+.compare-verdict--congruent .compare-verdict-label {
+    color: #2f6f48;
 }
 
-.compare-verdict--mostly_congruent {
-    border-left-color: #b45309;
-    background: rgba(180, 83, 9, 0.05);
+.compare-verdict--not_congruent .compare-verdict-label {
+    color: #b42318;
 }
 
-.compare-verdict--not_congruent {
-    border-left-color: #c53030;
-    background: rgba(197, 48, 48, 0.05);
-}
-
-.compare-verdict--incomplete {
-    border-left-color: #8a8a8a;
-    background: rgba(0, 0, 0, 0.025);
+.compare-verdict--incomplete .compare-verdict-label {
+    color: rgba(0, 0, 0, 0.55);
 }
 
 .compare-verdict-kicker {
@@ -1113,31 +1104,13 @@ h1 {
     color: rgba(0, 0, 0, 0.72);
 }
 
-.compare-verdict--foot {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.35rem 0.75rem;
-    padding: 0.65rem 1.1rem;
-}
-
-.compare-verdict--foot .compare-verdict-kicker,
-.compare-verdict--foot .compare-verdict-label {
-    margin: 0;
-}
-
-.compare-verdict--foot .compare-verdict-label {
-    font-size: 0.95rem;
-}
-
-.compare-verdict--foot .compare-verdict-summary {
-    display: none;
-}
-
+.compare-report .extract-section-header.compare-section-header,
 .compare-section-header {
     display: flex;
     align-items: center;
     gap: 0.55rem;
+    color: #1a1a1a;
+    background: #f3f3f2;
 }
 
 .compare-section > .compare-section-header::before {
@@ -1172,9 +1145,9 @@ h1 {
 }
 
 .compare-section-meta--intent {
-    color: #9a3412;
-    background: rgba(255, 255, 255, 0.9);
-    border-color: rgba(180, 83, 9, 0.2);
+    color: rgba(0, 0, 0, 0.45);
+    background: #ffffff;
+    border-color: rgba(0, 0, 0, 0.08);
 }
 
 .compare-section .extract-section-body {
@@ -1201,16 +1174,15 @@ h1 {
 }
 
 .compare-bucket--intent .compare-bucket-title {
-    color: #9a3412;
+    color: rgba(0, 0, 0, 0.38);
 }
 
 .compare-card {
     margin-bottom: 0.45rem;
     padding: 0.7rem 0.85rem 0.75rem;
-    border: none;
-    border-left: 3px solid transparent;
+    border: 1px solid rgba(0, 0, 0, 0.06);
     border-radius: 6px;
-    background: rgba(0, 0, 0, 0.03);
+    background: #f7f7f6;
 }
 
 .compare-card:last-child {
@@ -1218,13 +1190,8 @@ h1 {
 }
 
 .compare-card--issue {
-    border-left-color: #c53030;
-    background: rgba(197, 48, 48, 0.055);
-}
-
-.compare-card--intent {
-    border-left-color: #b45309;
-    background: rgba(180, 83, 9, 0.055);
+    background: rgba(197, 48, 48, 0.04);
+    border-color: rgba(0, 0, 0, 0.07);
 }
 
 .compare-card-title {

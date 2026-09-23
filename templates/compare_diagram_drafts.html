@@ -33,6 +33,12 @@
 </form>
 {% endblock %}
 
+{% block result_header %}
+<div class="result-header" id="result-header" style="display:none">
+    <button type="button" class="btn-download btn-download--primary" id="btn-docx">DOWNLOAD REPORT</button>
+</div>
+{% endblock %}
+
 {% block tool_scripts %}
 <script src="{{ url_for('static', filename='js/compare-diagram-drafts.js') }}"></script>
 <script>
@@ -45,8 +51,20 @@
 
     let pptxFile = null;
     let docxFiles = [];
+    let lastComparison = null;
+    let lastFilenames = [];
     let tool;
+    const resultHeader = document.getElementById('result-header');
+    const btnDocx = document.getElementById('btn-docx');
     const MAX_WORD_DOCS = {{ max_word_docs|int }};
+
+    function isExportableComparison(report) {
+        return report && typeof report === 'object' && Array.isArray(report.sections);
+    }
+
+    function setResultHeader(visible) {
+        resultHeader.style.display = visible ? 'flex' : 'none';
+    }
 
     function isPptx(file) {
         return file && file.name.toLowerCase().endsWith('.pptx');
@@ -155,6 +173,10 @@
         async onSubmit({ setLoading, showResult, showError, btnLabel, hasRun }) {
             if (!pptxFile || !docxFiles.length) return;
 
+            setResultHeader(false);
+            lastComparison = null;
+            lastFilenames = [];
+
             const state = setLoading(true);
             state.btnLabel.textContent = 'Comparing...';
 
@@ -178,8 +200,14 @@
                 }
 
                 const result = await pollJob(uploadData.job_id);
+                lastComparison = result.comparison;
+                lastFilenames = [pptxFile.name, ...docxFiles.map((file) => file.name)];
+                setResultHeader(isExportableComparison(lastComparison));
                 showResult(renderCompareReport(result.comparison));
             } catch (err) {
+                setResultHeader(false);
+                lastComparison = null;
+                lastFilenames = [];
                 showError(err.message);
             } finally {
                 const s = setLoading(false);
@@ -190,5 +218,38 @@
     });
 
     bindComparePrint(tool.resultContent);
+
+    btnDocx.addEventListener('click', async () => {
+        if (!isExportableComparison(lastComparison)) return;
+        btnDocx.disabled = true;
+        try {
+            const res = await fetchWithTimeout('{{ url_for("api_compare_diagram_drafts_docx") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    comparison: lastComparison,
+                    filenames: lastFilenames,
+                }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || 'Download failed');
+            }
+            const type = (res.headers.get('content-type') || '').toLowerCase();
+            if (!type.includes('wordprocessingml') && !type.includes('octet-stream')) {
+                throw new Error('Download failed. Please sign in and try again.');
+            }
+            const blob = await res.blob();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `Compare_EP_Diagram_vs_Drafts_${exportTimestamp()}.docx`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            btnDocx.disabled = false;
+        }
+    });
 </script>
 {% endblock %}

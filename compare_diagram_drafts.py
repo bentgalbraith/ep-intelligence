@@ -11,6 +11,7 @@ import zipfile
 
 from docx import Document
 from docx.oxml.ns import qn
+from docx.shared import Inches, Pt, RGBColor
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from pptx import Presentation
@@ -30,6 +31,11 @@ _PART_LABEL_PAD = 120
 
 TOOL_KEY = "compare_diagram_drafts"
 BATCH_TOOL_KEY = "compare_diagram_drafts_batch"
+_SANS = "Calibri"
+_MAX_EXPORT_CHARS = 8000
+_MAX_EXPORT_FILES = 21
+_MAX_EXPORT_NAME = 180
+_MUTED = RGBColor(0x80, 0x80, 0x80)
 
 _SHARED_RULES = """\
 Treat the PowerPoint as the intended estate plan blueprint. A conflict \
@@ -259,6 +265,11 @@ VERDICT_LABELS = {
     "not_congruent": "Not congruent",
     "incomplete": "Incomplete",
 }
+
+
+def _valid_verdict(value):
+    return value if isinstance(value, str) and value in VERDICTS else None
+
 
 _WORD_ONES = "ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE"
 _WORD_TEENS = (
@@ -511,7 +522,7 @@ def _coerce_item(raw, item_id=None):
     if not isinstance(raw, dict):
         return None
     iid = raw.get("id") or item_id
-    if iid not in ITEM_LABELS:
+    if not isinstance(iid, str) or iid not in ITEM_LABELS:
         return None
     item = _blank_item(iid)
     item["status"] = normalize_status(raw.get("status"))
@@ -717,23 +728,31 @@ def present_report(report):
     """Shape the checklist for the right-hand panel."""
     if not isinstance(report, dict) or not isinstance(report.get("sections"), dict):
         report = normalize_report(report)
-    elif report["sections"] and "items" not in next(iter(report["sections"].values()), {}):
-        report = normalize_report(report)
     else:
-        report = {
-            **report,
-            "verdict": report.get("verdict") or derive_verdict(report),
-            "summary": report.get("summary") or default_summary(report),
-        }
+        first_section = next(iter(report["sections"].values()), {})
+        if report["sections"] and (
+            not isinstance(first_section, dict) or "items" not in first_section
+        ):
+            report = normalize_report(report)
+        else:
+            report = {
+                **report,
+                "verdict": _valid_verdict(report.get("verdict")) or derive_verdict(report),
+                "summary": report.get("summary") or default_summary(report),
+            }
 
     sections = []
     for section_id, title, _specs in SECTION_SPECS:
-        spec = report["sections"].get(section_id) or {"items": []}
+        spec = report["sections"].get(section_id)
+        if not isinstance(spec, dict):
+            spec = {"items": []}
         buckets = {"matches": [], "intentional": [], "issues": [], "not_found": []}
         for item in spec.get("items") or []:
+            if not isinstance(item, dict):
+                continue
             item_id = item.get("id")
             bucket = BUCKET_OF.get(item.get("status"))
-            if item_id not in ITEM_LABELS or not bucket:
+            if not isinstance(item_id, str) or item_id not in ITEM_LABELS or not bucket:
                 continue
             buckets[bucket].append({
                 "id": item_id,
@@ -751,7 +770,7 @@ def present_report(report):
             "issue_count": len(buckets["issues"]),
             **buckets,
         })
-    verdict = report["verdict"] if report.get("verdict") in VERDICTS else derive_verdict(report)
+    verdict = _valid_verdict(report.get("verdict")) or derive_verdict(report)
     return {
         "verdict": verdict,
         "verdict_label": VERDICT_LABELS[verdict],
@@ -1208,3 +1227,284 @@ def compare_diagram_to_drafts(
         expect_json=True,
     )
     return present_report(lock_not_found(merged, polished))
+
+
+def _sans_run(run, size_pt=None, bold=None, italic=None, color=None):
+    run.font.name = _SANS
+    if size_pt is not None:
+        run.font.size = size_pt
+    if bold is not None:
+        run.bold = bold
+    if italic is not None:
+        run.italic = italic
+    if color is not None:
+        run.font.color.rgb = color
+
+
+def _clip_export(value, limit=_MAX_EXPORT_CHARS):
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return ""
+    return _text(value)[:limit]
+
+
+def _join_export_names(names):
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return ", ".join(names[:-1]) + ", and " + names[-1]
+
+
+def _export_filenames(names):
+    if not isinstance(names, list):
+        return []
+    out = []
+    for name in names[:_MAX_EXPORT_FILES]:
+        if not isinstance(name, str):
+            continue
+        cleaned = _clip_export(os.path.basename(name.replace("\\", "/")), _MAX_EXPORT_NAME)
+        if cleaned:
+            out.append(cleaned)
+    return out
+
+
+def _export_item(item):
+    if not isinstance(item, dict):
+        return None
+    raw_id = item.get("id")
+    fallback = ITEM_LABELS.get(raw_id, "") if isinstance(raw_id, str) else ""
+    label = _clip_export(item.get("label") or fallback, 200)
+    if not label:
+        return None
+    status = item.get("status")
+    return {
+        "label": label,
+        "status": status if status in STATUSES else "",
+        "summary": _clip_export(item.get("summary")),
+        "diagram": _clip_export(item.get("diagram")),
+        "documents": _clip_export(item.get("documents")),
+        "location": _clip_export(item.get("location")),
+        "fix": _clip_export(item.get("fix")),
+    }
+
+
+def _export_items(items):
+    if not isinstance(items, list):
+        return []
+    out = []
+    for item in items:
+        cleaned = _export_item(item)
+        if cleaned:
+            out.append(cleaned)
+        if len(out) >= 40:
+            break
+    return out
+
+
+def sanitize_presented_report(data):
+    """Accept the UI report shape (or the internal checklist) for export."""
+    if not isinstance(data, dict):
+        return None
+    sections_raw = data.get("sections")
+    if isinstance(sections_raw, dict):
+        try:
+            data = present_report(data)
+            sections_raw = data.get("sections")
+        except Exception:
+            return None
+    if not isinstance(sections_raw, list):
+        return None
+
+    known = {section_id: title for section_id, title, _ in SECTION_SPECS}
+    by_id = {}
+    for raw in sections_raw:
+        if not isinstance(raw, dict):
+            continue
+        section_id = raw.get("id")
+        if not isinstance(section_id, str) or section_id not in known:
+            continue
+        buckets = {
+            "matches": _export_items(raw.get("matches")),
+            "intentional": _export_items(raw.get("intentional")),
+            "issues": _export_items(raw.get("issues")),
+            "not_found": _export_items(raw.get("not_found")),
+        }
+        by_id[section_id] = {
+            "id": section_id,
+            "title": known[section_id],
+            "issue_count": len(buckets["issues"]),
+            **buckets,
+        }
+
+    sections = []
+    for section_id, title, _ in SECTION_SPECS:
+        sections.append(by_id.get(section_id) or {
+            "id": section_id,
+            "title": title,
+            "issue_count": 0,
+            "matches": [],
+            "intentional": [],
+            "issues": [],
+            "not_found": [],
+        })
+
+    verdict = _valid_verdict(data.get("verdict")) or "incomplete"
+    summary = _clip_export(data.get("summary"))
+    has_items = any(
+        section["matches"] or section["intentional"] or section["issues"] or section["not_found"]
+        for section in sections
+    )
+    if not has_items and not summary and _valid_verdict(data.get("verdict")) is None:
+        return None
+    return {
+        "verdict": verdict,
+        "verdict_label": VERDICT_LABELS[verdict],
+        "summary": summary,
+        "sections": sections,
+    }
+
+
+def _section_meta_label(section):
+    n = section.get("issue_count") or 0
+    if n:
+        return "1 issue" if n == 1 else f"{n} issues"
+    intent = len(section.get("intentional") or [])
+    if intent:
+        return "1 intentional" if intent == 1 else f"{intent} intentional"
+    return "Aligned"
+
+
+def _add_export_para(doc, text, *, size=11, bold=False, italic=False, color=None,
+                     space_before=0, space_after=6):
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(space_before)
+    p.paragraph_format.space_after = Pt(space_after)
+    p.paragraph_format.line_spacing = 1.15
+    run = p.add_run(text)
+    _sans_run(run, size_pt=Pt(size), bold=bold, italic=italic, color=color)
+    return p
+
+
+def _add_export_list_item(doc, item):
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(1)
+    p.paragraph_format.space_after = Pt(3)
+    p.paragraph_format.line_spacing = 1.15
+    label = p.add_run(item["label"])
+    _sans_run(label, size_pt=Pt(11), bold=True)
+    if item["summary"]:
+        sep = p.add_run(" — ")
+        _sans_run(sep, size_pt=Pt(11), color=_MUTED)
+        body = p.add_run(item["summary"])
+        _sans_run(body, size_pt=Pt(11))
+
+
+def _add_export_detail_item(doc, item):
+    _add_export_para(doc, item["label"], size=11, bold=True, space_before=8, space_after=2)
+    if item["summary"]:
+        _add_export_para(doc, item["summary"], size=11, space_after=3)
+    for field_label, key in (
+        ("Diagram", "diagram"),
+        ("Drafts", "documents"),
+        ("Where", "location"),
+        ("Fix", "fix"),
+    ):
+        value = item.get(key)
+        if not value:
+            continue
+        p = doc.add_paragraph()
+        p.paragraph_format.space_before = Pt(1)
+        p.paragraph_format.space_after = Pt(2)
+        p.paragraph_format.line_spacing = 1.15
+        p.paragraph_format.tab_stops.add_tab_stop(Inches(1.15))
+        k = p.add_run(field_label)
+        _sans_run(k, size_pt=Pt(9), bold=True, color=_MUTED)
+        p.add_run("\t")
+        v = p.add_run(value)
+        _sans_run(v, size_pt=Pt(11))
+
+
+def build_compare_docx(report, filenames=None):
+    """Build a Word memo from the presented comparison. Returns BytesIO."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    presented = sanitize_presented_report(report)
+    if not presented:
+        raise CompareError("No comparison to export.")
+
+    doc = Document()
+    style = doc.styles["Normal"]
+    style.font.name = _SANS
+    style.font.size = Pt(11)
+    for section in doc.sections:
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1)
+        section.right_margin = Inches(1)
+
+    heading = doc.add_paragraph()
+    heading.paragraph_format.space_after = Pt(2)
+    title_run = heading.add_run("Compare EP Diagram vs. Drafts")
+    _sans_run(title_run, size_pt=Pt(14), bold=True)
+
+    now = datetime.now(ZoneInfo("America/New_York"))
+    date_str = now.strftime("%B %d, %Y")
+    time_str = now.strftime("%I:%M %p").lstrip("0")
+    names = _export_filenames(filenames)
+    subtitle_text = f"Generated by AI on {date_str} at {time_str}."
+    if names:
+        subtitle_text = (
+            f"Generated by AI on {date_str} at {time_str} using the following documents: "
+            f"{_join_export_names(names)}."
+        )
+    subtitle = doc.add_paragraph()
+    subtitle.paragraph_format.space_after = Pt(14)
+    sub_run = subtitle.add_run(subtitle_text)
+    _sans_run(sub_run, size_pt=Pt(9), italic=True, color=_MUTED)
+
+    _add_export_para(doc, "Conclusion", size=9, bold=True, color=_MUTED, space_after=2)
+    _add_export_para(doc, presented["verdict_label"], size=14, bold=True, space_after=6)
+    if presented["summary"]:
+        _add_export_para(doc, presented["summary"], size=11, space_after=12)
+
+    bucket_specs = (
+        ("issues", "Missing, incorrect, or conflicting", True),
+        ("intentional", "Different but probably intentional", True),
+        ("matches", "Matches", False),
+        ("not_found", "Not found", False),
+    )
+    for section in presented["sections"]:
+        _add_export_para(
+            doc, section["title"], size=12, bold=True, space_before=14, space_after=2,
+        )
+        _add_export_para(
+            doc, _section_meta_label(section), size=9, italic=True, color=_MUTED, space_after=8,
+        )
+        any_bucket = False
+        for key, title, detailed in bucket_specs:
+            items = section.get(key) or []
+            if not items:
+                continue
+            any_bucket = True
+            _add_export_para(
+                doc, title, size=9, bold=True, color=RGBColor(0x66, 0x66, 0x66),
+                space_before=8, space_after=4,
+            )
+            for item in items:
+                if detailed:
+                    _add_export_detail_item(doc, item)
+                else:
+                    _add_export_list_item(doc, item)
+        if not any_bucket:
+            _add_export_para(
+                doc, "No findings in this section.",
+                size=11, italic=True, color=_MUTED,
+            )
+
+    out = io.BytesIO()
+    doc.save(out)
+    out.seek(0)
+    return out
