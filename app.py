@@ -361,6 +361,7 @@ _OPT_IN_TOOLS = {
     "community_property_trust_calc",
     "compare_diagram_drafts",
     "actionstep_schedule",
+    "validate_signatures",
 }
 
 
@@ -1927,6 +1928,17 @@ def api_actionstep_schedule():
 
 
 # ---------------------------------------------------------------------------
+# Validate Signatures
+# ---------------------------------------------------------------------------
+
+@app.route("/validate-signatures")
+@login_required
+@tool_enabled("validate_signatures")
+def validate_signatures():
+    return render_template("validate_signatures.html", firm_name=session.get("firm_name", ""))
+
+
+# ---------------------------------------------------------------------------
 # Tracker admin
 # ---------------------------------------------------------------------------
 
@@ -3221,6 +3233,7 @@ def _parse_config_from_form(form):
         "community_property_trust_calc": bool(form.get("tool_community_property_trust_calc")),
         "compare_diagram_drafts": bool(form.get("tool_compare_diagram_drafts")),
         "actionstep_schedule": bool(form.get("tool_actionstep_schedule")),
+        "validate_signatures": bool(form.get("tool_validate_signatures")),
     }
 
     for key, tool in (

@@ -1,0 +1,103 @@
+{% extends "tool_base.html" %}
+{% set page_title = "Validate Signatures" %}
+
+{% block form_panel %}
+<form class="ep-form" id="sig-form">
+    <label class="field-label">Upload PDFs</label>
+    <div class="file-upload-group">
+        <div class="file-drop-zone file-drop-zone--compact" id="drop-zone">
+            <input type="file" id="pdf-input" accept=".pdf,application/pdf" multiple hidden>
+            <svg class="drop-zone-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/>
+            </svg>
+            <span class="drop-zone-text">Drag & drop PDF(s) here, or click to browse</span>
+        </div>
+        <div class="file-list" id="file-list"></div>
+    </div>
+    <button type="submit" class="btn-pill btn-generate" id="btn-validate" disabled>
+        <span class="btn-label">Validate</span>
+        <span class="spinner" hidden></span>
+    </button>
+</form>
+{% endblock %}
+
+{% block tool_scripts %}
+<script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('pdf-input');
+    const fileList = document.getElementById('file-list');
+
+    let selectedFiles = [];
+
+    function isPdf(file) {
+        if (!file) return false;
+        return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    }
+
+    function fileKey(file) {
+        return [file.name, file.size, file.lastModified].join('\0');
+    }
+
+    fileInput.addEventListener('click', (e) => e.stopPropagation());
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) addFiles(fileInput.files);
+        fileInput.value = '';
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+    });
+
+    function addFiles(files) {
+        const existing = new Set(selectedFiles.map(fileKey));
+        for (const file of files) {
+            if (!isPdf(file) || existing.has(fileKey(file))) continue;
+            existing.add(fileKey(file));
+            selectedFiles.push(file);
+        }
+        renderFileList();
+    }
+
+    function renderFileList() {
+        tool.btn.disabled = !selectedFiles.length;
+        if (!selectedFiles.length) {
+            fileList.innerHTML = '';
+            return;
+        }
+        fileList.innerHTML = selectedFiles.map((file, i) =>
+            `<div class="file-list-item">
+                <span class="file-list-name">${escapeHtml(file.name)}</span>
+                <button type="button" class="file-list-remove" data-idx="${i}" title="Remove">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+                    </svg>
+                </button>
+            </div>`
+        ).join('');
+    }
+
+    fileList.addEventListener('click', (e) => {
+        const btn = e.target.closest('.file-list-remove');
+        if (!btn) return;
+        selectedFiles.splice(parseInt(btn.dataset.idx, 10), 1);
+        renderFileList();
+    });
+
+    const tool = initToolForm({
+        formId: 'sig-form',
+        btnId: 'btn-validate',
+        async onSubmit() {},
+    });
+</script>
+{% endblock %}

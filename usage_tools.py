@@ -27,6 +27,7 @@ TOOL_LABELS = {
     "compare_diagram_drafts": "Compare EP Diagram vs. Drafts",
     "compare_diagram_drafts_batch": "Compare EP Diagram vs. Drafts (batch)",
     "actionstep_schedule": "Visualize Actionstep Schedule",
+    "validate_signatures": "Validate Signatures",
     "tracker": "Client Progress Tracker",
 }
 

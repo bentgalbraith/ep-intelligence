@@ -95,6 +95,16 @@
             <span class="tool-label">Visualize Actionstep Schedule</span>
         </a>
         {% endif %}
+        {% if te.get('validate_signatures') %}
+        <a href="{{ url_for('validate_signatures') }}" class="tool-card">
+            <div class="tool-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                </svg>
+            </div>
+            <span class="tool-label">Validate Signatures</span>
+        </a>
+        {% endif %}
     </div>
     {% if te.get('tracker', true) %}
     <div class="tracker-strip" id="tracker-strip">

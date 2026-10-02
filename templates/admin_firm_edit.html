@@ -279,6 +279,10 @@
             </div>
         </section>
 
+        <section class="admin-section">
+            <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_validate_signatures" value="1" {{ 'checked' if tools.get('validate_signatures') }}> Validate Signatures</label>
+        </section>
+
     </form>
 
     {% if existing_firm %}
