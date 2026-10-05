@@ -22,6 +22,8 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from openai import OpenAI
 
+from client_doc_summary import TOOL_KEY as CLIENT_DOC_SUMMARY_KEY
+from client_doc_summary import SummaryError, summarize_documents
 from actionstep_schedule import (
     ScheduleError,
     assign_colors as assign_schedule_colors,
@@ -362,6 +364,7 @@ _OPT_IN_TOOLS = {
     "compare_diagram_drafts",
     "actionstep_schedule",
     "validate_signatures",
+    "client_doc_summary",
 }
 
 
@@ -1939,6 +1942,138 @@ def validate_signatures():
 
 
 # ---------------------------------------------------------------------------
+# Summarize Documents for Clients
+# ---------------------------------------------------------------------------
+
+@app.route("/summarize-client-documents")
+@login_required
+@tool_enabled(CLIENT_DOC_SUMMARY_KEY)
+def summarize_client_documents():
+    return render_template(
+        "summarize_client_documents.html",
+        firm_name=session.get("firm_name", ""),
+    )
+
+
+def _run_client_doc_summary(job_id, uploads, firm_id, firm_config, log_ctx=None):
+    with log_context(**(log_ctx or {})):
+        with _jobs_lock:
+            existing = _jobs.get(job_id) or {}
+            firm_name = existing.get("firm_name")
+            firm_slug = existing.get("firm_slug")
+        try:
+            summary = summarize_documents(
+                uploads,
+                openai_client,
+                model=OPENAI_MODEL,
+                firm_id=firm_id,
+                firm_config=firm_config,
+            )
+            with _jobs_lock:
+                current = _jobs.get(job_id)
+                if current is not None:
+                    current.update({"status": "complete", "summary": summary})
+        except SummaryError as e:
+            app.logger.info("Client document summary rejected (job %s): %s", job_id, e)
+            if e.notify:
+                _notify_tool_error(
+                    "Summarize Documents for Clients",
+                    str(e),
+                    firm_id=firm_id,
+                    firm_name=firm_name,
+                    firm_slug=firm_slug,
+                    employee_id_code=(log_ctx or {}).get("employee_id_code"),
+                )
+            with _jobs_lock:
+                current = _jobs.get(job_id)
+                if current is not None:
+                    current.update({"status": "error", "error": str(e)})
+        except Exception as e:
+            app.logger.error("Client document summary error (job %s): %s", job_id, e)
+            _notify_tool_error(
+                "Summarize Documents for Clients",
+                str(e),
+                firm_id=firm_id,
+                firm_name=firm_name,
+                firm_slug=firm_slug,
+                employee_id_code=(log_ctx or {}).get("employee_id_code"),
+            )
+            with _jobs_lock:
+                current = _jobs.get(job_id)
+                if current is not None:
+                    current.update({
+                        "status": "error",
+                        "error": "Something went wrong while summarizing these documents.",
+                    })
+
+
+@app.route("/api/summarize-client-documents", methods=["POST"])
+@login_required
+@tool_enabled(CLIENT_DOC_SUMMARY_KEY)
+def api_summarize_client_documents():
+    files = request.files.getlist("files")
+    if not files or not any(f.filename for f in files):
+        return jsonify({"error": "Upload at least one Word document or PDF."}), 400
+
+    uploads = []
+    for f in files:
+        name = os.path.basename((f.filename or "document").replace("\\", "/")).strip() or "document"
+        lower = name.lower()
+        if lower.endswith(".doc") and not lower.endswith(".docx"):
+            return jsonify({
+                "error": f"'{name}' is an older Word file. Save it as .docx and upload it again.",
+            }), 400
+        if not (lower.endswith(".pdf") or lower.endswith(".docx")):
+            return jsonify({
+                "error": f"'{name}' is not a Word document (.docx) or a PDF.",
+            }), 400
+        data = f.read()
+        if not data:
+            return jsonify({"error": f"'{name}' is empty."}), 400
+        uploads.append((name, data))
+
+    firm_id = session.get("firm_id")
+    firm_config = _get_firm_config(firm_id)
+    log_ctx = _session_log_ctx()
+    job_id = uuid.uuid4().hex
+    with _jobs_lock:
+        _purge_stale(_jobs)
+        _jobs[job_id] = {
+            "status": "processing",
+            "ts": time.time(),
+            "tool": CLIENT_DOC_SUMMARY_KEY,
+            "firm_id": firm_id,
+            "firm_name": session.get("firm_name"),
+            "firm_slug": session.get("firm_slug"),
+            "log_ctx": log_ctx,
+        }
+
+    _executor.submit(
+        _run_client_doc_summary, job_id, uploads, firm_id, firm_config, log_ctx,
+    )
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/summarize-client-documents/status/<job_id>")
+@login_required
+@tool_enabled(CLIENT_DOC_SUMMARY_KEY)
+def api_summarize_client_documents_status(job_id):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+
+    if not job or job.get("tool") != CLIENT_DOC_SUMMARY_KEY:
+        return jsonify({"error": "Job not found or expired."}), 404
+    if job.get("firm_id") != session.get("firm_id"):
+        return jsonify({"error": "Job not found or expired."}), 404
+
+    if job["status"] == "processing":
+        return jsonify({"status": "processing"})
+    if job["status"] == "error":
+        return jsonify({"status": "error", "error": job.get("error") or "Processing failed"}), 500
+    return jsonify({"status": "complete", "summary": job.get("summary") or ""})
+
+
+# ---------------------------------------------------------------------------
 # Tracker admin
 # ---------------------------------------------------------------------------
 
@@ -3234,6 +3369,7 @@ def _parse_config_from_form(form):
         "compare_diagram_drafts": bool(form.get("tool_compare_diagram_drafts")),
         "actionstep_schedule": bool(form.get("tool_actionstep_schedule")),
         "validate_signatures": bool(form.get("tool_validate_signatures")),
+        "client_doc_summary": bool(form.get("tool_client_doc_summary")),
     }
 
     for key, tool in (

@@ -1,0 +1,214 @@
+{% extends "tool_base.html" %}
+{% set page_title = "Summarize Documents for Clients" %}
+
+{% block body_class %}page-dashboard page-client-summary{% endblock %}
+
+{% block form_panel %}
+<form class="ep-form" id="summary-form">
+    <label class="field-label">Upload Documents</label>
+    <div class="file-upload-group">
+        <div class="file-drop-zone file-drop-zone--compact" id="drop-zone">
+            <input type="file" id="file-input" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple hidden>
+            <svg class="drop-zone-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/>
+            </svg>
+            <span class="drop-zone-text">Drag &amp; drop Word documents (.docx) or PDFs here, or click to browse</span>
+        </div>
+        <div class="file-list" id="file-list"></div>
+    </div>
+    <button type="submit" class="btn-pill btn-generate" id="btn-summarize" disabled>
+        <span class="btn-label">Summarize</span>
+        <span class="spinner" hidden></span>
+    </button>
+</form>
+{% endblock %}
+
+{% block result_header %}
+<div class="result-header" id="result-header" style="display:none">
+    <button type="button" class="btn-download btn-download--primary" id="btn-copy">Copy</button>
+</div>
+{% endblock %}
+
+{% block tool_scripts %}
+<script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const fileList = document.getElementById('file-list');
+    const copyBtn = document.getElementById('btn-copy');
+    const resultHeader = document.getElementById('result-header');
+
+    let selectedFiles = [];
+    let summaryText = '';
+
+    function isAllowed(file) {
+        if (!file) return false;
+        const name = file.name.toLowerCase();
+        return name.endsWith('.pdf') || name.endsWith('.docx');
+    }
+
+    function fileKey(file) {
+        return [file.name, file.size, file.lastModified].join('\0');
+    }
+
+    function renderParagraphs(text) {
+        const parts = text.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
+        return `<div class="client-summary">${parts.map((part) => `<p>${escapeHtml(part)}</p>`).join('')}</div>`;
+    }
+
+    fileInput.addEventListener('click', (e) => e.stopPropagation());
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) addFiles(fileInput.files);
+        fileInput.value = '';
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+    });
+
+    function addFiles(files) {
+        const existing = new Set(selectedFiles.map(fileKey));
+        for (const file of files) {
+            if (!isAllowed(file) || existing.has(fileKey(file))) continue;
+            existing.add(fileKey(file));
+            selectedFiles.push(file);
+        }
+        renderFileList();
+    }
+
+    function renderFileList() {
+        const loading = document.getElementById('summary-form').classList.contains('is-loading');
+        if (!loading) tool.btn.disabled = !selectedFiles.length;
+        if (!selectedFiles.length) {
+            fileList.innerHTML = '';
+            return;
+        }
+        fileList.innerHTML = selectedFiles.map((file, i) =>
+            `<div class="file-list-item">
+                <span class="file-list-name">${escapeHtml(file.name)}</span>
+                <button type="button" class="file-list-remove" data-idx="${i}" title="Remove">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+                    </svg>
+                </button>
+            </div>`
+        ).join('');
+    }
+
+    fileList.addEventListener('click', (e) => {
+        const btn = e.target.closest('.file-list-remove');
+        if (!btn) return;
+        selectedFiles.splice(parseInt(btn.dataset.idx, 10), 1);
+        renderFileList();
+    });
+
+    const STATUS_URL = '{{ url_for("api_summarize_client_documents_status", job_id="__JID__") }}';
+
+    function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+    async function pollJob(jobId) {
+        const url = STATUS_URL.replace('__JID__', jobId);
+        while (true) {
+            await sleep(2000);
+            const res = await fetchWithTimeout(url);
+            let data;
+            try {
+                data = await res.json();
+            } catch (err) {
+                throw new Error('The summary could not be completed. Try again.');
+            }
+            if (data.status === 'processing') continue;
+            if (!res.ok || data.status === 'error') throw new Error(data.error || 'Processing failed');
+            return data;
+        }
+    }
+
+    const tool = initToolForm({
+        formId: 'summary-form',
+        btnId: 'btn-summarize',
+        async onSubmit({ setLoading, showResult, showError, btnLabel, hasRun }) {
+            if (!selectedFiles.length) return;
+
+            const state = setLoading(true);
+            state.btnLabel.textContent = 'Summarizing...';
+            resultHeader.style.display = 'none';
+            summaryText = '';
+
+            try {
+                const body = new FormData();
+                for (const file of selectedFiles) body.append('files', file);
+
+                const uploadRes = await fetchWithTimeout('{{ url_for("api_summarize_client_documents") }}', {
+                    method: 'POST',
+                    body,
+                });
+                let uploadData;
+                try {
+                    uploadData = await uploadRes.json();
+                } catch (err) {
+                    throw new Error('The upload was too large. Try fewer or smaller files.');
+                }
+                if (!uploadRes.ok) throw new Error(uploadData.error || 'Something went wrong');
+
+                const result = await pollJob(uploadData.job_id);
+                summaryText = (result.summary || '').trim();
+                if (!summaryText) throw new Error('The summary came back empty. Try again.');
+                resultHeader.style.display = 'flex';
+                copyBtn.textContent = 'Copy';
+                showResult(renderParagraphs(summaryText));
+            } catch (err) {
+                resultHeader.style.display = 'none';
+                summaryText = '';
+                showError(err.message);
+            } finally {
+                const done = setLoading(false);
+                tool.btn.disabled = !selectedFiles.length;
+                done.btnLabel.textContent = hasRun() ? 'Re-Summarize' : 'Summarize';
+            }
+        }
+    });
+
+    let copyTimer = 0;
+
+    function markCopied(ok) {
+        copyBtn.textContent = ok ? 'Copied' : 'Copy failed';
+        window.clearTimeout(copyTimer);
+        copyTimer = window.setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+    }
+
+    function copyWithSelection() {
+        const area = document.createElement('textarea');
+        area.value = summaryText;
+        area.style.position = 'fixed';
+        area.style.left = '-9999px';
+        document.body.appendChild(area);
+        area.focus();
+        area.select();
+        area.setSelectionRange(0, area.value.length);
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+        area.remove();
+        return ok;
+    }
+
+    copyBtn.addEventListener('click', () => {
+        if (!summaryText) return;
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(summaryText).then(
+                () => markCopied(true),
+                () => markCopied(copyWithSelection())
+            );
+            return;
+        }
+        markCopied(copyWithSelection());
+    });
+</script>
+{% endblock %}

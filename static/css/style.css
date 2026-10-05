@@ -712,6 +712,14 @@ h1 {
     color: #1a1a1a;
 }
 
+.page-client-summary .client-summary p {
+    margin: 0;
+}
+
+.page-client-summary .client-summary p + p {
+    margin-top: 1rem;
+}
+
 .result-elapsed {
     font-size: 0.78rem;
     color: rgba(0, 0, 0, 0.35);

@@ -283,6 +283,10 @@
             <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_validate_signatures" value="1" {{ 'checked' if tools.get('validate_signatures') }}> Validate Signatures</label>
         </section>
 
+        <section class="admin-section">
+            <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_client_doc_summary" value="1" {{ 'checked' if tools.get('client_doc_summary') }}> Summarize Documents for Clients</label>
+        </section>
+
     </form>
 
     {% if existing_firm %}

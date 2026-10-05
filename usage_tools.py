@@ -28,6 +28,9 @@ TOOL_LABELS = {
     "compare_diagram_drafts_batch": "Compare EP Diagram vs. Drafts (batch)",
     "actionstep_schedule": "Visualize Actionstep Schedule",
     "validate_signatures": "Validate Signatures",
+    "client_doc_summary": "Summarize Documents for Clients",
+    "client_doc_summary_ocr": "Summarize Documents for Clients (OCR)",
+    "client_doc_summary_part": "Summarize Documents for Clients (part)",
     "tracker": "Client Progress Tracker",
 }
 
@@ -36,6 +39,8 @@ STEP_OF = {
     "doc_separator_ocr": "doc_separator",
     "prospect_summarizer_ocr": "prospect_summarizer",
     "compare_diagram_drafts_batch": "compare_diagram_drafts",
+    "client_doc_summary_ocr": "client_doc_summary",
+    "client_doc_summary_part": "client_doc_summary",
 }
 
 ALIAS_OF = {
