@@ -317,9 +317,15 @@
     {% endif %}
 
 </main>
-<div class="admin-save-bar">
-    <a href="{{ url_for('admin_firms') }}" class="btn-pill btn-sm">Cancel</a>
-    <button type="submit" form="admin-form" class="btn-pill btn-sm btn-admin-save" id="btn-save">Save</button>
+<div class="admin-save-bar{% if not existing_firm or error %} is-dirty{% endif %}" id="admin-save-bar"{% if not existing_firm or error %} data-force-dirty="1"{% endif %}>
+    <p class="admin-save-status" id="admin-save-status" aria-live="polite">
+        <span class="admin-save-dot"{% if existing_firm and not error %} hidden{% endif %}></span>
+        <span id="admin-save-status-text">{% if not existing_firm or error %}Unsaved changes{% else %}Saved{% endif %}</span>
+    </p>
+    <div class="admin-save-actions">
+        <a href="{{ url_for('admin_firms') }}" class="btn-pill btn-sm" id="admin-cancel">Cancel</a>
+        <button type="submit" form="admin-form" class="btn-pill btn-sm btn-admin-save" id="btn-save"{% if existing_firm and not error %} disabled{% endif %}>Save</button>
+    </div>
 </div>
 {% endblock %}
 
@@ -392,6 +398,58 @@
     syncToolFields();
 
     var form = document.getElementById('admin-form');
+    var saveBar = document.getElementById('admin-save-bar');
+    var saveStatusText = document.getElementById('admin-save-status-text');
+    var saveDot = saveBar.querySelector('.admin-save-dot');
+    var saveBtn = document.getElementById('btn-save');
+    var cancelLink = document.getElementById('admin-cancel');
+    var forceDirty = saveBar.hasAttribute('data-force-dirty');
+    var savedSnapshot = forceDirty ? null : serializeForm(form);
+    var allowLeave = false;
+
+    function serializeForm(target) {
+        var parts = [];
+        Array.prototype.forEach.call(target.elements, function(el) {
+            if (!el.name || el.type === 'file' || el.type === 'submit' || el.type === 'button') return;
+            if (el.type === 'checkbox' || el.type === 'radio') {
+                parts.push(el.name + '=' + (el.checked ? '1' : '0'));
+            } else {
+                parts.push(el.name + '=' + el.value);
+            }
+        });
+        return parts.join('\n');
+    }
+
+    function isDirty() {
+        return forceDirty || serializeForm(form) !== savedSnapshot;
+    }
+
+    function paintSaveState() {
+        var dirty = isDirty();
+        saveBar.classList.toggle('is-dirty', dirty);
+        saveStatusText.textContent = dirty ? 'Unsaved changes' : 'Saved';
+        saveDot.hidden = !dirty;
+        saveBtn.disabled = !dirty;
+    }
+
+    form.addEventListener('input', paintSaveState);
+    form.addEventListener('change', paintSaveState);
+
+    window.addEventListener('beforeunload', function(e) {
+        if (allowLeave || !isDirty()) return;
+        e.preventDefault();
+        e.returnValue = '';
+    });
+
+    cancelLink.addEventListener('click', function(e) {
+        if (!isDirty()) return;
+        if (!window.confirm('Leave without saving changes?')) {
+            e.preventDefault();
+            return;
+        }
+        allowLeave = true;
+    });
+
     form.addEventListener('invalid', function(e) {
         var section = e.target.closest('[data-collapsible]');
         if (section) setSectionOpen(section, true);
@@ -408,7 +466,9 @@
             if (section) setSectionOpen(section, true);
             bad.focus();
             bad.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
         }
+        allowLeave = true;
     });
 
     var ds = document.getElementById('delete-start');
