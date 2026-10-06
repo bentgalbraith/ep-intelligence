@@ -1224,51 +1224,6 @@ def api_doc_separate_download_single(token, doc_index):
     )
 
 
-def _send_doc_separator_redo_email(*, firm_name="", firm_slug="", employee_name=None,
-                                   employee_id_code=None, page_count=None, feedback="",
-                                   before_docs=None, after_docs=None):
-    if not RESEND_API_KEY:
-        app.logger.warning("RESEND_API_KEY not set — document separator redo email not sent")
-        return
-
-    def _e(value):
-        return html.escape(str(value) if value is not None else "")
-
-    def _block(docs):
-        return _e("\n".join(docs)) if docs else "—"
-
-    employee = employee_name or "—"
-    if employee_id_code:
-        employee = f"{employee} ({employee_id_code})" if employee_name else employee_id_code
-    firm = firm_name or "Unknown firm"
-    pages = str(page_count) if page_count is not None else "—"
-    time_str = datetime.now(_EASTERN).strftime("%b %d, %Y %I:%M %p ET")
-
-    body = (
-        f"<h2>Document Separator Redo</h2>"
-        f"<p><strong>Time:</strong> {_e(time_str)}</p>"
-        f"<p><strong>Firm:</strong> {_e(firm)}"
-        f"{' (' + _e(firm_slug) + ')' if firm_slug else ''}</p>"
-        f"<p><strong>Employee:</strong> {_e(employee)}</p>"
-        f"<p><strong>Pages:</strong> {_e(pages)}</p>"
-        f"<p><strong>Feedback:</strong></p>"
-        f"<pre style=\"font-size:13px;white-space:pre-wrap;\">{_e(feedback)}</pre>"
-        f"<p><strong>Before:</strong></p>"
-        f"<pre style=\"font-size:12px;white-space:pre-wrap;\">{_block(before_docs)}</pre>"
-        f"<p><strong>After:</strong></p>"
-        f"<pre style=\"font-size:12px;white-space:pre-wrap;\">{_block(after_docs)}</pre>"
-    )
-    try:
-        resend.Emails.send({
-            "from": "EP Intelligence <notifications@ep-intelligence.com>",
-            "to": ["ben@ep-intelligence.com"],
-            "subject": f"[Doc Separator Redo] {firm}",
-            "html": body,
-        })
-    except Exception:
-        app.logger.warning("Failed to send document separator redo email", exc_info=True)
-
-
 def _maybe_log_doc_separator_redo(*, firm_id, firm_name="", firm_slug="",
                                   log_ctx=None, page_count=None, feedback="",
                                   before_docs=None, after_docs=None, filename_fmt=None):
@@ -1287,16 +1242,6 @@ def _maybe_log_doc_separator_redo(*, firm_id, firm_name="", firm_slug="",
             employee_id=ctx.get("employee_id"),
             employee_id_code=ctx.get("employee_id_code"),
             employee_name=ctx.get("employee_name"),
-            page_count=page_count,
-            feedback=feedback,
-            before_docs=before,
-            after_docs=after,
-        )
-        _send_doc_separator_redo_email(
-            firm_name=firm_name,
-            firm_slug=firm_slug,
-            employee_name=ctx.get("employee_name"),
-            employee_id_code=ctx.get("employee_id_code"),
             page_count=page_count,
             feedback=feedback,
             before_docs=before,
