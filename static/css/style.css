@@ -765,21 +765,23 @@ h1 {
     margin: 0;
     padding: 0.28rem 0.6rem;
     border-radius: 999px;
-    background: #1a1a1a;
+    background: #ea580c;
     color: #fff;
     font-size: 0.75rem;
     line-height: 1.2;
     white-space: nowrap;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 2px 8px rgba(234, 88, 12, 0.25);
     pointer-events: none;
     opacity: 0;
-    transform: translateY(-40%);
-    transition: opacity 150ms ease, transform 150ms ease;
+    visibility: hidden;
+    transform: translateY(-50%);
+    transition: opacity 200ms ease, visibility 0s linear 200ms;
 }
 
 .page-client-summary .copy-notice.is-shown {
     opacity: 1;
-    transform: translateY(-50%);
+    visibility: visible;
+    transition: opacity 200ms ease, visibility 0s linear 0s;
 }
 
 .page-client-summary .client-summary p {
