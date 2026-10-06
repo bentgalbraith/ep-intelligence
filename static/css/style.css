@@ -712,6 +712,30 @@ h1 {
     color: #1a1a1a;
 }
 
+.page-client-summary .btn-copy {
+    background: none;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    color: rgba(0, 0, 0, 0.35);
+    transition: color 150ms ease;
+    flex-shrink: 0;
+    line-height: 0;
+}
+
+.page-client-summary .btn-copy:hover,
+.page-client-summary .btn-copy.is-copied {
+    color: #ea580c;
+}
+
+.page-client-summary .btn-copy.is-failed {
+    color: #dc2626;
+}
+
+.page-client-summary .btn-copy svg[hidden] {
+    display: none;
+}
+
 .page-client-summary .client-summary p {
     margin: 0;
 }

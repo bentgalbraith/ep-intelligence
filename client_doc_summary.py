@@ -10,6 +10,7 @@ from pypdf import PdfReader
 TOOL_KEY = "client_doc_summary"
 OCR_TOOL_KEY = "client_doc_summary_ocr"
 PART_TOOL_KEY = "client_doc_summary_part"
+REDO_TOOL_KEY = "client_doc_summary_redo"
 
 # A page with at least this much extracted text has a real text layer, not a scan.
 _TEXT_PAGE_CHARS = 40
@@ -23,17 +24,22 @@ You are a legal assistant at an estate planning firm.{firm_context}
 You will receive the text of one or more estate planning documents. Write a summary \
 the firm can send to the client.
 
-Write a very concise summary in plain paragraphs. Cover what the documents are and \
-the key details the client should be aware of. Use simple, everyday language. \
+Write a very concise summary in plain paragraphs. Use simple, everyday language. \
 Address the client as "you" and "your." No headings, bullets, numbering, or markdown.
 
+Cover three things, and little else: what each document is at a high level; who \
+the people are, including beneficiaries and anyone else in a role such as trustee \
+or agent; and where assets go.
+
 Rules:
-- Use only facts stated in the documents. Do not guess or invent names, dates, \
-amounts, roles, or legal effects.
+- Use only facts stated in the documents, or in additional details the firm \
+includes with them. Do not guess or invent names, dates, amounts, roles, or \
+legal effects.
 - Synthesize every document into one summary. Do not write a separate summary per \
 file unless the documents concern different people or plans and combining them \
 would mix those up.
-- Keep it short. A few short paragraphs is enough.
+- Err on the side of brevity. A few short paragraphs is enough. Leave out \
+boilerplate, definitions, and anything a client does not need.
 - Describe what the documents provide. Do not recommend changes or give legal advice.
 - If something important is unclear or missing from the text, say so in one sentence.
 """
@@ -41,10 +47,11 @@ would mix those up.
 _NOTES_PROMPT = """\
 You are a legal assistant at an estate planning firm.{firm_context}
 
-You will receive part of a larger set of estate planning documents. List the facts \
-a client would need from this part: what each document is, who the people are, \
-and what the document says happens. Plain sentences only. No headings, bullets, \
-or advice. Use only facts stated in the text. Do not invent anything.
+You will receive part of a larger set of estate planning documents. List only the \
+facts a client would need from this part: what each document is at a high level, \
+who the people are (beneficiaries and anyone else in a role), and where assets go. \
+Plain sentences only. Be brief. No headings, bullets, or advice. Use only facts \
+stated in the text or in additional details the firm includes. Do not invent anything.
 """
 
 _COMBINE_PROMPT = """\
@@ -54,9 +61,12 @@ You will receive notes taken from a client's estate planning documents. Turn the
 into one very concise summary the firm can send to the client.
 
 Write plain paragraphs in simple, everyday language. Address the client as "you" \
-and "your." No headings, bullets, numbering, or markdown. Cover what the documents \
-are and the key details the client should be aware of. A few short paragraphs is \
-enough. Use only the notes. Do not invent facts, recommend changes, or give legal advice.
+and "your." No headings, bullets, numbering, or markdown. Cover what each document \
+is at a high level, who the people are (beneficiaries and anyone else in a role), \
+and where assets go. Err on the side of brevity. A few short paragraphs is enough. \
+Leave out boilerplate and anything a client does not need. Use only the notes and \
+any additional details the firm includes. Do not invent facts, recommend changes, \
+or give legal advice.
 """
 
 
@@ -383,10 +393,21 @@ def _disambiguate_names(uploads):
     return labeled
 
 
-def summarize_documents(uploads, client, model, firm_id=None, firm_config=None):
-    """Read each upload and return a plain-paragraph client summary.
+def _with_user_details(user, details):
+    details = (details or "").strip()
+    if not details:
+        return user
+    return (
+        f"{user}\n\n--- ADDITIONAL DETAILS FROM THE FIRM ---\n{details}"
+    )
+
+
+def summarize_documents(uploads, client, model, firm_id=None, firm_config=None, details=""):
+    """Read each upload and return (summary, documents).
 
     uploads: list of (filename, bytes).
+    details: optional notes the user typed for the model to consider.
+    documents is the extracted text, kept so a later redo can skip re-reading the files.
     """
     if not uploads:
         raise SummaryError("Upload at least one Word document or PDF.")
@@ -400,18 +421,68 @@ def summarize_documents(uploads, client, model, firm_id=None, firm_config=None):
 
     if len(batches) == 1:
         user = "\n\n".join(_source_block(name, text) for name, text in batches[0])
-        return _complete(client, model, client_prompt, user, firm_id)
+        summary = _complete(client, model, client_prompt, _with_user_details(user, details), firm_id)
+        return summary, documents
 
     notes_prompt = _with_firm_context(_NOTES_PROMPT, firm_config)
     notes = []
     for batch in batches:
         user = "\n\n".join(_source_block(name, text) for name, text in batch)
-        notes.append(_complete(client, model, notes_prompt, user, firm_id, tool=PART_TOOL_KEY))
+        notes.append(_complete(
+            client, model, notes_prompt, _with_user_details(user, details), firm_id, tool=PART_TOOL_KEY,
+        ))
     combined = "\n\n".join(f"--- Notes {index} ---\n{note}" for index, note in enumerate(notes, 1))
-    return _complete(
+    summary = _complete(
         client,
         model,
         _with_firm_context(_COMBINE_PROMPT, firm_config),
-        combined,
+        _with_user_details(combined, details),
         firm_id,
+    )
+    return summary, documents
+
+
+def _redo_system(firm_config, previous_summary, feedback):
+    """Same client-summary rules, plus the firm's correction."""
+    base = _with_firm_context(_CLIENT_PROMPT, firm_config)
+    return (
+        f"{base}\n\n"
+        "You already wrote this summary for the client:\n"
+        f"{previous_summary.strip()}\n\n"
+        "The firm reviewed it and asked for this change:\n"
+        f"{feedback.strip()}\n\n"
+        "Rewrite the summary. Apply that feedback, and keep everything else that was correct. "
+        "Treat a fact stated in the feedback as something to include. Do not invent anything "
+        "beyond the documents, the firm's additional details, and that feedback."
+    )
+
+
+def redo_summary(documents, previous_summary, feedback, client, model,
+                 firm_id=None, firm_config=None, details=""):
+    """Rewrite a finished summary from the same document text and the firm's feedback."""
+    feedback = (feedback or "").strip()
+    previous_summary = (previous_summary or "").strip()
+    if not documents:
+        raise SummaryError("That summary expired. Upload the documents and summarize again.")
+    if not previous_summary:
+        raise SummaryError("There is no summary to redo.")
+    if not feedback:
+        raise SummaryError("Describe what to change.")
+
+    system = _redo_system(firm_config, previous_summary, feedback)
+    batches = _batches(documents)
+    if len(batches) == 1:
+        user = "\n\n".join(_source_block(name, text) for name, text in batches[0])
+        return _complete(client, model, system, _with_user_details(user, details), firm_id, tool=REDO_TOOL_KEY)
+
+    notes_prompt = _with_firm_context(_NOTES_PROMPT, firm_config)
+    notes = []
+    for batch in batches:
+        user = "\n\n".join(_source_block(name, text) for name, text in batch)
+        notes.append(_complete(
+            client, model, notes_prompt, _with_user_details(user, details), firm_id, tool=PART_TOOL_KEY,
+        ))
+    combined = "\n\n".join(f"--- Notes {index} ---\n{note}" for index, note in enumerate(notes, 1))
+    return _complete(
+        client, model, system, _with_user_details(combined, details), firm_id, tool=REDO_TOOL_KEY,
     )

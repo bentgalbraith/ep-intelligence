@@ -23,7 +23,7 @@ from flask_limiter.util import get_remote_address
 from openai import OpenAI
 
 from client_doc_summary import TOOL_KEY as CLIENT_DOC_SUMMARY_KEY
-from client_doc_summary import SummaryError, summarize_documents
+from client_doc_summary import SummaryError, redo_summary, summarize_documents
 from actionstep_schedule import (
     ScheduleError,
     assign_colors as assign_schedule_colors,
@@ -1900,24 +1900,31 @@ def summarize_client_documents():
     )
 
 
-def _run_client_doc_summary(job_id, uploads, firm_id, firm_config, log_ctx=None):
+def _run_client_doc_summary(job_id, uploads, firm_id, firm_config, log_ctx=None, details=""):
     with log_context(**(log_ctx or {})):
         with _jobs_lock:
             existing = _jobs.get(job_id) or {}
             firm_name = existing.get("firm_name")
             firm_slug = existing.get("firm_slug")
         try:
-            summary = summarize_documents(
+            summary, documents = summarize_documents(
                 uploads,
                 openai_client,
                 model=OPENAI_MODEL,
                 firm_id=firm_id,
                 firm_config=firm_config,
+                details=details,
             )
             with _jobs_lock:
                 current = _jobs.get(job_id)
                 if current is not None:
-                    current.update({"status": "complete", "summary": summary})
+                    current.update({
+                        "status": "complete",
+                        "summary": summary,
+                        "documents": [{"name": name, "text": text} for name, text in documents],
+                        "details": details or "",
+                        "firm_config": firm_config,
+                    })
         except SummaryError as e:
             app.logger.info("Client document summary rejected (job %s): %s", job_id, e)
             if e.notify:
@@ -1980,6 +1987,7 @@ def api_summarize_client_documents():
     firm_id = session.get("firm_id")
     firm_config = _get_firm_config(firm_id)
     log_ctx = _session_log_ctx()
+    details = (request.form.get("notes") or "").strip()
     job_id = uuid.uuid4().hex
     with _jobs_lock:
         _purge_stale(_jobs)
@@ -1994,7 +2002,7 @@ def api_summarize_client_documents():
         }
 
     _executor.submit(
-        _run_client_doc_summary, job_id, uploads, firm_id, firm_config, log_ctx,
+        _run_client_doc_summary, job_id, uploads, firm_id, firm_config, log_ctx, details,
     )
     return jsonify({"job_id": job_id})
 
@@ -2016,6 +2024,134 @@ def api_summarize_client_documents_status(job_id):
     if job["status"] == "error":
         return jsonify({"status": "error", "error": job.get("error") or "Processing failed"}), 500
     return jsonify({"status": "complete", "summary": job.get("summary") or ""})
+
+
+def _client_summary_documents(job):
+    documents = []
+    for item in job.get("documents") or []:
+        name = (item.get("name") or "").strip()
+        text = (item.get("text") or "").strip()
+        if name and text:
+            documents.append((name, text))
+    return documents
+
+
+def _run_client_doc_summary_redo(job_id, documents, previous_summary, feedback,
+                                 firm_id, firm_config, details="", log_ctx=None):
+    with log_context(**(log_ctx or {})):
+        with _jobs_lock:
+            existing = _jobs.get(job_id) or {}
+            firm_name = existing.get("firm_name")
+            firm_slug = existing.get("firm_slug")
+        try:
+            summary = redo_summary(
+                documents,
+                previous_summary,
+                feedback,
+                openai_client,
+                model=OPENAI_MODEL,
+                firm_id=firm_id,
+                firm_config=firm_config,
+                details=details,
+            )
+            with _jobs_lock:
+                current = _jobs.get(job_id)
+                if current is not None:
+                    current.update({
+                        "status": "complete",
+                        "summary": summary,
+                        "documents": [{"name": name, "text": text} for name, text in documents],
+                        "details": details or "",
+                        "firm_config": firm_config,
+                    })
+        except SummaryError as e:
+            app.logger.info("Client document summary redo rejected (job %s): %s", job_id, e)
+            if e.notify:
+                _notify_tool_error(
+                    "Summarize Documents for Clients (Redo)",
+                    str(e),
+                    firm_id=firm_id,
+                    firm_name=firm_name,
+                    firm_slug=firm_slug,
+                    employee_id_code=(log_ctx or {}).get("employee_id_code"),
+                )
+            with _jobs_lock:
+                current = _jobs.get(job_id)
+                if current is not None:
+                    current.update({"status": "error", "error": str(e)})
+        except Exception as e:
+            app.logger.error("Client document summary redo error (job %s): %s", job_id, e)
+            _notify_tool_error(
+                "Summarize Documents for Clients (Redo)",
+                str(e),
+                firm_id=firm_id,
+                firm_name=firm_name,
+                firm_slug=firm_slug,
+                employee_id_code=(log_ctx or {}).get("employee_id_code"),
+            )
+            with _jobs_lock:
+                current = _jobs.get(job_id)
+                if current is not None:
+                    current.update({
+                        "status": "error",
+                        "error": "Something went wrong while summarizing these documents.",
+                    })
+
+
+@app.route("/api/summarize-client-documents/redo", methods=["POST"])
+@login_required
+@tool_enabled(CLIENT_DOC_SUMMARY_KEY)
+def api_summarize_client_documents_redo():
+    data = request.get_json(silent=True) or {}
+    original_job_id = (data.get("job_id") or "").strip()
+    feedback = (data.get("feedback") or "").strip()
+    if not original_job_id or not feedback:
+        return jsonify({"error": "Describe what to change."}), 400
+
+    with _jobs_lock:
+        original = _jobs.get(original_job_id)
+
+    if (
+        not original
+        or original.get("tool") != CLIENT_DOC_SUMMARY_KEY
+        or original.get("firm_id") != session.get("firm_id")
+        or original.get("status") != "complete"
+    ):
+        return jsonify({"error": "That summary is no longer available. Summarize the documents again."}), 404
+
+    documents = _client_summary_documents(original)
+    previous_summary = (original.get("summary") or "").strip()
+    if not documents or not previous_summary:
+        return jsonify({"error": "That summary expired. Upload the documents and summarize again."}), 410
+
+    firm_id = session.get("firm_id")
+    firm_config = original.get("firm_config")
+    if firm_config is None:
+        firm_config = _get_firm_config(firm_id)
+    if "notes" in data:
+        details = (data.get("notes") or "").strip()
+    else:
+        details = original.get("details") or ""
+    log_ctx = original.get("log_ctx") or _session_log_ctx()
+    new_job_id = uuid.uuid4().hex
+    with _jobs_lock:
+        _purge_stale(_jobs)
+        _jobs[new_job_id] = {
+            "status": "processing",
+            "ts": time.time(),
+            "tool": CLIENT_DOC_SUMMARY_KEY,
+            "firm_id": firm_id,
+            "firm_name": session.get("firm_name"),
+            "firm_slug": session.get("firm_slug"),
+            "log_ctx": log_ctx,
+        }
+
+    _executor.submit(
+        _run_client_doc_summary_redo,
+        new_job_id, documents, previous_summary, feedback,
+        firm_id, firm_config, details, log_ctx,
+    )
+    return jsonify({"job_id": new_job_id})
 
 
 # ---------------------------------------------------------------------------

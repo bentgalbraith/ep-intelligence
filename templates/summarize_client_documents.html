@@ -16,6 +16,16 @@
         </div>
         <div class="file-list" id="file-list"></div>
     </div>
+
+    <label class="field-label" for="notes">Additional Context</label>
+    <textarea
+        id="notes"
+        name="notes"
+        class="field-textarea field-textarea--short"
+        placeholder="Anything important not mentioned in the document(s)..."
+        rows="4"
+    ></textarea>
+
     <button type="submit" class="btn-pill btn-generate" id="btn-summarize" disabled>
         <span class="btn-label">Summarize</span>
         <span class="spinner" hidden></span>
@@ -25,7 +35,14 @@
 
 {% block result_header %}
 <div class="result-header" id="result-header" style="display:none">
-    <button type="button" class="btn-download btn-download--primary" id="btn-copy">Copy</button>
+    <button type="button" class="btn-copy" id="btn-copy" aria-label="Copy">
+        <svg class="btn-copy-icon btn-copy-icon--copy" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+        </svg>
+        <svg class="btn-copy-icon btn-copy-icon--check" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+            <path d="M20 6 9 17l-5-5"/>
+        </svg>
+    </button>
 </div>
 {% endblock %}
 
@@ -34,11 +51,15 @@
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('file-input');
     const fileList = document.getElementById('file-list');
+    const notes = document.getElementById('notes');
     const copyBtn = document.getElementById('btn-copy');
     const resultHeader = document.getElementById('result-header');
 
     let selectedFiles = [];
     let summaryText = '';
+    let lastJobId = null;
+    let redoInFlight = false;
+    let summaryGeneration = 0;
 
     function isAllowed(file) {
         if (!file) return false;
@@ -53,6 +74,23 @@
     function renderParagraphs(text) {
         const parts = text.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
         return `<div class="client-summary">${parts.map((part) => `<p>${escapeHtml(part)}</p>`).join('')}</div>`;
+    }
+
+    function renderSummary(text, jobId) {
+        summaryText = (text || '').trim();
+        lastJobId = jobId;
+        return renderParagraphs(summaryText) + `
+            <div class="redo-section" id="redo-section">
+                <button type="button" class="btn-pill btn-redo" id="btn-show-redo">Redo with Feedback</button>
+                <div class="redo-form" id="redo-form" hidden>
+                    <label class="field-label" for="redo-feedback">What To Fix</label>
+                    <textarea class="field-textarea" id="redo-feedback" rows="3" placeholder="e.g. Mention that the lake house goes to Alex, and leave out the witness names."></textarea>
+                    <button type="button" class="btn-pill btn-generate" id="btn-redo-submit">
+                        <span class="btn-label">Re-Summarize with Feedback</span>
+                        <span class="spinner" hidden></span>
+                    </button>
+                </div>
+            </div>`;
     }
 
     fileInput.addEventListener('click', (e) => e.stopPropagation());
@@ -137,14 +175,18 @@
         async onSubmit({ setLoading, showResult, showError, btnLabel, hasRun }) {
             if (!selectedFiles.length) return;
 
+            const generation = ++summaryGeneration;
             const state = setLoading(true);
             state.btnLabel.textContent = 'Summarizing...';
             resultHeader.style.display = 'none';
             summaryText = '';
+            lastJobId = null;
+            notes.disabled = true;
 
             try {
                 const body = new FormData();
                 for (const file of selectedFiles) body.append('files', file);
+                body.append('notes', notes.value);
 
                 const uploadRes = await fetchWithTimeout('{{ url_for("api_summarize_client_documents") }}', {
                     method: 'POST',
@@ -159,17 +201,21 @@
                 if (!uploadRes.ok) throw new Error(uploadData.error || 'Something went wrong');
 
                 const result = await pollJob(uploadData.job_id);
-                summaryText = (result.summary || '').trim();
-                if (!summaryText) throw new Error('The summary came back empty. Try again.');
+                if (generation !== summaryGeneration) return;
+                const summary = (result.summary || '').trim();
+                if (!summary) throw new Error('The summary came back empty. Try again.');
                 resultHeader.style.display = 'flex';
-                copyBtn.textContent = 'Copy';
-                showResult(renderParagraphs(summaryText));
+                resetCopyButton();
+                showResult(renderSummary(summary, uploadData.job_id));
             } catch (err) {
+                if (generation !== summaryGeneration) return;
                 resultHeader.style.display = 'none';
                 summaryText = '';
                 showError(err.message);
             } finally {
+                if (generation !== summaryGeneration) return;
                 const done = setLoading(false);
+                notes.disabled = false;
                 tool.btn.disabled = !selectedFiles.length;
                 done.btnLabel.textContent = hasRun() ? 'Re-Summarize' : 'Summarize';
             }
@@ -178,10 +224,22 @@
 
     let copyTimer = 0;
 
-    function markCopied(ok) {
-        copyBtn.textContent = ok ? 'Copied' : 'Copy failed';
+    function resetCopyButton() {
         window.clearTimeout(copyTimer);
-        copyTimer = window.setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+        copyBtn.classList.remove('is-copied', 'is-failed');
+        copyBtn.setAttribute('aria-label', 'Copy');
+        copyBtn.querySelector('.btn-copy-icon--copy').hidden = false;
+        copyBtn.querySelector('.btn-copy-icon--check').hidden = true;
+    }
+
+    function markCopied(ok) {
+        copyBtn.classList.toggle('is-copied', ok);
+        copyBtn.classList.toggle('is-failed', !ok);
+        copyBtn.setAttribute('aria-label', ok ? 'Copied' : 'Copy failed');
+        copyBtn.querySelector('.btn-copy-icon--copy').hidden = ok;
+        copyBtn.querySelector('.btn-copy-icon--check').hidden = !ok;
+        window.clearTimeout(copyTimer);
+        copyTimer = window.setTimeout(resetCopyButton, 2000);
     }
 
     function copyWithSelection() {
@@ -210,5 +268,85 @@
         }
         markCopied(copyWithSelection());
     });
+
+    document.addEventListener('click', (e) => {
+        if (e.target.id === 'btn-show-redo') {
+            e.target.hidden = true;
+            document.getElementById('redo-section').classList.add('is-open');
+            document.getElementById('redo-form').hidden = false;
+            document.getElementById('redo-feedback').focus();
+        }
+        if (e.target.id === 'btn-redo-submit' || e.target.closest('#btn-redo-submit')) {
+            handleRedo();
+        }
+    });
+
+    async function handleRedo() {
+        const feedbackEl = document.getElementById('redo-feedback');
+        const feedback = feedbackEl ? feedbackEl.value.trim() : '';
+        if (!feedback || !lastJobId || redoInFlight) return;
+
+        const generation = summaryGeneration;
+        const btn = document.getElementById('btn-redo-submit');
+        const btnLabel = btn.querySelector('.btn-label');
+        const spinner = btn.querySelector('.spinner');
+        const context = notes.value;
+        redoInFlight = true;
+        btn.disabled = true;
+        btnLabel.textContent = 'Summarizing...';
+        spinner.hidden = false;
+        feedbackEl.disabled = true;
+        notes.disabled = true;
+        tool.btn.disabled = true;
+        const redoStart = Date.now();
+
+        try {
+            const res = await fetchWithTimeout('{{ url_for("api_summarize_client_documents_redo") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ job_id: lastJobId, feedback, notes: context }),
+            });
+            let data;
+            try {
+                data = await res.json();
+            } catch (err) {
+                throw new Error('The summary could not be completed. Try again.');
+            }
+            if (!res.ok) throw new Error(data.error || 'Something went wrong');
+
+            const result = await pollJob(data.job_id);
+            if (generation !== summaryGeneration) return;
+            const summary = (result.summary || '').trim();
+            if (!summary) throw new Error('The summary came back empty. Try again.');
+            const resultPanel = document.getElementById('result-content');
+            resultPanel.innerHTML = renderSummary(summary, data.job_id);
+            resetCopyButton();
+
+            const totalSecs = (Date.now() - redoStart) / 1000;
+            const display = totalSecs >= 60
+                ? `${Math.floor(totalSecs / 60)}m ${(totalSecs % 60).toFixed(0)}s`
+                : `${totalSecs.toFixed(1)}s`;
+            const redoSection = document.getElementById('redo-section');
+            if (redoSection) {
+                const elapsed = document.createElement('p');
+                elapsed.className = 'result-elapsed';
+                elapsed.textContent = `Redo completed in ${display}`;
+                redoSection.appendChild(elapsed);
+            }
+        } catch (err) {
+            if (generation !== summaryGeneration) return;
+            alert(err.message);
+            btn.disabled = false;
+            btnLabel.textContent = 'Re-Summarize with Feedback';
+            spinner.hidden = true;
+            feedbackEl.disabled = false;
+        } finally {
+            redoInFlight = false;
+            if (generation === summaryGeneration) {
+                notes.disabled = false;
+                tool.btn.disabled = !selectedFiles.length;
+            }
+        }
+    }
 </script>
 {% endblock %}

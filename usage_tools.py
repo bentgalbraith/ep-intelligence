@@ -31,6 +31,7 @@ TOOL_LABELS = {
     "client_doc_summary": "Summarize Documents for Clients",
     "client_doc_summary_ocr": "Summarize Documents for Clients (OCR)",
     "client_doc_summary_part": "Summarize Documents for Clients (part)",
+    "client_doc_summary_redo": "Summarize Documents for Clients (redo)",
     "tracker": "Client Progress Tracker",
 }
 
@@ -45,6 +46,7 @@ STEP_OF = {
 
 ALIAS_OF = {
     "doc_separator_redo": "doc_separator",
+    "client_doc_summary_redo": "client_doc_summary",
 }
 
 
