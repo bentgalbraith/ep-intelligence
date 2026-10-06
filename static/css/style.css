@@ -712,7 +712,12 @@ h1 {
     color: #1a1a1a;
 }
 
+.page-client-summary .result-header {
+    position: relative;
+}
+
 .page-client-summary .btn-copy {
+    position: relative;
     background: none;
     border: none;
     padding: 4px;
@@ -723,17 +728,58 @@ h1 {
     line-height: 0;
 }
 
-.page-client-summary .btn-copy:hover,
-.page-client-summary .btn-copy.is-copied {
+.page-client-summary .btn-copy:hover {
     color: #ea580c;
 }
 
-.page-client-summary .btn-copy.is-failed {
-    color: #dc2626;
+.page-client-summary .btn-copy-tip {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 2;
+    padding: 0.22rem 0.45rem;
+    border-radius: 4px;
+    background: #1a1a1a;
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 400;
+    letter-spacing: 0;
+    line-height: 1.2;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
 }
 
-.page-client-summary .btn-copy svg[hidden] {
-    display: none;
+.page-client-summary .btn-copy:hover .btn-copy-tip,
+.page-client-summary .btn-copy:focus-visible .btn-copy-tip {
+    opacity: 1;
+    visibility: visible;
+}
+
+.page-client-summary .copy-notice {
+    position: absolute;
+    right: 2.15rem;
+    top: 50%;
+    z-index: 2;
+    margin: 0;
+    padding: 0.28rem 0.6rem;
+    border-radius: 999px;
+    background: #1a1a1a;
+    color: #fff;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-40%);
+    transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.page-client-summary .copy-notice.is-shown {
+    opacity: 1;
+    transform: translateY(-50%);
 }
 
 .page-client-summary .client-summary p {
