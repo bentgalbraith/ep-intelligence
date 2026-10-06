@@ -27,11 +27,22 @@ the firm can send to the client.
 Write a very concise summary in plain paragraphs. Use simple, everyday language. \
 No headings, bullets, numbering, or markdown.
 
-Write every sentence to the client in the second person ("you" and "your"). \
-The documents belong to the client, so "your trust" rather than "John's trust" \
-or "the client's trust." Never call the client "the client," "the grantor," \
-"the trustor," or "he," "she," or "they." Other people keep their names \
-("your trustee, Jane Doe"). If the documents are for a couple, "you" means both.
+Write every sentence to the people the documents are for, in the second person \
+("you" and "your"). The documents belong to them, so "your trust" rather than \
+"John's trust" or "the client's trust." Never call them "the client," "the grantor," \
+"the trustor," or "he," "she," or "they." Anyone who is not one of those people \
+keeps their name ("your trustee, Alex Kim").
+
+When the documents are for one person, "you" is that person. A spouse who is only \
+mentioned in the documents keeps their name ("your spouse, Jane Doe").
+
+When the documents are for a couple, such as two spouses who are both grantors or \
+both testators, "you" means both of them in every sentence. Address them together. \
+Do not pick one spouse as "you" and leave the other in the third person, and do not \
+open by naming one of them. Write "You created a trust together," not "John, this \
+is your trust with Jane Doe," and not "John and Jane Doe created a trust." Use a \
+name only to tell their documents apart: "You each signed a will. John's will \
+leaves the house to Jane, and Jane's will leaves the house to John."
 
 Cover three things, and little else: what each document is at a high level; who \
 the people are, including beneficiaries and anyone else in a role such as trustee \
@@ -42,8 +53,8 @@ Rules:
 includes with them. Do not guess or invent names, dates, amounts, roles, or \
 legal effects.
 - Synthesize every document into one summary. Do not write a separate summary per \
-file unless the documents concern different people or plans and combining them \
-would mix those up.
+file unless the documents concern unrelated people or plans and combining them \
+would mix those up. A couple's documents stay in that one summary, addressed to both.
 - Err on the side of brevity. A few short paragraphs is enough. Leave out \
 boilerplate, definitions, and anything a client does not need.
 - Describe what the documents provide. Do not recommend changes or give legal advice.
@@ -57,9 +68,11 @@ You will receive part of a larger set of estate planning documents. List only th
 facts a client would need from this part: what each document is at a high level, \
 who the people are (beneficiaries and anyone else in a role), and where assets go. \
 Plain sentences only. Be brief. No headings, bullets, or advice. When a fact \
-is about the client, say "the client" so a later pass can address them as "you." \
-Use only facts stated in the text or in additional details the firm includes. \
-Do not invent anything.
+is about the person the documents are for, say "the client" so a later pass can \
+address them as "you." When the documents are for a couple, say "the clients" for \
+facts about both of them. Do not treat one spouse as the client and the other as \
+someone else. Use only facts stated in the text or in additional details the firm \
+includes. Do not invent anything.
 """
 
 _COMBINE_PROMPT = """\
@@ -69,10 +82,14 @@ You will receive notes taken from a client's estate planning documents. Turn the
 into one very concise summary the firm can send to the client.
 
 Write plain paragraphs in simple, everyday language. No headings, bullets, \
-numbering, or markdown. The notes may describe the client in the third person. \
-Rewrite every sentence to the client as "you" and "your." Never write \
-"the client," "the grantor," "the trustor," or "he," "she," or "they" for the \
-client. Other people keep their names. Cover what each document \
+numbering, or markdown. The notes may describe the clients in the third person. \
+Rewrite every sentence as "you" and "your." Never write "the client," \
+"the clients," "the grantor," "the trustor," or "he," "she," or "they" for the \
+people the documents are for. If the notes are about a couple, "you" means both \
+of them. Do not address only one spouse, and do not leave the other in the third \
+person. Write "You created a trust together," not "John, this is your trust with \
+Jane." Use a name only to tell their documents apart. Other people keep their \
+names. Cover what each document \
 is at a high level, who the people are (beneficiaries and anyone else in a role), \
 and where assets go. Err on the side of brevity. A few short paragraphs is enough. \
 Leave out boilerplate and anything a client does not need. Use only the notes and \
@@ -463,7 +480,9 @@ def _redo_system(firm_config, previous_summary, feedback):
         "The firm reviewed it and asked for this change:\n"
         f"{feedback.strip()}\n\n"
         "Rewrite the summary. Apply that feedback, and keep everything else that was correct. "
-        "Write it to the client as \"you\" and \"your,\" even if the summary above does not. "
+        "Write it to the clients as \"you\" and \"your,\" even if the summary above does not. "
+        "If the documents are for a couple, \"you\" means both of them. "
+        "Do not keep a draft that addresses only one spouse. "
         "Treat a fact stated in the feedback as something to include. Do not invent anything "
         "beyond the documents, the firm's additional details, and that feedback."
     )

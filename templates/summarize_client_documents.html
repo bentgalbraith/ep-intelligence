@@ -35,7 +35,7 @@
 
 {% block result_header %}
 <div class="result-header" id="result-header" style="display:none">
-    <button type="button" class="btn-copy" id="btn-copy" aria-label="Copy">
+    <button type="button" class="btn-copy" id="btn-copy" aria-label="Copy" title="Copy">
         <svg class="btn-copy-icon btn-copy-icon--copy" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
         </svg>
@@ -228,6 +228,7 @@
         window.clearTimeout(copyTimer);
         copyBtn.classList.remove('is-copied', 'is-failed');
         copyBtn.setAttribute('aria-label', 'Copy');
+        copyBtn.title = 'Copy';
         copyBtn.querySelector('.btn-copy-icon--copy').hidden = false;
         copyBtn.querySelector('.btn-copy-icon--check').hidden = true;
     }
@@ -236,6 +237,7 @@
         copyBtn.classList.toggle('is-copied', ok);
         copyBtn.classList.toggle('is-failed', !ok);
         copyBtn.setAttribute('aria-label', ok ? 'Copied' : 'Copy failed');
+        copyBtn.title = ok ? 'Copied' : 'Copy failed';
         copyBtn.querySelector('.btn-copy-icon--copy').hidden = ok;
         copyBtn.querySelector('.btn-copy-icon--check').hidden = !ok;
         window.clearTimeout(copyTimer);
