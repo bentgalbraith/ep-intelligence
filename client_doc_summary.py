@@ -25,7 +25,13 @@ You will receive the text of one or more estate planning documents. Write a summ
 the firm can send to the client.
 
 Write a very concise summary in plain paragraphs. Use simple, everyday language. \
-Address the client as "you" and "your." No headings, bullets, numbering, or markdown.
+No headings, bullets, numbering, or markdown.
+
+Write every sentence to the client in the second person ("you" and "your"). \
+The documents belong to the client, so "your trust" rather than "John's trust" \
+or "the client's trust." Never call the client "the client," "the grantor," \
+"the trustor," or "he," "she," or "they." Other people keep their names \
+("your trustee, Jane Doe"). If the documents are for a couple, "you" means both.
 
 Cover three things, and little else: what each document is at a high level; who \
 the people are, including beneficiaries and anyone else in a role such as trustee \
@@ -50,8 +56,10 @@ You are a legal assistant at an estate planning firm.{firm_context}
 You will receive part of a larger set of estate planning documents. List only the \
 facts a client would need from this part: what each document is at a high level, \
 who the people are (beneficiaries and anyone else in a role), and where assets go. \
-Plain sentences only. Be brief. No headings, bullets, or advice. Use only facts \
-stated in the text or in additional details the firm includes. Do not invent anything.
+Plain sentences only. Be brief. No headings, bullets, or advice. When a fact \
+is about the client, say "the client" so a later pass can address them as "you." \
+Use only facts stated in the text or in additional details the firm includes. \
+Do not invent anything.
 """
 
 _COMBINE_PROMPT = """\
@@ -60,8 +68,11 @@ You are a legal assistant at an estate planning firm.{firm_context}
 You will receive notes taken from a client's estate planning documents. Turn them \
 into one very concise summary the firm can send to the client.
 
-Write plain paragraphs in simple, everyday language. Address the client as "you" \
-and "your." No headings, bullets, numbering, or markdown. Cover what each document \
+Write plain paragraphs in simple, everyday language. No headings, bullets, \
+numbering, or markdown. The notes may describe the client in the third person. \
+Rewrite every sentence to the client as "you" and "your." Never write \
+"the client," "the grantor," "the trustor," or "he," "she," or "they" for the \
+client. Other people keep their names. Cover what each document \
 is at a high level, who the people are (beneficiaries and anyone else in a role), \
 and where assets go. Err on the side of brevity. A few short paragraphs is enough. \
 Leave out boilerplate and anything a client does not need. Use only the notes and \
@@ -452,6 +463,7 @@ def _redo_system(firm_config, previous_summary, feedback):
         "The firm reviewed it and asked for this change:\n"
         f"{feedback.strip()}\n\n"
         "Rewrite the summary. Apply that feedback, and keep everything else that was correct. "
+        "Write it to the client as \"you\" and \"your,\" even if the summary above does not. "
         "Treat a fact stated in the feedback as something to include. Do not invent anything "
         "beyond the documents, the firm's additional details, and that feedback."
     )
