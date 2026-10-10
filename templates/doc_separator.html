@@ -135,7 +135,7 @@
         html += `<a href="${dlUrl}" download="Separated_Documents_${exportTimestamp()}.zip" class="btn-pill btn-generate" style="text-align:center;text-decoration:none">Download ZIP Folder</a>`;
 
         html += `<div class="redo-section" id="redo-section">
-            <button type="button" class="btn-pill btn-redo" id="btn-show-redo">Redo with Feedback</button>
+            <button type="button" class="btn-pill btn-redo btn-redo--paired" id="btn-show-redo">Redo with Feedback</button>
             <div class="redo-form" id="redo-form" hidden>
                 <label class="field-label">What To Fix</label>
                 <textarea class="field-textarea" id="redo-feedback" rows="3" placeholder="e.g. Pages 6-8 are a separate Power of Attorney for the wife, not part of the husband's trust."></textarea>
@@ -147,7 +147,7 @@
         </div>`;
 
         html += `<div class="qprt-section" id="qprt-section">
-            <button type="button" class="btn-pill btn-redo" id="btn-qprt">Extract Date from QPRT</button>
+            <button type="button" class="btn-pill btn-redo btn-redo--paired" id="btn-qprt">Extract Date from QPRT</button>
             <div class="qprt-panel" id="qprt-panel" hidden></div>
         </div>`;
 

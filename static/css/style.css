@@ -1519,6 +1519,14 @@ a.doc-list-item--link:hover {
     opacity: 1;
 }
 
+.btn-redo--paired {
+    box-sizing: border-box;
+    width: 17.5rem;
+    max-width: 100%;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+}
+
 .redo-form {
     flex-direction: column;
     gap: 0.5rem;
