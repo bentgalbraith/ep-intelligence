@@ -1,5 +1,6 @@
 """PDF document separation: OCR via Google Document AI, boundary detection via Grok."""
 
+import calendar
 import io
 import json
 import logging
@@ -7,7 +8,10 @@ import os
 import re
 import time
 import traceback
+import uuid
 import zipfile
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from google.api_core.client_options import ClientOptions
 from google.cloud import documentai_v1 as documentai
@@ -526,3 +530,434 @@ def redo_with_feedback(pdf_content, client, page_texts, total_pages,
     total_elapsed = time.time() - total_start
     log.info("Redo complete: %d docs, %.1fs total", len(documents), total_elapsed)
     return zip_buf, documents
+
+
+_QPRT_TYPE_RE = re.compile(r"\bqprt\b|personal residence trust", re.IGNORECASE)
+_MDY_RE = re.compile(r"^\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2}|\d{4})\s*$")
+_EASTERN = ZoneInfo("America/New_York")
+
+QPRT_TERM_PROMPT = """\
+You will receive OCR text from one or more Qualified Personal Residence Trusts \
+(QPRTs). Each document is labeled DOCUMENT N and each page is labeled PAGE n.
+
+For every document, find the clause that sets the length of the initial term \
+(also called the retained term or QPRT term). Also find the date the document \
+was signed or executed, if that date is actually printed in the OCR.
+
+Return ONLY valid JSON (no markdown fences, no commentary):
+{
+  "qprts": [
+    {
+      "document_index": 0,
+      "source_page": 4,
+      "term_years": 3,
+      "term_months": 0,
+      "signed_date": "4-13-26",
+      "first_names": ["Mary"],
+      "last_name": "Smith"
+    }
+  ]
+}
+
+Rules:
+- Include one object for every DOCUMENT in the input. document_index is the \
+DOCUMENT number, not a page number.
+- source_page is the page number on the PAGE label where the term length is stated.
+- term_years and term_months are integers. "3 years" is 3 and 0. "18 months" is \
+0 and 18. "2 years and 6 months" is 2 and 6. A spelled-out number counts \
+("three (3) years" is 3 and 0).
+- If the term ends on the earlier of a fixed period or death, use the fixed \
+period. Do not account for death.
+- If you cannot find a fixed period measured in years or months, set term_years \
+and term_months to null.
+- signed_date is the signature or execution date in M-D-YY. If the OCR does not \
+contain one, set signed_date to null. Do not guess, and do not use a date that \
+only says when property was transferred.
+- first_names lists each grantor or settlor first name on that document. \
+last_name is the primary grantor's last name.
+- Do not calculate an end date.
+"""
+
+
+def _is_qprt(doc):
+    return bool(_QPRT_TYPE_RE.search(str((doc or {}).get("document_type") or "")))
+
+
+def _as_int(value):
+    if value is None or value is False or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if text.isdigit():
+            return int(text)
+    return None
+
+
+def _span(doc, total_pages):
+    start = _page_num(doc.get("start_page"))
+    end = _page_num(doc.get("end_page"))
+    if not isinstance(start, int) or not isinstance(end, int):
+        return None
+    if start < 1 or end < start or start > total_pages:
+        return None
+    return start, min(end, total_pages)
+
+
+def _has_page_text(page_texts, start, end):
+    return any((page_texts.get(pn) or "").strip() for pn in range(start, end + 1))
+
+
+_MONTHS = {
+    "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+    "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7, "july": 7,
+    "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9, "oct": 10,
+    "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12,
+}
+_LONG_DATE_RE = re.compile(r"^\s*([A-Za-z]+)\.?\s+(\d{1,2}),?\s+(\d{4})\s*$")
+
+
+def _date_or_none(year, month, day):
+    if year < 100:
+        year += 1900 if year >= 70 else 2000
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def parse_mdy(value):
+    """Parse M-D-YY, M-D-YYYY, or 'April 13, 2026'.
+
+    Two-digit years 70-99 are 1970-1999.
+    """
+    if not isinstance(value, str):
+        return None
+    match = _MDY_RE.match(value)
+    if match:
+        return _date_or_none(int(match.group(3)), int(match.group(1)), int(match.group(2)))
+    match = _LONG_DATE_RE.match(value)
+    if not match:
+        return None
+    month = _MONTHS.get(match.group(1).lower().rstrip("."))
+    if not month:
+        return None
+    return _date_or_none(int(match.group(3)), month, int(match.group(2)))
+
+
+def add_years_months(start, years, months):
+    """Anniversary date. Feb 29 lands on Feb 28 when the target year is not a leap year."""
+    month_index = start.month - 1 + int(months or 0)
+    year = start.year + int(years or 0) + month_index // 12
+    month = month_index % 12 + 1
+    day = min(start.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _long_date(value):
+    return f"{value.strftime('%B')} {value.day}, {value.year}"
+
+
+def _term_parts(years, months):
+    if years is None or months is None:
+        return None
+    if years < 0 or months < 0 or years > 100 or months > 1200:
+        return None
+    if years == 0 and months == 0:
+        return None
+    parts = []
+    if years:
+        parts.append(f"{years} Year" if years == 1 else f"{years} Years")
+    if months:
+        parts.append(f"{months} Month" if months == 1 else f"{months} Months")
+    return " ".join(parts)
+
+
+def _name_list(value):
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    names = []
+    for item in value:
+        text = str(item or "").strip()
+        if text and text not in names:
+            names.append(text)
+    return names
+
+
+def _join_names(names):
+    if len(names) <= 1:
+        return names[0] if names else ""
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return ", ".join(names[:-1]) + ", and " + names[-1]
+
+
+def _ics_escape(text):
+    return (
+        str(text)
+        .replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\r\n", "\\n")
+        .replace("\n", "\\n")
+    )
+
+
+def _ics_fold(line):
+    data = line.encode("utf-8")
+    parts = []
+    while len(data) > 73:
+        cut = 73
+        while cut > 0 and (data[cut] & 0xC0) == 0x80:
+            cut -= 1
+        parts.append(data[:cut].decode("utf-8"))
+        data = b" " + data[cut:]
+    parts.append(data.decode("utf-8"))
+    return "\r\n".join(parts)
+
+
+def _calendar_title(last, firsts, term_label, used_today):
+    basis = "From Today" if used_today else "Since Signing"
+    return (
+        f"{last}, {_join_names(firsts)}: "
+        f"QPRT Initial Term Expiration ({term_label} {basis})"
+    )
+
+
+def build_qprt_ics(*, title, description, end, uid):
+    """All-day event on the end date, with a display alarm at 9 AM 30 days before.
+
+    DTEND is the next day because an all-day event's end is exclusive.
+    RFC 5545 durations have no month unit, so the alarm is 29 days 15 hours
+    before the event's midnight start.
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    start = end.strftime("%Y%m%d")
+    finish = (end + timedelta(days=1)).strftime("%Y%m%d")
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//EP Intelligence//QPRT Term//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "BEGIN:VEVENT",
+        f"UID:{uid}",
+        f"DTSTAMP:{stamp}",
+        f"DTSTART;VALUE=DATE:{start}",
+        f"DTEND;VALUE=DATE:{finish}",
+        f"SUMMARY:{_ics_escape(title)}",
+        f"DESCRIPTION:{_ics_escape(description)}",
+        "BEGIN:VALARM",
+        "TRIGGER:-P29DT15H",
+        "ACTION:DISPLAY",
+        "DESCRIPTION:QPRT initial term expires in 30 days",
+        "END:VALARM",
+        "END:VEVENT",
+        "END:VCALENDAR",
+    ]
+    return "\r\n".join(_ics_fold(line) for line in lines) + "\r\n"
+
+
+_NO_TERM = "No fixed initial term was found in this QPRT, so no end date was calculated."
+_NO_TEXT = "No readable text was found on this QPRT's pages, so no end date was calculated."
+_NO_ANSWER = "The QPRT could not be read this time. Please try again."
+
+
+def _error_row(filename, message=_NO_TERM):
+    return {"document_name": filename, "error": message}
+
+
+def _row_from_item(item, doc, filename, span, today):
+    years = _as_int(item.get("term_years"))
+    months = _as_int(item.get("term_months"))
+    if years is None and months is None:
+        return _error_row(filename)
+    if years is None:
+        years = 0
+    if months is None:
+        months = 0
+    term_label = _term_parts(years, months)
+    if not term_label:
+        return _error_row(filename)
+
+    signed = parse_mdy(item.get("signed_date")) or parse_mdy(doc.get("document_date"))
+    used_today = signed is None
+    start = today if used_today else signed
+    end = add_years_months(start, years, months)
+
+    last = str(item.get("last_name") or "").strip() or (doc.get("client_last_name") or "Unknown")
+    firsts = _name_list(item.get("first_names"))
+    if not firsts:
+        firsts = [str(doc.get("client_first_name") or "Client").strip() or "Client"]
+
+    source_page = _as_int(item.get("source_page"))
+    if source_page is None or source_page < span[0] or source_page > span[1]:
+        source_page = None
+
+    title = _calendar_title(last, firsts, term_label, used_today)
+    if used_today:
+        date_note = "Today's date, because no signed date was found on the document."
+    else:
+        date_note = ""
+    description = "\n".join([
+        title,
+        f"Document: {filename}",
+        f"Page: {source_page if source_page else 'not identified'}",
+        f"Term: {term_label}",
+        f"Date used: {_long_date(start)}" + (f" ({date_note})" if date_note else ""),
+        f"End date: {_long_date(end)}",
+        "Reminder: 30 days before.",
+    ])
+    uid = f"qprt-{uuid.uuid4().hex}@ep-intelligence"
+    safe_first = _join_names(firsts)
+    ics_filename = re.sub(
+        r'[<>:"/\\|?*]', "_",
+        f"{last}, {safe_first} - QPRT Initial Term Expiration {end.month}-{end.day}-{str(end.year)[2:]}.ics",
+    )
+    return {
+        "document_name": filename,
+        "source_page": source_page,
+        "term_label": term_label,
+        "date_used": _long_date(start),
+        "date_used_kind": "today" if used_today else "signed",
+        "date_note": date_note,
+        "end_date": _long_date(end),
+        "calendar_title": title,
+        "ics_filename": ics_filename,
+        "ics": build_qprt_ics(title=title, description=description, end=end, uid=uid).encode("utf-8"),
+        "error": None,
+    }
+
+
+def _qprt_user_message(entries, page_texts):
+    blocks = []
+    for index, (doc, start, end) in enumerate(entries):
+        last = doc.get("client_last_name") or ""
+        first = doc.get("client_first_name") or ""
+        blocks.append(
+            f"--- DOCUMENT {index} ---\n"
+            f"Type: {doc.get('document_type') or 'QPRT'}\n"
+            f"Client: {first} {last}\n"
+            f"Pages: {start}-{end}"
+        )
+        for pn in range(start, end + 1):
+            blocks.append(f"--- PAGE {pn} ---\n{(page_texts.get(pn) or '').strip()}")
+    return "\n\n".join(blocks)
+
+
+def extract_qprt_terms(documents, page_texts, total_pages, client, model=None,
+                       firm_id=None, filename_fmt=None, today=None):
+    """Read each QPRT's initial term and signing date. Does not call the model
+    when no QPRT has readable text.
+
+    Returns a list of result dicts. Calculated rows include ``ics`` bytes.
+    """
+    from ai_logger import log_ai_call, extract_xai_usage, completion_details
+
+    today = today or datetime.now(_EASTERN).date()
+    documents = documents or []
+    page_texts = page_texts or {}
+    total_pages = int(total_pages or 0)
+
+    selected = []
+    results_by_slot = {}
+    for doc in documents:
+        if not isinstance(doc, dict) or not _is_qprt(doc):
+            continue
+        filename = _build_filename(doc, fmt=filename_fmt)
+        span = _span(doc, total_pages)
+        if span is None or not _has_page_text(page_texts, span[0], span[1]):
+            results_by_slot[len(selected)] = _error_row(filename, _NO_TEXT)
+            selected.append(None)
+            continue
+        selected.append((doc, span[0], span[1], filename))
+
+    readable = [(i, entry) for i, entry in enumerate(selected) if entry is not None]
+    if not readable:
+        return [results_by_slot[i] for i in range(len(selected))]
+
+    model = model or os.environ.get("DOC_SEPARATOR_MODEL", "gpt-5.6-terra")
+    user_message = _qprt_user_message(
+        [(doc, start, end) for _, (doc, start, end, _) in readable],
+        page_texts,
+    )
+    call_start = time.time()
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": QPRT_TERM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+        )
+    except Exception:
+        log_ai_call(
+            provider="openai", model=model, tool="doc_separator_qprt", status="error",
+            execution_ms=int((time.time() - call_start) * 1000),
+            notes=traceback.format_exc(),
+            firm_id=firm_id,
+        )
+        raise
+    call_elapsed = time.time() - call_start
+    raw = (resp.choices[0].message.content or "").strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    try:
+        parsed = _extract_json(raw)
+    except Exception as e:
+        log_ai_call(
+            provider="openai", model=model, tool="doc_separator_qprt", status="error",
+            execution_ms=int(call_elapsed * 1000),
+            notes=f"JSON parse failed\n{traceback.format_exc()}",
+            firm_id=firm_id,
+            **extract_xai_usage(resp),
+        )
+        e.details = completion_details(resp, raw)
+        raise
+
+    log_ai_call(
+        provider="openai", model=model, tool="doc_separator_qprt", status="success",
+        execution_ms=int(call_elapsed * 1000),
+        firm_id=firm_id,
+        **extract_xai_usage(resp),
+    )
+
+    items = parsed.get("qprts") if isinstance(parsed, dict) else None
+    if not isinstance(items, list):
+        err = ValueError("QPRT response did not include a qprts list.")
+        err.details = completion_details(resp, raw)
+        raise err
+
+    items = [item for item in items if isinstance(item, dict)]
+    by_index = {}
+    for item in items:
+        index = _as_int(item.get("document_index"))
+        if index is None or index in by_index:
+            continue
+        by_index[index] = item
+    expected = set(range(len(readable)))
+    if set(by_index) != expected and len(items) == len(readable):
+        by_index = dict(enumerate(items))
+
+    results = []
+    readable_pos = {slot: pos for pos, (slot, _) in enumerate(readable)}
+    for slot, entry in enumerate(selected):
+        if entry is None:
+            results.append(results_by_slot[slot])
+            continue
+        doc, start, end, filename = entry
+        item = by_index.get(readable_pos[slot])
+        if item is None:
+            results.append(_error_row(filename, _NO_ANSWER))
+            continue
+        results.append(_row_from_item(item, doc, filename, (start, end), today))
+
+    log.info("QPRT terms: %d document(s)", len(results))
+    return results

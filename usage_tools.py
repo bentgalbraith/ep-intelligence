@@ -19,6 +19,7 @@ TOOL_LABELS = {
     "doc_separator": "Document Separator",
     "doc_separator_ocr": "Document Separator (OCR)",
     "doc_separator_redo": "Document Separator (Redo)",
+    "doc_separator_qprt": "Document Separator (QPRT term)",
     "prospect_summarizer": "Prospect Summarizer",
     "prospect_summarizer_ocr": "Prospect Summarizer (OCR)",
     "doc_differences": "Identify Document Differences",
@@ -38,6 +39,7 @@ TOOL_LABELS = {
 # log key -> parent product key
 STEP_OF = {
     "doc_separator_ocr": "doc_separator",
+    "doc_separator_qprt": "doc_separator",
     "prospect_summarizer_ocr": "prospect_summarizer",
     "compare_diagram_drafts_batch": "compare_diagram_drafts",
     "client_doc_summary_ocr": "client_doc_summary",

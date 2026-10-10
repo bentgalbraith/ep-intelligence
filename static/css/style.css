@@ -1537,6 +1537,110 @@ a.doc-list-item--link:hover {
     margin-top: 0.25rem;
 }
 
+.qprt-section {
+    margin-top: 0.75rem;
+    text-align: center;
+}
+
+.qprt-section .btn-redo:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.qprt-panel {
+    margin-top: 1.25rem;
+    text-align: left;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    padding-top: 1.25rem;
+}
+
+.qprt-panel[hidden] {
+    display: none;
+}
+
+.qprt-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.65rem;
+    color: rgba(0, 0, 0, 0.45);
+    font-size: 0.9rem;
+    font-weight: 300;
+}
+
+.qprt-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(234, 88, 12, 0.25);
+    border-top-color: #ea580c;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+
+.qprt-card + .qprt-card {
+    margin-top: 1.25rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.qprt-doc {
+    margin: 0 0 0.35rem;
+    font-size: 0.88rem;
+    color: #1a1a1a;
+}
+
+.qprt-meta {
+    display: grid;
+    grid-template-columns: 6.5rem 1fr;
+    gap: 0.4rem 0.75rem;
+    margin: 0 0 1rem;
+    font-size: 0.88rem;
+    line-height: 1.4;
+}
+
+.qprt-meta dt {
+    margin: 0;
+    color: rgba(0, 0, 0, 0.4);
+    font-weight: 400;
+}
+
+.qprt-meta dd {
+    margin: 0;
+    color: #1a1a1a;
+}
+
+.qprt-end {
+    font-weight: 600;
+}
+
+.qprt-inline-note {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.75rem;
+    color: rgba(0, 0, 0, 0.45);
+}
+
+.qprt-note,
+.qprt-empty,
+.qprt-error {
+    margin: 0.65rem 0 0;
+    font-size: 0.75rem;
+    line-height: 1.45;
+    color: rgba(0, 0, 0, 0.45);
+}
+
+.qprt-empty,
+.qprt-error {
+    font-size: 0.88rem;
+    text-align: center;
+}
+
+.qprt-card .qprt-empty {
+    text-align: left;
+    margin-top: 0;
+}
+
 /* ── Compact drop zone + file list ── */
 
 .file-drop-zone--compact {

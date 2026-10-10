@@ -146,6 +146,11 @@
             </div>
         </div>`;
 
+        html += `<div class="qprt-section" id="qprt-section">
+            <button type="button" class="btn-pill btn-redo" id="btn-qprt">Extract Date from QPRT</button>
+            <div class="qprt-panel" id="qprt-panel" hidden></div>
+        </div>`;
+
         return html;
     }
 
@@ -159,6 +164,10 @@
 
         if (e.target.id === 'btn-redo-submit' || e.target.closest('#btn-redo-submit')) {
             handleRedo();
+        }
+
+        if (e.target.id === 'btn-qprt') {
+            handleQprt();
         }
     });
 
@@ -211,6 +220,73 @@
             btnLabel.textContent = 'Re-Process with Feedback';
             spinner.hidden = true;
             textarea.disabled = false;
+        }
+    }
+
+    function renderQprt(data) {
+        const rows = data.qprts || [];
+        if (!rows.length) {
+            return '<p class="qprt-empty">No QPRT was found in these documents.</p>';
+        }
+
+        return rows.map((row) => {
+            if (row.error) {
+                return `<div class="qprt-card">
+                    <p class="qprt-doc">${escapeHtml(row.document_name || 'QPRT')}</p>
+                    <p class="qprt-empty">${escapeHtml(row.error)}</p>
+                </div>`;
+            }
+
+            const page = row.source_page ? String(row.source_page) : 'Not identified';
+            const dateLabel = row.date_used_kind === 'today' ? 'Date used' : 'Signed';
+            const dateNote = row.date_note
+                ? `<span class="qprt-inline-note">${escapeHtml(row.date_note)}</span>`
+                : '';
+            const download = row.download_url
+                ? `<a class="btn-pill btn-sm" href="${escapeAttr(row.download_url)}">Download Calendar File</a>
+                   <p class="qprt-note">The file is an all-day event with a reminder at 9 AM, 30 days before ${escapeHtml(row.end_date)}.</p>`
+                : '';
+
+            return `<div class="qprt-card">
+                <dl class="qprt-meta">
+                    <dt>Document</dt><dd>${escapeHtml(row.document_name || '')}</dd>
+                    <dt>Page</dt><dd>${escapeHtml(page)}</dd>
+                    <dt>Term</dt><dd>${escapeHtml(row.term_label || '')}</dd>
+                    <dt>${dateLabel}</dt><dd>${escapeHtml(row.date_used || '')}${dateNote}</dd>
+                    <dt>End date</dt><dd class="qprt-end">${escapeHtml(row.end_date || '')}</dd>
+                </dl>
+                ${download}
+            </div>`;
+        }).join('');
+    }
+
+    async function handleQprt() {
+        const panel = document.getElementById('qprt-panel');
+        const btn = document.getElementById('btn-qprt');
+        if (!panel || !btn || !lastJobId || btn.disabled) return;
+
+        panel.hidden = false;
+        panel.innerHTML = '<div class="qprt-loading"><span class="qprt-spinner"></span><span>Reading QPRT…</span></div>';
+        btn.disabled = true;
+
+        try {
+            const res = await fetchWithTimeout('{{ url_for("api_doc_separate_qprt_terms") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ job_id: lastJobId }),
+            });
+            let data;
+            try {
+                data = await res.json();
+            } catch {
+                throw new Error('Something went wrong. Please try again.');
+            }
+            if (!res.ok) throw new Error(data.error || 'Something went wrong');
+            panel.innerHTML = renderQprt(data);
+        } catch (err) {
+            panel.innerHTML = `<p class="qprt-error">${escapeHtml(err.message)}</p>`;
+        } finally {
+            btn.disabled = false;
         }
     }
 </script>

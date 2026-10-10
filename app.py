@@ -31,7 +31,9 @@ from actionstep_schedule import (
     validate_config as validate_schedule_config,
 )
 from ai_logger import log_ai_call, log_tool_use, extract_xai_usage, completion_details, log_context
-from doc_separator import separate_documents, redo_with_feedback, summarize_split, _extract_json
+from doc_separator import (
+    separate_documents, redo_with_feedback, summarize_split, extract_qprt_terms, _extract_json,
+)
 from ep_export import build_export_csv, build_questionnaire_docx
 from prospect_summarizer import extract_prospect_documents, build_summary_docx, PROSPECT_SCHEMA
 from quote_verify import verify_quotes
@@ -1348,6 +1350,103 @@ def api_doc_separate_redo():
         log_ctx,
     )
     return jsonify({"job_id": new_job_id})
+
+
+def _doc_separate_job_for_session(job_id):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if not job or job.get("status") != "complete":
+        return None
+    if str(job.get("firm_id") or "") != str(session.get("firm_id") or ""):
+        return None
+    return job
+
+
+def _public_qprt_row(row, job_id, index):
+    public = {
+        "document_name": row.get("document_name") or "",
+        "source_page": row.get("source_page"),
+        "term_label": row.get("term_label") or "",
+        "date_used": row.get("date_used") or "",
+        "date_used_kind": row.get("date_used_kind") or "",
+        "date_note": row.get("date_note") or "",
+        "end_date": row.get("end_date") or "",
+        "calendar_title": row.get("calendar_title") or "",
+        "error": row.get("error"),
+    }
+    if row.get("ics"):
+        public["download_url"] = url_for(
+            "api_doc_separate_qprt_calendar", job_id=job_id, index=index,
+        )
+    return public
+
+
+@app.route("/api/doc-separate/qprt-terms", methods=["POST"])
+@login_required
+@tool_enabled("doc_separator")
+def api_doc_separate_qprt_terms():
+    data = request.get_json(silent=True) or {}
+    job_id = str(data.get("job_id") or "").strip()
+    if not job_id:
+        return jsonify({"error": "job_id is required."}), 400
+
+    job = _doc_separate_job_for_session(job_id)
+    if not job:
+        return jsonify({"error": "Original job not found or expired. Please re-upload."}), 404
+
+    page_texts = job.get("page_texts")
+    pdf_ok = job.get("pdf_content")
+    documents = job.get("documents")
+    if not page_texts or not pdf_ok or not documents:
+        return jsonify({"error": "Original job data expired. Please re-upload."}), 410
+
+    firm_config = job.get("firm_config") or {}
+    try:
+        rows = extract_qprt_terms(
+            documents, page_texts, job.get("total_pages"), openai_client,
+            firm_id=job.get("firm_id"),
+            filename_fmt=firm_config.get("doc_filename_format"),
+        )
+    except Exception as e:
+        app.logger.error("QPRT term extract error (job %s): %s", job_id, e)
+        _notify_tool_error(
+            "Document Separator (QPRT)", str(e), firm_id=job.get("firm_id"),
+            firm_name=job.get("firm_name"), firm_slug=job.get("firm_slug"),
+            employee_id_code=(job.get("log_ctx") or {}).get("employee_id_code"),
+            details=getattr(e, "details", None),
+        )
+        return jsonify({"error": "Could not read the QPRT term. Please try again."}), 500
+
+    with _jobs_lock:
+        current = _jobs.get(job_id)
+        if not current:
+            return jsonify({"error": "Original job not found or expired. Please re-upload."}), 404
+        current["qprt_terms"] = rows
+
+    return jsonify({
+        "qprts": [_public_qprt_row(row, job_id, i) for i, row in enumerate(rows)],
+    })
+
+
+@app.route("/api/doc-separate/qprt-calendar/<job_id>/<int:index>")
+@login_required
+@tool_enabled("doc_separator")
+def api_doc_separate_qprt_calendar(job_id, index):
+    job = _doc_separate_job_for_session(job_id)
+    rows = (job or {}).get("qprt_terms") or []
+    if job is None or index < 0 or index >= len(rows) or not rows[index].get("ics"):
+        return jsonify({"error": "Calendar file not found. Extract the QPRT date again."}), 404
+
+    row = rows[index]
+    from urllib.parse import quote
+    filename = row.get("ics_filename") or "QPRT Initial Term Expiration.ics"
+    return Response(
+        row["ics"],
+        mimetype="text/calendar",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
