@@ -5,6 +5,15 @@ import validate_signatures as sig
 from ai_logger import _compute_cost, _gemini_38_flash_pricing
 
 
+def _dark_pixels(pix):
+    samples = pix.samples
+    count = 0
+    for i in range(0, len(samples), pix.n):
+        if samples[i] < 80 and samples[i + 1] < 80 and samples[i + 2] < 80:
+            count += 1
+    return count
+
+
 def _red_pixels(pix):
     samples = pix.samples
     count = 0
@@ -101,6 +110,15 @@ class RulesTest(unittest.TestCase):
         ready = sig.prepare_uploads([("a" * 200 + ".pdf", b"%PDF-1.4")])
         self.assertTrue(ready[0][0].lower().endswith(".pdf"))
         self.assertLessEqual(len(ready[0][0]), 180)
+
+    def test_crop_window_includes_ink_above_a_line(self):
+        # A thin line near the bottom of a letter page.
+        x0, y0, x1, y1 = sig.context_fractions((0.12, 0.88, 0.08, 0.015), 612, 792)
+        self.assertLess(y0, 0.80)
+        self.assertGreater(y1, 0.89)
+        self.assertGreater(x1 - x0, 0.35)
+        self.assertGreaterEqual(x0, 0)
+        self.assertLessEqual(y1, 1)
 
     def test_thin_box_is_expanded(self):
         box = sig.parse_box([0.5, 0.9, 0.01, 0.005])
@@ -220,6 +238,18 @@ class PricingTest(unittest.TestCase):
 
 
 class PdfTest(unittest.TestCase):
+    def test_crop_includes_writing_above_the_line(self):
+        import pymupdf
+        doc = pymupdf.open()
+        page = doc.new_page(width=612, height=792)
+        # Red ink above a signature line near the bottom of the page.
+        page.draw_rect(pymupdf.Rect(80, 640, 200, 695), color=(1, 0, 0), fill=(1, 0, 0), width=0)
+        page.draw_line(pymupdf.Point(72, 704), pymupdf.Point(280, 704), width=1.2)
+        line = (72 / 612, 700 / 792, 208 / 612, 8 / 792)
+        image = sig.crop_jpeg(doc, 1, line)
+        doc.close()
+        self.assertGreater(_red_pixels(_jpeg_pixmap(image)), 0)
+
     def test_crop_is_a_jpeg(self):
         import pymupdf
         doc = pymupdf.open()
@@ -246,8 +276,11 @@ class PdfTest(unittest.TestCase):
         self.assertEqual(_red_pixels(miss), 0)
 
     def test_open_rejects_garbage(self):
-        with self.assertRaises(sig.SignatureError):
-            sig.open_pdf(b"%PDF-not-really")
+        with self.assertRaises(sig.SignatureError) as caught:
+            sig.open_pdf(b"%PDF-not-really", name="Smith Will.pdf")
+        self.assertIn("Smith Will.pdf", str(caught.exception))
+        self.assertNotIn("Smith", caught.exception.notes)
+        self.assertNotIn("Smith", caught.exception.alert)
 
 
 if __name__ == "__main__":

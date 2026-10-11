@@ -35,7 +35,7 @@ _STATUSES = ("completed", "blank", "ambiguous")
 _DATE_LINES = ("filled", "blank", "none", "unclear")
 _CONFIDENCE = {"high": 3, "medium": 2, "low": 1}
 
-_NOT_CONFIGURED = "Validate Signatures is not configured yet. Contact your administrator."
+_NOT_CONFIGURED = "Name Files & Validate Signatures is not configured yet. Contact your administrator."
 _CHECK_FAILED = "A document could not be checked. Please try again."
 
 _SCAN_SCHEMA = {
@@ -85,7 +85,7 @@ For each item:
 - type is signature, initial, or notary
 - status is completed when ink, a stamp, or a seal is present; blank when the line or block is empty; ambiguous when you cannot tell
 - page is an integer from 1 through {count}
-- box is [x, y, width, height], fractions of the full page from 0 to 1, origin at the top-left. Box the line, initials, or notary block itself, not the whole page
+- box is [x, y, width, height], fractions of the full page from 0 to 1, origin at the top-left. Include the handwriting or stamp and the line it sits on. Do not box a single letter
 - label is a few words such as "Grantor", "Witness", or "Notary acknowledgment". Do not quote the document
 - date_line is filled when a date beside this item is written in, blank when that date line is empty, none when there is no date line, unclear when you cannot tell
 - confidence is high, medium, or low
@@ -698,18 +698,28 @@ def open_pdf(data, name="This PDF"):
     try:
         doc = pymupdf.open(stream=data, filetype="pdf")
     except Exception:
-        raise SignatureError(f"'{name}' could not be read as a PDF.")
+        raise SignatureError(
+            f"'{name}' could not be read as a PDF.",
+            notes="unreadable pdf",
+            alert="A PDF could not be read",
+        )
     needs_password = getattr(doc, "needs_pass", False) or (
         getattr(doc, "is_encrypted", False) and doc.page_count < 1
     )
     if needs_password:
         doc.close()
         raise SignatureError(
-            f"'{name}' is password-protected. Remove the password and upload it again."
+            f"'{name}' is password-protected. Remove the password and upload it again.",
+            notes="password-protected pdf",
+            alert="A PDF is password-protected",
         )
     if doc.page_count < 1:
         doc.close()
-        raise SignatureError(f"'{name}' has no pages.")
+        raise SignatureError(
+            f"'{name}' has no pages.",
+            notes="pdf has no pages",
+            alert="A PDF has no pages",
+        )
     return doc
 
 
@@ -740,16 +750,37 @@ def _render_page(page, max_width):
     return pix
 
 
-def _padded_fractions(box):
+def context_fractions(box, page_width, page_height):
+    """A readable window around a line, in fractions of the displayed page.
+
+    Handwriting sits above the line, so a tight box needs room above it.
+    A box that is already a tall block keeps a smaller margin.
+    """
     x, y, w, h = box
-    pad_x = max(0.04, w * 0.2)
-    pad_y = max(0.03, h * 0.35)
-    return (
-        max(0.0, x - pad_x),
-        max(0.0, y - pad_y),
-        min(1.0, x + w + pad_x),
-        min(1.0, y + h + pad_y),
-    )
+    width = max(float(page_width), 1.0)
+    height = max(float(page_height), 1.0)
+    if h * height >= 1.3 * 72:
+        pad_x = 0.2 * 72 / width
+        pad_above = 0.22 * 72 / height
+        pad_below = 0.18 * 72 / height
+    else:
+        pad_x = 0.45 * 72 / width
+        pad_above = 0.95 * 72 / height
+        pad_below = 0.40 * 72 / height
+    x0 = max(0.0, x - pad_x)
+    y0 = max(0.0, y - pad_above)
+    x1 = min(1.0, x + w + pad_x)
+    y1 = min(1.0, y + h + pad_below)
+    min_w = min(0.62, 3.4 * 72 / width)
+    min_h = min(0.28, 1.7 * 72 / height)
+    if x1 - x0 < min_w:
+        cx = min(max((x0 + x1) / 2, min_w / 2), 1.0 - min_w / 2)
+        x0 = max(0.0, cx - min_w / 2)
+        x1 = min(1.0, x0 + min_w)
+    if y1 - y0 < min_h:
+        y0 = max(0.0, min(y0, 1.0 - min_h))
+        y1 = min(1.0, y0 + min_h)
+    return (round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4))
 
 
 def _jpeg_region(pix, x0, y0, x1, y1):
@@ -779,7 +810,9 @@ def render_page_jpeg(doc, page_number):
 
 def crop_jpeg(doc, page_number, box):
     page = doc[page_number - 1]
-    return _jpeg_region(_render_page(page, 1600), *_padded_fractions(box))
+    rect = page.rect
+    window = context_fractions(box, rect.width, rect.height)
+    return _jpeg_region(_render_page(page, 2000), *window)
 
 
 def _scan_doc(doc, name, file_index, firm_id):
@@ -822,13 +855,16 @@ def _crop_items(doc, items):
         by_page.setdefault(item["page"], []).append(item)
     for page_number, group in by_page.items():
         try:
-            pix = _render_page(doc[page_number - 1], 1600)
+            page = doc[page_number - 1]
+            pix = _render_page(page, 2000)
+            rect = page.rect
         except Exception:
             log.warning("Signature crop failed on page %s", page_number)
             continue
         for item in group:
             try:
-                image = _jpeg_region(pix, *_padded_fractions(item["box"]))
+                window = context_fractions(item["box"], rect.width, rect.height)
+                image = _jpeg_region(pix, *window)
             except Exception:
                 log.warning("Signature crop failed on page %s", page_number)
                 image = None
@@ -842,6 +878,7 @@ def validate_documents(uploads, openai_client, firm_id=None, on_progress=None):
     uploads = prepare_uploads(uploads)
     items = []
     crops = {}
+    documents = []
     total_pages = 0
     total = len(uploads)
     for index, (name, data) in enumerate(uploads):
@@ -850,6 +887,7 @@ def validate_documents(uploads, openai_client, firm_id=None, on_progress=None):
         doc = open_pdf(data, name)
         try:
             total_pages += doc.page_count
+            documents.append({"index": index, "name": name, "pages": doc.page_count})
             file_items = _scan_doc(doc, name, index, firm_id)
             file_items = _verify_doc(doc, file_items, openai_client, firm_id)
             for item in file_items:
@@ -862,5 +900,6 @@ def validate_documents(uploads, openai_client, firm_id=None, on_progress=None):
     return {
         "pages": total_pages,
         "files": total,
+        "documents": documents,
         "items": [public_item(item) for item in items],
     }, crops

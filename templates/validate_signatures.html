@@ -1,5 +1,5 @@
 {% extends "tool_base.html" %}
-{% set page_title = "Validate Signatures" %}
+{% set page_title = "Name Files & Validate Signatures" %}
 
 {% block form_panel %}
 <form class="ep-form" id="sig-form">
@@ -28,6 +28,7 @@
         submitUrl: {{ url_for('api_validate_signatures')|tojson }},
         statusUrl: {{ url_for('api_validate_signatures_status', job_id='__JOB__')|tojson }},
         cropUrl: {{ url_for('api_validate_signatures_crop', job_id='__JOB__', item_id='__ITEM__')|tojson }},
+        fileUrl: {{ url_for('api_validate_signatures_file', job_id='__JOB__', file_index='__FILE__')|tojson }},
     });
 </script>
 {% endblock %}

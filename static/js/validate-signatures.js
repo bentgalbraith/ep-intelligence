@@ -3,7 +3,6 @@ function initValidateSignatures(options) {
     const fileInput = document.getElementById('pdf-input');
     const fileList = document.getElementById('file-list');
     let selectedFiles = [];
-    let activeFilter = 'all';
 
     function isPdf(file) {
         if (!file) return false;
@@ -85,7 +84,11 @@ function initValidateSignatures(options) {
                 if (!uploadRes.ok) throw new Error(uploadData.error || 'Something went wrong');
                 const result = await pollJob(uploadData.job_id, state.btnLabel);
                 showResult('<div class="sig-report" id="sig-report"></div>');
-                renderReport(document.getElementById('sig-report'), result, uploadData.job_id);
+                renderSignatureReport(document.getElementById('sig-report'), result, {
+                    jobId: uploadData.job_id,
+                    cropUrl: options.cropUrl,
+                    fileUrl: options.fileUrl,
+                });
             } catch (err) {
                 showError(err.message);
             } finally {
@@ -111,68 +114,217 @@ function initValidateSignatures(options) {
         }
     }
 
-    function renderReport(root, result, jobId) {
-        activeFilter = 'all';
-        const items = Array.isArray(result.items) ? result.items : [];
-        root.appendChild(el('p', 'sig-stats', statsLine(result.pages || 0, items)));
-        if (!items.length) {
-            root.appendChild(el('p', 'sig-empty', 'No signature, initial, or notary lines found.'));
-            return;
-        }
-        const filters = el('div', 'sig-filters');
-        [['all', 'All'], ['blank', 'Blanks'], ['ambiguous', 'Unclear'], ['completed', 'Completed']].forEach(([value, label]) => {
-            const button = el('button', 'sig-filter' + (value === 'all' ? ' is-active' : ''), label);
-            button.type = 'button';
-            button.dataset.filter = value;
-            filters.appendChild(button);
-        });
-        const list = el('div', 'sig-list');
-        items.forEach((item) => list.appendChild(renderRow(item, jobId)));
-        filters.addEventListener('click', (e) => {
-            const button = e.target.closest('.sig-filter');
-            if (!button) return;
-            activeFilter = button.dataset.filter;
-            filters.querySelectorAll('.sig-filter').forEach((node) => {
-                node.classList.toggle('is-active', node === button);
-            });
-            applyFilter(list);
-        });
-        root.appendChild(filters);
-        root.appendChild(list);
-    }
+}
 
-    function renderRow(item, jobId) {
-        const row = el('article', 'sig-row');
-        row.dataset.status = item.status || '';
-        const button = el('button', 'sig-crop-btn');
+function renderSignatureReport(root, result, urls) {
+    const items = Array.isArray(result.items) ? result.items : [];
+    const documents = documentsOf(result, items);
+    root.appendChild(summaryBlock(result.pages || 0, items));
+    if (!documents.length) {
+        root.appendChild(el('p', 'sig-empty', 'No signature, initial, or notary lines found.'));
+        return;
+    }
+    if (items.length) root.appendChild(filterBar(root));
+    documents.forEach((doc) => {
+        const docItems = items.filter((item) => item.file === doc.name);
+        root.appendChild(renderDocument(doc, docItems, urls, false));
+    });
+}
+
+function summaryBlock(pages, items) {
+    const summary = el('div', 'sig-summary');
+    const grid = el('div', 'sig-summary-grid');
+    function count(key, value) {
+        return items.filter((item) => item[key] === value).length;
+    }
+    [
+        [pages, 'Pages'],
+        [items.length, 'Items'],
+        [count('type', 'signature'), 'Signatures'],
+        [count('type', 'initial'), 'Initials'],
+        [count('type', 'notary'), 'Notaries'],
+    ].forEach(([value, label]) => {
+        const stat = el('div', 'sig-stat');
+        stat.appendChild(el('span', 'sig-stat-value', String(value)));
+        stat.appendChild(el('span', 'sig-stat-label', label));
+        grid.appendChild(stat);
+    });
+    summary.appendChild(grid);
+    const statuses = el('div', 'sig-status-row');
+    [
+        ['completed', 'completed', 'completed'],
+        ['blank', 'blank', 'blanks'],
+        ['ambiguous', 'unclear', 'unclear'],
+    ].forEach(([status, singular, plural]) => {
+        const n = count('status', status);
+        const chip = el('span', 'sig-chip' + (status !== 'completed' && n > 0 ? ' is-attention' : ''), countLabel(n, singular, plural));
+        statuses.appendChild(chip);
+    });
+    summary.appendChild(statuses);
+    return summary;
+}
+
+function filterBar(root) {
+    let active = 'all';
+    const filters = el('div', 'sig-filters');
+    [['all', 'All'], ['blank', 'Blanks'], ['ambiguous', 'Unclear'], ['completed', 'Completed']].forEach(([value, label]) => {
+        const button = el('button', 'sig-filter' + (value === 'all' ? ' is-active' : ''), label);
         button.type = 'button';
-        const img = document.createElement('img');
-        img.className = 'sig-crop';
-        img.alt = rowLabel(item);
-        img.src = options.cropUrl.replace('__JOB__', jobId).replace('__ITEM__', item.id);
-        button.appendChild(img);
-        button.addEventListener('click', () => openLightbox(img.src, img.alt));
-        row.appendChild(button);
-
-        const info = el('div', 'sig-info');
-        const title = el('p', 'sig-title');
-        title.appendChild(el('span', null, typeLabel(item.type)));
-        title.appendChild(el('span', 'sig-dot', ' · '));
-        const status = el('span', statusClass(item.status), statusLabel(item.status));
-        title.appendChild(status);
-        info.appendChild(title);
-        info.appendChild(el('p', 'sig-meta', metaLine(item)));
-        const note = noteLine(item);
-        if (note) info.appendChild(el('p', 'sig-note', note));
-        row.appendChild(info);
-        return row;
-    }
-
-    function applyFilter(list) {
-        list.querySelectorAll('.sig-row').forEach((row) => {
-            row.hidden = activeFilter !== 'all' && row.dataset.status !== activeFilter;
+        button.dataset.filter = value;
+        filters.appendChild(button);
+    });
+    filters.addEventListener('click', (e) => {
+        const button = e.target.closest('.sig-filter');
+        if (!button) return;
+        active = button.dataset.filter;
+        filters.querySelectorAll('.sig-filter').forEach((node) => {
+            node.classList.toggle('is-active', node === button);
         });
+        root.querySelectorAll('.sig-row').forEach((row) => {
+            row.hidden = active !== 'all' && row.dataset.status !== active;
+        });
+        root.querySelectorAll('.sig-doc').forEach((section) => {
+            const visible = section.querySelectorAll('.sig-row:not([hidden])').length;
+            const empty = section.querySelector('.sig-doc-none');
+            if (empty) empty.hidden = visible > 0;
+        });
+    });
+    return filters;
+}
+
+function documentsOf(result, items) {
+    if (Array.isArray(result.documents) && result.documents.length) return result.documents;
+    const names = [];
+    items.forEach((item) => {
+        if (item.file && names.indexOf(item.file) === -1) names.push(item.file);
+    });
+    return names.map((name, index) => ({ index: index, name: name, pages: null }));
+}
+
+function renderDocument(doc, items, urls, startOpen) {
+    const section = el('section', 'sig-doc' + (startOpen ? ' is-open' : ''));
+    const head = el('div', 'sig-doc-head');
+    const toggle = el('button', 'sig-doc-toggle');
+    toggle.type = 'button';
+    toggle.setAttribute('aria-expanded', startOpen ? 'true' : 'false');
+    toggle.appendChild(chevron());
+    const text = el('span', 'sig-doc-text');
+    text.appendChild(el('span', 'sig-doc-name', doc.name || 'Document'));
+    text.appendChild(docFacts(doc, items));
+    toggle.appendChild(text);
+    head.appendChild(toggle);
+    if (urls.fileUrl && urls.jobId) {
+        const link = document.createElement('a');
+        link.className = 'sig-download';
+        link.href = urls.fileUrl.replace('__JOB__', urls.jobId).replace('__FILE__', String(doc.index));
+        link.download = doc.name || 'document.pdf';
+        link.title = 'Download PDF';
+        link.setAttribute('aria-label', 'Download ' + (doc.name || 'PDF'));
+        link.appendChild(downloadIcon());
+        head.appendChild(link);
     }
+    const body = el('div', 'sig-doc-body');
+    body.hidden = !startOpen;
+    if (!items.length) {
+        body.appendChild(el('p', 'sig-empty', 'No signature, initial, or notary lines found.'));
+    } else {
+        const none = el('p', 'sig-doc-none', 'Nothing in this filter.');
+        none.hidden = true;
+        body.appendChild(none);
+        items.forEach((item) => body.appendChild(renderRow(item, urls)));
+    }
+    toggle.addEventListener('click', () => {
+        const open = toggle.getAttribute('aria-expanded') !== 'true';
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        body.hidden = !open;
+        section.classList.toggle('is-open', open);
+    });
+    section.appendChild(head);
+    section.appendChild(body);
+    return section;
+}
+
+function docFacts(doc, items) {
+    const wrap = el('span', 'sig-doc-facts');
+    const bits = [];
+    if (doc.pages != null) bits.push([countLabel(doc.pages, 'page', 'pages'), false]);
+    bits.push([countLabel(items.length, 'item', 'items'), false]);
+    bits.push([countLabel(statusCount(items, 'completed'), 'completed', 'completed'), false]);
+    const blanks = statusCount(items, 'blank');
+    const unclear = statusCount(items, 'ambiguous');
+    bits.push([countLabel(blanks, 'blank', 'blanks'), blanks > 0]);
+    bits.push([countLabel(unclear, 'unclear', 'unclear'), unclear > 0]);
+    bits.forEach(([text, attention], index) => {
+        if (index) wrap.appendChild(el('span', 'sig-sep', ' · '));
+        wrap.appendChild(el('span', attention ? 'is-attention' : null, text));
+    });
+    return wrap;
+}
+
+function statusCount(items, status) {
+    return items.filter((item) => item.status === status).length;
+}
+
+function renderRow(item, urls) {
+    const row = el('article', 'sig-row');
+    row.dataset.status = item.status || '';
+    const button = el('button', 'sig-crop-btn');
+    button.type = 'button';
+    button.setAttribute('aria-label', rowLabel(item));
+    const img = document.createElement('img');
+    img.className = 'sig-crop';
+    img.alt = rowLabel(item);
+    img.src = urls.cropUrl.replace('__JOB__', urls.jobId).replace('__ITEM__', item.id);
+    button.appendChild(img);
+    button.addEventListener('click', () => openLightbox(img.src, img.alt));
+    row.appendChild(button);
+
+    const info = el('div', 'sig-info');
+    const title = el('p', 'sig-title');
+    title.appendChild(el('span', null, typeLabel(item.type)));
+    title.appendChild(el('span', 'sig-sep', ' · '));
+    title.appendChild(el('span', statusClass(item.status), statusLabel(item.status)));
+    info.appendChild(title);
+    info.appendChild(el('p', 'sig-meta', [item.page != null ? 'p. ' + item.page : '', item.region].filter(Boolean).join(' · ')));
+    const note = noteLine(item);
+    if (note) info.appendChild(el('p', 'sig-note', note));
+    row.appendChild(info);
+    return row;
+}
+
+function chevron() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'sig-doc-chevron');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'm9 18 6-6-6-6');
+    svg.appendChild(path);
+    return svg;
+}
+
+function downloadIcon() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '15');
+    svg.setAttribute('height', '15');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    ['M12 3v12', 'm7 11 5 5 5-5', 'M5 21h14'].forEach((d) => {
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', d);
+        svg.appendChild(path);
+    });
+    return svg;
 }
 
 function el(tag, className, text) {
@@ -184,20 +336,6 @@ function el(tag, className, text) {
 
 function countLabel(n, singular, plural) {
     return n + ' ' + (n === 1 ? singular : plural);
-}
-
-function statsLine(pages, items) {
-    const count = (key, value) => items.filter((item) => item[key] === value).length;
-    return [
-        countLabel(pages, 'page', 'pages'),
-        countLabel(items.length, 'item', 'items'),
-        countLabel(count('type', 'signature'), 'signature', 'signatures'),
-        countLabel(count('type', 'initial'), 'initial', 'initials'),
-        countLabel(count('type', 'notary'), 'notary', 'notaries'),
-        countLabel(count('status', 'completed'), 'completed', 'completed'),
-        countLabel(count('status', 'blank'), 'blank', 'blanks'),
-        countLabel(count('status', 'ambiguous'), 'unclear', 'unclear'),
-    ].join(' · ');
 }
 
 function typeLabel(type) {
@@ -215,10 +353,6 @@ function statusClass(status) {
 
 function rowLabel(item) {
     return typeLabel(item.type) + ', ' + statusLabel(item.status) + ', page ' + item.page;
-}
-
-function metaLine(item) {
-    return [item.file, 'p. ' + item.page, item.region].filter(Boolean).join(' · ');
 }
 
 function noteLine(item) {

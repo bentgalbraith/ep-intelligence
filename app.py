@@ -2198,7 +2198,10 @@ def _fail_signature_job(job_id, message):
     with _jobs_lock:
         job = _jobs.get(job_id)
         if job is not None:
-            job.update({"status": "error", "error": message, "ts": time.time(), "crops": {}})
+            job.update({
+                "status": "error", "error": message, "ts": time.time(),
+                "crops": {}, "pdfs": [],
+            })
 
 
 def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
@@ -2226,11 +2229,12 @@ def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
                 if current is None:
                     return
                 current.update({
-                    "status": "complete",
-                    "ts": time.time(),
                     "result": result,
                     "crops": crops,
+                    "pdfs": [data for _, data in uploads],
                     "progress": "",
+                    "ts": time.time(),
+                    "status": "complete",
                 })
             log_tool_use(
                 tool="validate_signatures",
@@ -2250,7 +2254,7 @@ def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
                 )
             if e.notify:
                 _notify_tool_error(
-                    "Validate Signatures", e.alert, firm_id=firm_id,
+                    "Name Files & Validate Signatures", e.alert, firm_id=firm_id,
                     firm_name=firm_name, firm_slug=firm_slug,
                     employee_id_code=(log_ctx or {}).get("employee_id_code"),
                 )
@@ -2262,7 +2266,7 @@ def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
                 notes=type(e).__name__,
             )
             _notify_tool_error(
-                "Validate Signatures", type(e).__name__, firm_id=firm_id,
+                "Name Files & Validate Signatures", type(e).__name__, firm_id=firm_id,
                 firm_name=firm_name, firm_slug=firm_slug,
                 employee_id_code=(log_ctx or {}).get("employee_id_code"),
             )
@@ -2285,7 +2289,7 @@ def api_validate_signatures():
         return jsonify({"error": str(e)}), 400
     except Exception:
         app.logger.exception("Validate signatures import failed")
-        return jsonify({"error": "Validate Signatures is not configured yet. Contact your administrator."}), 500
+        return jsonify({"error": "Name Files & Validate Signatures is not configured yet. Contact your administrator."}), 500
 
     firm_id = session.get("firm_id")
     log_ctx = _session_log_ctx()
@@ -2335,6 +2339,35 @@ def api_validate_signatures_crop(job_id, item_id):
         image,
         mimetype="image/jpeg",
         headers={"Cache-Control": "private, no-store", "Content-Disposition": "inline"},
+    )
+
+
+@app.route("/api/validate-signatures/file/<job_id>/<file_index>")
+@login_required
+@tool_enabled("validate_signatures")
+def api_validate_signatures_file(job_id, file_index):
+    if not file_index.isdigit() or len(file_index) > 4:
+        return jsonify({"error": "Not found."}), 404
+    index = int(file_index)
+    job = _signature_job(job_id)
+    if job is None or job.get("status") != "complete":
+        return jsonify({"error": "Not found."}), 404
+    pdfs = job.get("pdfs") or []
+    documents = (job.get("result") or {}).get("documents") or []
+    if index >= len(pdfs) or index >= len(documents):
+        return jsonify({"error": "Not found."}), 404
+    name = documents[index].get("name") or "document.pdf"
+    from urllib.parse import quote
+    ascii_name = "".join(ch if 32 <= ord(ch) < 127 and ch not in {'"', "\\"} else "_" for ch in name)
+    return Response(
+        pdfs[index],
+        mimetype="application/pdf",
+        headers={
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": (
+                f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
+            ),
+        },
     )
 
 
