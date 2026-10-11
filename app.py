@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import html
 import io
+import ipaddress
 import json
 import os
 import threading
@@ -21,7 +22,6 @@ load_dotenv()
 from flask import Flask, Response, has_request_context, jsonify, make_response, redirect, render_template, request, session, url_for
 from flask_cors import cross_origin
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from openai import OpenAI
 
 from client_doc_summary import TOOL_KEY as CLIENT_DOC_SUMMARY_KEY
@@ -105,7 +105,23 @@ def _et_time_csv(dt):
     return eastern.strftime("%Y-%m-%d %H:%M:%S")
 
 
-limiter = Limiter(get_remote_address, app=app)
+def _client_ip():
+    """Visitor IP. All traffic arrives through Cloudflare (the onrender.com hostname is disabled)."""
+    forwarded = (request.headers.get("CF-Connecting-IP") or "").strip()
+    try:
+        return str(ipaddress.ip_address(forwarded))
+    except ValueError:
+        return request.remote_addr or ""
+
+
+def _all_visitors():
+    return "all"
+
+
+# Per-visitor limits plus a shared ceiling, in case CF-Connecting-IP is ever forged.
+_LOGIN_CEILING = "60/minute"
+
+limiter = Limiter(_client_ip, app=app)
 
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.6-terra")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
@@ -556,7 +572,7 @@ def ttl_engagement():
         )
 
     accepted_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    ip_address = request.remote_addr or ""
+    ip_address = _client_ip()
     user_agent = request.headers.get("User-Agent", "")
 
     def _e(value):
@@ -741,6 +757,7 @@ def create_checkout_session():
 
 @app.route("/login", methods=["GET", "POST"])
 @limiter.limit("10/minute")
+@limiter.limit(_LOGIN_CEILING, key_func=_all_visitors, methods=["POST"])
 def login():
     if session.get("authenticated"):
         if _employee_session_valid():
@@ -756,7 +773,7 @@ def login():
     if not firm:
         if tracker_db.DATABASE_URL:
             tracker_db.log_login_attempt(
-                ip_address=request.remote_addr or "",
+                ip_address=_client_ip(),
                 access_code_used="",
                 firm_name=None,
                 firm_slug=None,
@@ -768,7 +785,7 @@ def login():
         _clear_pending_login()
         if tracker_db.DATABASE_URL:
             tracker_db.log_login_attempt(
-                ip_address=request.remote_addr or "",
+                ip_address=_client_ip(),
                 access_code_used=code,
                 firm_name=firm["name"],
                 firm_slug=firm["slug"],
@@ -792,6 +809,7 @@ def login():
 
 @app.route("/login/employee", methods=["GET", "POST"])
 @limiter.limit("10/minute")
+@limiter.limit(_LOGIN_CEILING, key_func=_all_visitors, methods=["POST"])
 def login_employee():
     if session.get("authenticated"):
         if _employee_session_valid():
@@ -823,7 +841,7 @@ def login_employee():
     if not employee:
         if tracker_db.DATABASE_URL:
             tracker_db.log_login_attempt(
-                ip_address=request.remote_addr or "",
+                ip_address=_client_ip(),
                 access_code_used="",
                 firm_name=firm["name"],
                 firm_slug=firm["slug"],
@@ -836,7 +854,7 @@ def login_employee():
     _clear_pending_login()
     if tracker_db.DATABASE_URL:
         tracker_db.log_login_attempt(
-            ip_address=request.remote_addr or "",
+            ip_address=_client_ip(),
             access_code_used="",
             firm_name=firm["name"],
             firm_slug=firm["slug"],
@@ -974,6 +992,7 @@ def firm_usage():
 
 @app.route("/firm-usage/login", methods=["GET", "POST"], strict_slashes=False)
 @limiter.limit("10/minute")
+@limiter.limit(_LOGIN_CEILING, key_func=_all_visitors, methods=["POST"])
 def firm_usage_login():
     if request.method == "GET":
         return redirect(url_for("firm_usage"))
@@ -2434,6 +2453,7 @@ def api_summarize_client_documents_redo():
 @login_required
 @tool_enabled("tracker")
 @limiter.limit("10/minute")
+@limiter.limit(_LOGIN_CEILING, key_func=_all_visitors, methods=["POST"])
 def api_tracker_auth():
     from werkzeug.security import check_password_hash
 
@@ -2608,6 +2628,7 @@ def api_tracker_reorder_steps(client_id):
     "http://localhost:*", "http://127.0.0.1:*",
 ])
 @limiter.limit("10/minute")
+@limiter.limit(_LOGIN_CEILING, key_func=_all_visitors, methods=["POST"])
 def api_tracker_lookup():
     data = request.get_json() or {}
     firm_slug = (data.get("firm") or "").strip()
@@ -2703,7 +2724,7 @@ def api_feedback():
 
     page_path = _sanitize_feedback_path(data.get("page"))
     user_agent = (request.headers.get("User-Agent") or "")[:500]
-    ip_address = request.remote_addr or ""
+    ip_address = _client_ip()
 
     payload = {
         "firm_id": firm_id,
@@ -2754,6 +2775,7 @@ REQUIRED_CONFIG_KEYS = [
 
 @app.route("/admin/login", methods=["GET", "POST"])
 @limiter.limit("10/minute")
+@limiter.limit(_LOGIN_CEILING, key_func=_all_visitors, methods=["POST"])
 def admin_login():
     if _admin_session_valid():
         return redirect(url_for("admin_firms"))
@@ -3834,7 +3856,7 @@ def _send_error_alert(e):
         f"<p><strong>Time:</strong> {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}</p>"
         f"<p><strong>URL:</strong> {html.escape(request.method)} {html.escape(request.url)}</p>"
         f"<p><strong>Firm:</strong> {html.escape(str(firm_name))} ({html.escape(str(firm_slug))})</p>"
-        f"<p><strong>IP:</strong> {html.escape(str(request.remote_addr))}</p>"
+        f"<p><strong>IP:</strong> {html.escape(_client_ip())}</p>"
         f"<p><strong>User-Agent:</strong> {html.escape(request.headers.get('User-Agent', 'N/A'))}</p>"
         f"<hr>"
         f"<pre style=\"font-size:12px;white-space:pre-wrap;\">{html.escape(''.join(tb))}</pre>"

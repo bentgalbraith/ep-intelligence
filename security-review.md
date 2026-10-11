@@ -4,7 +4,7 @@ Reviewed October 5, 2026. Re-checked and extended October 10, 2026. The app is h
 
 ## Admin is one password
 
-There is no second factor and no per-account lockout beyond the shared rate limit. Admin can see every firm's plaintext codes, so this one password unlocks every firm and every client.
+There is no second factor and no lockout beyond the rate limit. Admin can see every firm's plaintext codes, so this one password unlocks every firm and every client.
 
 ## Access codes stored in plaintext
 
@@ -13,13 +13,9 @@ There is no second factor and no per-account lockout beyond the shared rate limi
 - Columns defined and written in `tracker_db.py` (`create_firm`, `update_firm`, `create_client`, `update_client`, `get_client`, `log_login_attempt`)
 - Shown in `templates/admin_login_log.html` and as placeholders in `templates/admin_firm_edit.html`
 
-## Client IP on Render
+## Rate limits live in memory
 
-Nothing trusts `X-Forwarded-For`, so `request.remote_addr` is Render's proxy. Login, admin, and usage-dashboard rate limits (10 per minute) are one shared bucket, and the login log records the proxy address. One caller can use up that bucket and block everyone else from signing in.
-
-The limiter has no `storage_uri`, so counts are kept in each worker's memory. The real limit is 10 per minute per worker, and it resets on every deploy.
-
-The client-portal lockout (20 failures, then 5 minutes) is in memory in `tracker_db.lookup_client`, so a restart or a second instance clears it.
+The limiter has no `storage_uri`, so counts are kept in each worker's memory and reset on every deploy. The client-portal lockout (20 failures, then 5 minutes) is in memory in `tracker_db.lookup_client` too. Fix with Redis on Render.
 
 ## Description tooltips run HTML
 
@@ -31,9 +27,13 @@ The employee id is looked up, not checked as a password (`login_employee` in `ap
 
 ## Uploads go to OpenAI and can exhaust the instance
 
-Transcripts, PDFs, and drafts go to the OpenAI API with no redaction. A signed-in user can also post up to 100MB at a time (`MAX_CONTENT_LENGTH` in `app.py`). Those bytes stay on the worker. Enough of them will run a Render instance out of memory. The Document Separator has no page cap, so one very large PDF also runs up the Document AI bill.
+Transcripts, PDFs, and drafts go to the OpenAI API with no redaction. That is how the tools work; the open question is contractual (OpenAI's API retention, a DPA or zero-data-retention, and what firms are told).
 
-The separator job keeps the original PDF in `_jobs` for a redo, and the store is per instance and disappears on restart.
+A signed-in user can post up to 100MB at a time (`MAX_CONTENT_LENGTH` in `app.py`). Measured October 11, 2026: a separator job peaks at about 4 to 6 times the PDF size in memory (100MB upload, about 600MB) on top of about 110MB for the app. Up to two jobs run at once (`_executor`), and each finished job keeps the original PDF and its ZIP in memory for 30 minutes (about 200MB for a 100MB upload, plus about 100MB per redo). On the current Render plan (Standard, 1 CPU, 2GB) a single upload of any allowed size is safe; a crash would take roughly five 100MB uploads or redos within 30 minutes. Low risk, left as is. No upload or page cap by choice.
+
+If it ever becomes a problem, keep finished jobs' PDFs and ZIPs on the instance's ephemeral disk instead of in memory (`/tmp` had 48GB free on October 11, 2026, likely shared with other tenants, so fall back to memory if a write fails). Do not add a page or size cap unless it would prevent a crash.
+
+The Document Separator has no page cap, so one very large PDF also runs up the Document AI and OpenAI bill. The in-memory stores are per instance and disappear on restart.
 
 ## Smaller items
 
@@ -52,6 +52,7 @@ The separator job keeps the original PDF in `_jobs` for a redo, and the store is
 - **Failed logins store no code.** `login_attempts` keeps an empty `access_code_used` for failed firm logins.
 - **No model output in alerts.** `completion_details` in `ai_logger.py` reports response length only, and the JSON parse error in `doc_separator.py` no longer quotes the response.
 - **Stripe checks.** `/onboarding?session_id=...` shows success only when Stripe reports the checkout session complete, and checkout errors return a generic message.
+- **Real visitor IPs.** `_client_ip` in `app.py` reads Cloudflare's `CF-Connecting-IP` (the onrender.com hostname is disabled, so all traffic comes through Cloudflare). Rate limits, the login log, feedback, the engagement acceptance record, and alert emails use it; if the header is missing or not an IP, it falls back to the proxy address as before. Each sign-in route (firm, employee, usage dashboard, tracker, client portal, admin) allows 10 per minute per visitor, plus a shared ceiling of 60 sign-in attempts per minute in case the header is ever forged.
 - **Deleted employees are signed out.** At firms that require employee login, `_employee_session_valid` checks that the employee still exists (cached 30 seconds, cleared on delete from admin).
 - **Quote tooltips are plain text.** Drafting Notes and Prospect Summarizer quote tooltips render with `textContent` (quote icons carry `data-tip-plain`).
 - **Alert emails escape input.** `/waitlist`, `/onboarding`, and the 500 alert email (`_send_error_alert`) escape submitted text, the URL, the user agent, and the traceback.
