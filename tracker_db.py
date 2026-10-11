@@ -628,6 +628,20 @@ def get_employee_by_code(firm_id, employee_id_code):
             return cur.fetchone()
 
 
+def employee_exists(employee_id, firm_id):
+    try:
+        emp_uuid = uuid.UUID(str(employee_id))
+    except (ValueError, TypeError, AttributeError):
+        return False
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM employees WHERE id = %s AND firm_id = %s",
+                (emp_uuid, str(firm_id)),
+            )
+            return cur.fetchone() is not None
+
+
 def create_employee(firm_id, employee_id_code, name):
     emp_id = uuid.uuid4()
     with get_conn() as conn:
@@ -725,7 +739,8 @@ def create_client(firm_id, client_name, client_id_code, access_code):
     return str(client_id)
 
 
-def update_client(client_id, *, client_name=None, client_id_code=None, access_code=None):
+def update_client(client_id, firm_id, *, client_name=None, client_id_code=None, access_code=None):
+    """Returns False when the client does not exist in this firm."""
     sets, params = [], []
     if client_name is not None:
         sets.append("client_name = %s")
@@ -739,18 +754,32 @@ def update_client(client_id, *, client_name=None, client_id_code=None, access_co
         sets.append("access_code_plain = %s")
         params.append(access_code)
     if not sets:
-        return
+        return _client_in_firm(client_id, firm_id)
     sets.append("updated_at = now()")
-    params.append(client_id)
+    params.extend([client_id, firm_id])
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"UPDATE clients SET {', '.join(sets)} WHERE id = %s", params)
+            cur.execute(
+                f"UPDATE clients SET {', '.join(sets)} WHERE id = %s AND firm_id = %s",
+                params,
+            )
+            return cur.rowcount > 0
 
 
-def delete_client(client_id):
+def delete_client(client_id, firm_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM clients WHERE id = %s", (client_id,))
+            cur.execute("DELETE FROM clients WHERE id = %s AND firm_id = %s", (client_id, firm_id))
+            return cur.rowcount > 0
+
+
+def _client_in_firm(client_id, firm_id, cur=None):
+    if cur is None:
+        with get_conn() as conn:
+            with conn.cursor() as c:
+                return _client_in_firm(client_id, firm_id, c)
+    cur.execute("SELECT 1 FROM clients WHERE id = %s AND firm_id = %s", (client_id, firm_id))
+    return cur.fetchone() is not None
 
 
 # ---------------------------------------------------------------------------
@@ -768,9 +797,12 @@ def get_client_steps(client_id):
             return cur.fetchall()
 
 
-def add_client_step(client_id, name, description="", sort_order=None):
+def add_client_step(client_id, firm_id, name, description="", sort_order=None):
+    """Returns the new step id, or None when the client does not exist in this firm."""
     with get_conn() as conn:
         with conn.cursor() as cur:
+            if not _client_in_firm(client_id, firm_id, cur):
+                return None
             if sort_order is None:
                 cur.execute("SELECT coalesce(max(sort_order), -1) + 1 FROM client_steps WHERE client_id = %s", (client_id,))
                 sort_order = cur.fetchone()[0]
@@ -782,49 +814,68 @@ def add_client_step(client_id, name, description="", sort_order=None):
             return str(step_id)
 
 
-def update_step(step_id, **kwargs):
+_STEP_IN_FIRM = "client_id IN (SELECT id FROM clients WHERE firm_id = %s)"
+
+
+def update_step(step_id, firm_id, fields):
+    """Returns False when the step does not exist in this firm."""
     allowed = {"name", "description", "notes", "sort_order", "status"}
     sets, params = [], []
-    for k, v in kwargs.items():
+    for k, v in fields.items():
         if k not in allowed:
             continue
         sets.append(f"{k} = %s")
         params.append(v)
-    if "status" in kwargs and kwargs["status"] == "complete":
+    if "status" in fields and fields["status"] == "complete":
         sets.append("completed_at = now()")
-    elif "status" in kwargs and kwargs["status"] != "complete":
+    elif "status" in fields and fields["status"] != "complete":
         sets.append("completed_at = NULL")
-    if not sets:
-        return
-    params.append(step_id)
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"UPDATE client_steps SET {', '.join(sets)} WHERE id = %s", params)
+            if not sets:
+                cur.execute(f"SELECT 1 FROM client_steps WHERE id = %s AND {_STEP_IN_FIRM}",
+                            (step_id, firm_id))
+                return cur.fetchone() is not None
+            params.extend([step_id, firm_id])
+            cur.execute(
+                f"UPDATE client_steps SET {', '.join(sets)} WHERE id = %s AND {_STEP_IN_FIRM}",
+                params,
+            )
+            if cur.rowcount == 0:
+                return False
             cur.execute(
                 "UPDATE clients SET updated_at = now() WHERE id = (SELECT client_id FROM client_steps WHERE id = %s)",
                 (step_id,),
             )
+            return True
 
 
-def delete_step(step_id):
+def delete_step(step_id, firm_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE clients SET updated_at = now() WHERE id = (SELECT client_id FROM client_steps WHERE id = %s)",
-                (step_id,),
+                f"DELETE FROM client_steps WHERE id = %s AND {_STEP_IN_FIRM} RETURNING client_id",
+                (step_id, firm_id),
             )
-            cur.execute("DELETE FROM client_steps WHERE id = %s", (step_id,))
+            row = cur.fetchone()
+            if not row:
+                return False
+            cur.execute("UPDATE clients SET updated_at = now() WHERE id = %s", (row[0],))
+            return True
 
 
-def reorder_steps(client_id, step_ids):
+def reorder_steps(client_id, firm_id, step_ids):
     with get_conn() as conn:
         with conn.cursor() as cur:
+            if not _client_in_firm(client_id, firm_id, cur):
+                return False
             for i, sid in enumerate(step_ids):
                 cur.execute(
                     "UPDATE client_steps SET sort_order = %s WHERE id = %s AND client_id = %s",
                     (i, sid, client_id),
                 )
             cur.execute("UPDATE clients SET updated_at = now() WHERE id = %s", (client_id,))
+            return True
 
 
 # ---------------------------------------------------------------------------

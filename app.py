@@ -133,6 +133,7 @@ if tracker_db.DATABASE_URL:
 _firm_config_cache: dict = {}
 _employee_req_cache: dict = {}
 _feedback_widget_cache: dict = {}
+_employee_exists_cache: dict = {}
 _firm_config_lock = threading.Lock()
 _CACHE_TTL = 300  # 5 minutes
 _AUTH_FLAG_TTL = 30  # seconds; logout after toggle-on may lag by this much
@@ -173,6 +174,21 @@ def _firm_requires_employee_login(firm_id):
     with _firm_config_lock:
         _employee_req_cache[key] = {"value": required, "ts": now}
     return required
+
+
+def _employee_still_exists(employee_id, firm_id):
+    """Cached so a deleted employee is signed out within _AUTH_FLAG_TTL."""
+    key = (str(firm_id), str(employee_id))
+    now = time.time()
+    with _firm_config_lock:
+        cached = _employee_exists_cache.get(key)
+        if cached and now - cached["ts"] < _AUTH_FLAG_TTL:
+            return cached["value"]
+
+    exists = tracker_db.employee_exists(employee_id, firm_id)
+    with _firm_config_lock:
+        _employee_exists_cache[key] = {"value": exists, "ts": now}
+    return exists
 
 
 def _firm_feedback_widget_enabled(firm_id):
@@ -325,7 +341,8 @@ def _employee_session_valid():
         return False
     if not required:
         return True
-    return bool(session.get("employee_id"))
+    employee_id = session.get("employee_id")
+    return bool(employee_id) and _employee_still_exists(employee_id, firm_id)
 
 
 def _clear_usage_dash_session():
@@ -550,11 +567,11 @@ def waitlist():
 
     body = (
         f"<h2>New Waitlist Signup</h2>"
-        f"<p><strong>Firm Name:</strong> {firm_name}</p>"
-        f"<p><strong>Contact Name:</strong> {contact_name}</p>"
-        f"<p><strong>Phone:</strong> {phone or '(not provided)'}</p>"
-        f"<p><strong>Email:</strong> {email}</p>"
-        f"<p><strong>Firm Size:</strong> {firm_size}</p>"
+        f"<p><strong>Firm Name:</strong> {html.escape(firm_name)}</p>"
+        f"<p><strong>Contact Name:</strong> {html.escape(contact_name)}</p>"
+        f"<p><strong>Phone:</strong> {html.escape(phone or '(not provided)')}</p>"
+        f"<p><strong>Email:</strong> {html.escape(email)}</p>"
+        f"<p><strong>Firm Size:</strong> {html.escape(firm_size)}</p>"
     )
 
     if RESEND_API_KEY:
@@ -592,11 +609,11 @@ def onboarding():
 
     body = (
         f"<h2>New Firm Onboarding</h2>"
-        f"<p><strong>Firm Name:</strong> {firm_name}</p>"
-        f"<p><strong>Contact Name:</strong> {contact_name}</p>"
-        f"<p><strong>Phone:</strong> {phone or '(not provided)'}</p>"
-        f"<p><strong>Email:</strong> {email}</p>"
-        f"<p><strong>Firm Size:</strong> {firm_size}</p>"
+        f"<p><strong>Firm Name:</strong> {html.escape(firm_name)}</p>"
+        f"<p><strong>Contact Name:</strong> {html.escape(contact_name)}</p>"
+        f"<p><strong>Phone:</strong> {html.escape(phone or '(not provided)')}</p>"
+        f"<p><strong>Email:</strong> {html.escape(email)}</p>"
+        f"<p><strong>Firm Size:</strong> {html.escape(firm_size)}</p>"
     )
 
     if RESEND_API_KEY:
@@ -2418,11 +2435,13 @@ def api_tracker_update_client(client_id):
     if "access_code" in data and data["access_code"].strip():
         kwargs["access_code"] = data["access_code"].strip()
     try:
-        tracker_db.update_client(client_id, **kwargs)
+        found = tracker_db.update_client(client_id, session.get("firm_id"), **kwargs)
     except Exception as e:
         if "unique" in str(e).lower():
             return jsonify({"error": "A client with that ID already exists."}), 409
         raise
+    if not found:
+        return jsonify({"error": "Client not found."}), 404
     return jsonify({"ok": True})
 
 
@@ -2430,7 +2449,8 @@ def api_tracker_update_client(client_id):
 @tracker_required
 @tool_enabled("tracker")
 def api_tracker_delete_client(client_id):
-    tracker_db.delete_client(client_id)
+    if not tracker_db.delete_client(client_id, session.get("firm_id")):
+        return jsonify({"error": "Client not found."}), 404
     return jsonify({"ok": True})
 
 
@@ -2444,7 +2464,9 @@ def api_tracker_add_step(client_id):
         return jsonify({"error": "Step name is required."}), 400
     desc = (data.get("description") or "").strip()
     sort_order = data.get("sort_order")
-    sid = tracker_db.add_client_step(client_id, name, desc, sort_order)
+    sid = tracker_db.add_client_step(client_id, session.get("firm_id"), name, desc, sort_order)
+    if not sid:
+        return jsonify({"error": "Client not found."}), 404
     return jsonify({"id": sid}), 201
 
 
@@ -2452,8 +2474,11 @@ def api_tracker_add_step(client_id):
 @tracker_required
 @tool_enabled("tracker")
 def api_tracker_update_step(step_id):
-    data = request.get_json() or {}
-    tracker_db.update_step(step_id, **data)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        data = {}
+    if not tracker_db.update_step(step_id, session.get("firm_id"), data):
+        return jsonify({"error": "Step not found."}), 404
     return jsonify({"ok": True})
 
 
@@ -2461,7 +2486,8 @@ def api_tracker_update_step(step_id):
 @tracker_required
 @tool_enabled("tracker")
 def api_tracker_delete_step(step_id):
-    tracker_db.delete_step(step_id)
+    if not tracker_db.delete_step(step_id, session.get("firm_id")):
+        return jsonify({"error": "Step not found."}), 404
     return jsonify({"ok": True})
 
 
@@ -2473,7 +2499,8 @@ def api_tracker_reorder_steps(client_id):
     step_ids = data.get("step_ids", [])
     if not step_ids:
         return jsonify({"error": "step_ids required."}), 400
-    tracker_db.reorder_steps(client_id, step_ids)
+    if not tracker_db.reorder_steps(client_id, session.get("firm_id"), step_ids):
+        return jsonify({"error": "Client not found."}), 404
     return jsonify({"ok": True})
 
 
@@ -3590,6 +3617,8 @@ def admin_employee_delete(firm_id, employee_id):
     if not firm:
         return redirect(url_for("admin_firms"))
     tracker_db.delete_employee(employee_id, firm_id=firm_id)
+    with _firm_config_lock:
+        _employee_exists_cache.pop((str(firm_id), str(employee_id)), None)
     return redirect(url_for("admin_employees", firm_id=firm_id))
 
 
@@ -3707,12 +3736,12 @@ def _send_error_alert(e):
     body = (
         f"<h2>500 Internal Server Error</h2>"
         f"<p><strong>Time:</strong> {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}</p>"
-        f"<p><strong>URL:</strong> {request.method} {request.url}</p>"
-        f"<p><strong>Firm:</strong> {firm_name} ({firm_slug})</p>"
-        f"<p><strong>IP:</strong> {request.remote_addr}</p>"
-        f"<p><strong>User-Agent:</strong> {request.headers.get('User-Agent', 'N/A')}</p>"
+        f"<p><strong>URL:</strong> {html.escape(request.method)} {html.escape(request.url)}</p>"
+        f"<p><strong>Firm:</strong> {html.escape(str(firm_name))} ({html.escape(str(firm_slug))})</p>"
+        f"<p><strong>IP:</strong> {html.escape(str(request.remote_addr))}</p>"
+        f"<p><strong>User-Agent:</strong> {html.escape(request.headers.get('User-Agent', 'N/A'))}</p>"
         f"<hr>"
-        f"<pre style=\"font-size:12px;white-space:pre-wrap;\">{''.join(tb)}</pre>"
+        f"<pre style=\"font-size:12px;white-space:pre-wrap;\">{html.escape(''.join(tb))}</pre>"
     )
 
     try:

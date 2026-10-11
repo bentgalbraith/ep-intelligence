@@ -1,30 +1,16 @@
 # Security review
 
-Reviewed October 5, 2026. Re-checked and extended October 10, 2026. The app is hosted on Render. Unless a section says otherwise, nothing here has been fixed yet. Work through the items in order.
+Reviewed October 5, 2026. Re-checked and extended October 10, 2026. The app is hosted on Render. Open items come first, in the order to work through them. Fixed items are listed at the end.
 
-## Render start command (checked October 10, 2026)
+## Render start command
 
-Not a live risk. The start command is `gunicorn app:app --bind 0.0.0.0:$PORT`, and `FLASK_DEBUG` and `FLASK_ENV` are not set. `app.run` now enables debug only when `FLASK_DEBUG=1`, and `run.command` sets that for local use.
+Not a security risk: the start command is `gunicorn app:app --bind 0.0.0.0:$PORT`, and `FLASK_DEBUG` and `FLASK_ENV` are not set.
 
-The same check showed gunicorn running with its defaults: one sync worker and a 30-second request timeout. A request over 30 seconds kills the worker and every in-memory job with it. Add `--timeout 180` to the start command. Do not add workers while jobs live in process memory.
-
-## Cross-firm client changes
-
-Reading a client checks the firm. Updating, deleting, adding steps, editing steps, and reordering do not. Those routes use only the client or step id, and that id is in the client page URL. Anyone with any firm's tracker code and that id can rename a client, replace the client portal code, or delete the record. Ids are random UUIDs, so an attacker has to obtain one first (shared screen, browser history, logs).
-
-- `PUT` and `DELETE /api/tracker/clients/<client_id>` in `app.py`
-- Step routes under `/api/tracker/clients/<client_id>/steps` and `/api/tracker/steps/<step_id>`
-- `update_client`, `delete_client`, `add_client_step`, `update_step`, `delete_step`, and `reorder_steps` in `tracker_db.py` do not take a firm id
-
-## Document jobs are not tied to the firm (fixed October 10, 2026)
-
-Every in-memory job and download now records the firm when it is created, and the routes refuse any other firm the same way they refuse an expired job (`_same_firm` in `app.py`). This covers the separator's status, ZIP download, single-file download, and redo routes, Prospect Summarizer status, and the Document Differences export. Compare EP Diagram vs. Drafts, Summarize Documents for Clients, and the QPRT routes already checked.
-
-Still true: the separator job keeps the original PDF in `_jobs` for a redo, and the store is per instance and disappears on restart.
+Still open: gunicorn runs with its defaults, one sync worker and a 30-second request timeout. A request over 30 seconds kills the worker and every in-memory job with it. Add `--timeout 180` to the start command. Do not add workers while jobs live in process memory.
 
 ## Sessions cannot be revoked
 
-Firm sessions last 10 days (`PERMANENT_SESSION_LIFETIME` in `app.py`) and live only in the signed cookie. Deleting an employee does not sign them out: `_employee_session_valid` only checks that an `employee_id` is in the session, not that the employee still exists. Changing a firm's access code or tracker code does not sign out anyone who used the old one. A departing staff member keeps access for up to 10 days.
+Firm sessions last 10 days (`PERMANENT_SESSION_LIFETIME` in `app.py`) and live only in the signed cookie. Changing a firm's access code or tracker code does not sign out anyone who used the old one, so someone who learned the old code keeps access for up to 10 days.
 
 ## Admin is one password
 
@@ -45,11 +31,9 @@ The limiter has no `storage_uri`, so counts are kept in each worker's memory. Th
 
 The client-portal lockout (20 failures, then 5 minutes) is in memory in `tracker_db.lookup_client`, so a restart or a second instance clears it.
 
-## Quote tooltips run HTML (fixed October 10, 2026)
+## Description tooltips run HTML
 
-Drafting Notes and Prospect Summarizer quote tooltips now render with `textContent` (quote icons carry `data-tip-plain`). Quotes are verbatim source text and never contained intended HTML, so nothing changes for users.
-
-Field-description tooltips in those two tools and the specimen-description tooltip in Document Differences still use `innerHTML`. That text comes from the admin pages, not from uploads. Switch them to `textContent` once you confirm no firm config uses HTML in a description.
+Field-description tooltips in Drafting Notes and Prospect Summarizer, and the specimen-description tooltip in Document Differences, use `innerHTML`. That text comes from the admin pages, not from uploads. Switch them to `textContent` once you confirm no firm config uses HTML in a description.
 
 ## Staff login is a shared code plus an employee id
 
@@ -59,14 +43,26 @@ The employee id is looked up, not checked as a password (`login_employee` in `ap
 
 Transcripts, PDFs, and drafts go to the OpenAI API with no redaction. A signed-in user can also post up to 100MB at a time (`MAX_CONTENT_LENGTH` in `app.py`). Those bytes stay on the worker. Enough of them will run a Render instance out of memory. The Document Separator has no page cap, so one very large PDF also runs up the Document AI bill.
 
-## Client data in alert emails and logs
+The separator job keeps the original PDF in `_jobs` for a redo, and the store is per instance and disappears on restart.
 
-Tool-error emails (`_notify_tool_error` in `app.py`) include the error text and up to 500 characters of the model's response, which can hold client names, assets, and family details. They are sent through Resend to a regular inbox. The 500 email includes the full traceback and request URL. `redo_with_feedback` in `doc_separator.py` writes the user's feedback text to Render's logs.
+## Client data in alert emails
+
+Tool-error emails (`_notify_tool_error` in `app.py`) include the error text and up to 500 characters of the model's response, which can hold client names, assets, and family details. They are sent through Resend to a regular inbox. The 500 email includes the full traceback and request URL.
 
 ## Smaller items
 
-- `/waitlist` and `/onboarding` put the submitted name and email into an HTML email without escaping. The 500 alert email (`_send_error_alert`) does the same with the URL and user agent.
 - `/onboarding?session_id=...` shows a payment success page without asking Stripe whether that session was paid. The checkout error response also returns the Stripe exception text (`create_checkout_session` in `app.py`).
+
+## Fixed October 10, 2026
+
+- **Debug server safeguard.** `app.run` enables debug only when `FLASK_DEBUG=1`, and `run.command` sets that for local use.
+- **Document jobs tied to the firm.** Every in-memory job and download records the firm when it is created, and routes refuse any other firm the same way they refuse an expired job (`_same_firm` in `app.py`). Covers the separator's status, ZIP download, single-file download, and redo routes, the QPRT routes, Prospect Summarizer status, and the Document Differences export. Compare EP Diagram vs. Drafts and Summarize Documents for Clients already checked.
+- **QPRT runs in the background.** The QPRT model call runs as a background job instead of inside the request, so it cannot hit the 30-second timeout.
+- **Tracker routes check the firm.** Every tracker client and step route checks the firm in SQL and returns 404 for another firm's client or step. `update_client`, `delete_client`, `add_client_step`, `update_step`, `delete_step`, and `reorder_steps` in `tracker_db.py` take the firm id.
+- **Deleted employees are signed out.** At firms that require employee login, `_employee_session_valid` checks that the employee still exists (cached 30 seconds, cleared on delete from admin).
+- **Quote tooltips are plain text.** Drafting Notes and Prospect Summarizer quote tooltips render with `textContent` (quote icons carry `data-tip-plain`).
+- **Alert emails escape input.** `/waitlist`, `/onboarding`, and the 500 alert email (`_send_error_alert`) escape submitted text, the URL, the user agent, and the traceback.
+- **Feedback text kept out of logs.** `redo_with_feedback` in `doc_separator.py` logs only the feedback length.
 
 ## Checked and fine
 
@@ -74,3 +70,4 @@ Tool-error emails (`_notify_tool_error` in `app.py`) include the error text and 
 - `update_step` only accepts whitelisted column names.
 - No open redirects, and no templates use `|safe`.
 - Other `innerHTML` renders (tracker pages, client portal, separator, summaries, comparisons) escape model and user text.
+- Every email the app sends escapes user and model text.

@@ -443,7 +443,7 @@ def redo_with_feedback(pdf_content, client, page_texts, total_pages,
     total_start = time.time()
     model = model or os.environ.get("DOC_SEPARATOR_MODEL", "gpt-5.6-terra")
     firm_config = firm_config or {}
-    log.info("Redo with feedback: model=%s, feedback=%r", model, feedback[:200])
+    log.info("Redo with feedback: model=%s, feedback_chars=%d", model, len(feedback))
 
     previous_json = json.dumps({"documents": previous_documents}, indent=2)
     system_prompt = _build_redo_prompt(
