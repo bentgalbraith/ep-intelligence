@@ -2,23 +2,13 @@
 
 Reviewed October 5, 2026. Re-checked and extended October 10, 2026. The app is hosted on Render. Open items come first, in the order to work through them. Fixed items are listed at the end.
 
-## Render start command
-
-Not a security risk: the start command is `gunicorn app:app --bind 0.0.0.0:$PORT`, and `FLASK_DEBUG` and `FLASK_ENV` are not set.
-
-Still open: gunicorn runs with its defaults, one sync worker and a 30-second request timeout. A request over 30 seconds kills the worker and every in-memory job with it. Add `--timeout 180` to the start command. Do not add workers while jobs live in process memory.
-
-## Sessions cannot be revoked
-
-Firm sessions last 10 days (`PERMANENT_SESSION_LIFETIME` in `app.py`) and live only in the signed cookie. Changing a firm's access code or tracker code does not sign out anyone who used the old one, so someone who learned the old code keeps access for up to 10 days.
-
 ## Admin is one password
 
-`/admin/login` compares the form value to `ADMIN_PASSWORD` with `==`. There is no second factor, no per-account lockout beyond the shared rate limit, and the admin session lasts 10 days like a firm session. Admin can see every firm's plaintext codes, so this one password unlocks every firm and every client.
+There is no second factor and no per-account lockout beyond the shared rate limit. Admin can see every firm's plaintext codes, so this one password unlocks every firm and every client.
 
 ## Access codes stored in plaintext
 
-`firms.access_code_plain`, `firms.tracker_access_code_plain`, `firms.usage_dashboard_password_plain`, and `clients.access_code_plain` sit next to the password hashes. A firm login writes the typed access code into `login_attempts` on success and on failure, so failed rows often hold a near-miss of a real code, and the admin login log displays them. `GET /api/tracker/clients/<client_id>` returns the client's plaintext portal code to the browser. A database backup is enough to sign in as every firm and every client.
+`firms.access_code_plain`, `firms.tracker_access_code_plain`, `firms.usage_dashboard_password_plain`, and `clients.access_code_plain` sit next to the password hashes. A successful firm login writes the access code into `login_attempts`, and the admin login log displays it. Failed rows written before October 10, 2026 still hold the typed code (often a near-miss of a real one); clear them with `UPDATE login_attempts SET access_code_used = '' WHERE NOT success;`. `GET /api/tracker/clients/<client_id>` returns the client's plaintext portal code to the browser. A database backup is enough to sign in as every firm and every client.
 
 - Columns defined and written in `tracker_db.py` (`create_firm`, `update_firm`, `create_client`, `update_client`, `get_client`, `log_login_attempt`)
 - Shown in `templates/admin_login_log.html` and as placeholders in `templates/admin_firm_edit.html`
@@ -45,20 +35,23 @@ Transcripts, PDFs, and drafts go to the OpenAI API with no redaction. A signed-i
 
 The separator job keeps the original PDF in `_jobs` for a redo, and the store is per instance and disappears on restart.
 
-## Client data in alert emails
-
-Tool-error emails (`_notify_tool_error` in `app.py`) include the error text and up to 500 characters of the model's response, which can hold client names, assets, and family details. They are sent through Resend to a regular inbox. The 500 email includes the full traceback and request URL.
-
 ## Smaller items
 
-- `/onboarding?session_id=...` shows a payment success page without asking Stripe whether that session was paid. The checkout error response also returns the Stripe exception text (`create_checkout_session` in `app.py`).
+- Usage-dashboard sessions are not tied to the dashboard password, so changing it does not sign anyone out.
+- Alert emails still include the error text and traceback. These no longer contain model output, but an unexpected exception message could still carry client text.
 
 ## Fixed October 10, 2026
 
+- **Render start command.** Now `gunicorn app:app --bind 0.0.0.0:$PORT --timeout 180`, with `FLASK_DEBUG` and `FLASK_ENV` unset. Still one worker: do not add workers while jobs live in process memory.
 - **Debug server safeguard.** `app.run` enables debug only when `FLASK_DEBUG=1`, and `run.command` sets that for local use.
 - **Document jobs tied to the firm.** Every in-memory job and download records the firm when it is created, and routes refuse any other firm the same way they refuse an expired job (`_same_firm` in `app.py`). Covers the separator's status, ZIP download, single-file download, and redo routes, the QPRT routes, Prospect Summarizer status, and the Document Differences export. Compare EP Diagram vs. Drafts and Summarize Documents for Clients already checked.
 - **QPRT runs in the background.** The QPRT model call runs as a background job instead of inside the request, so it cannot hit the 30-second timeout.
 - **Tracker routes check the firm.** Every tracker client and step route checks the firm in SQL and returns 404 for another firm's client or step. `update_client`, `delete_client`, `add_client_step`, `update_step`, `delete_step`, and `reorder_steps` in `tracker_db.py` take the firm id.
+- **Code changes sign people out.** Sessions carry a keyed fingerprint of the firm and tracker code hashes (`_session_codes_current` in `app.py`, cached 30 seconds, cleared on admin save). A new firm code signs everyone out; a new tracker code drops tracker access. Leaving the code fields blank on the admin edit page keeps everyone signed in, but retyping the same code counts as a change (it is rehashed). Sessions from before the change were stamped with the current codes on their next request, not signed out.
+- **Admin login hardened.** The password is compared in constant time, and admin sessions expire after 12 hours (`_admin_session_valid`).
+- **Failed logins store no code.** `login_attempts` keeps an empty `access_code_used` for failed firm logins.
+- **No model output in alerts.** `completion_details` in `ai_logger.py` reports response length only, and the JSON parse error in `doc_separator.py` no longer quotes the response.
+- **Stripe checks.** `/onboarding?session_id=...` shows success only when Stripe reports the checkout session complete, and checkout errors return a generic message.
 - **Deleted employees are signed out.** At firms that require employee login, `_employee_session_valid` checks that the employee still exists (cached 30 seconds, cleared on delete from admin).
 - **Quote tooltips are plain text.** Drafting Notes and Prospect Summarizer quote tooltips render with `textContent` (quote icons carry `data-tip-plain`).
 - **Alert emails escape input.** `/waitlist`, `/onboarding`, and the 500 alert email (`_send_error_alert`) escape submitted text, the URL, the user agent, and the traceback.

@@ -1,4 +1,6 @@
 import collections
+import hashlib
+import hmac
 import html
 import io
 import json
@@ -134,6 +136,7 @@ _firm_config_cache: dict = {}
 _employee_req_cache: dict = {}
 _feedback_widget_cache: dict = {}
 _employee_exists_cache: dict = {}
+_firm_code_stamp_cache: dict = {}
 _firm_config_lock = threading.Lock()
 _CACHE_TTL = 300  # 5 minutes
 _AUTH_FLAG_TTL = 30  # seconds; logout after toggle-on may lag by this much
@@ -145,6 +148,7 @@ def _invalidate_firm_cache(firm_id):
         _firm_config_cache.pop(key, None)
         _employee_req_cache.pop(key, None)
         _feedback_widget_cache.pop(key, None)
+        _firm_code_stamp_cache.pop(key, None)
 
 
 def _get_firm_config(firm_id):
@@ -189,6 +193,58 @@ def _employee_still_exists(employee_id, firm_id):
     with _firm_config_lock:
         _employee_exists_cache[key] = {"value": exists, "ts": now}
     return exists
+
+
+def _code_stamp(code_hash):
+    """Keyed fingerprint of a stored code hash; the session cookie is readable, so never store the hash."""
+    if not code_hash:
+        return ""
+    return hmac.new(app.secret_key.encode(), code_hash.encode(), hashlib.sha256).hexdigest()[:24]
+
+
+def _firm_code_stamps(firm_id, fresh=False):
+    """(firm code stamp, tracker code stamp), or None if the firm no longer exists."""
+    key = str(firm_id)
+    now = time.time()
+    if not fresh:
+        with _firm_config_lock:
+            cached = _firm_code_stamp_cache.get(key)
+            if cached and now - cached["ts"] < _AUTH_FLAG_TTL:
+                return cached["value"]
+
+    hashes = tracker_db.firm_code_hashes(key)
+    stamps = None if hashes is None else (_code_stamp(hashes[0]), _code_stamp(hashes[1]))
+    with _firm_config_lock:
+        _firm_code_stamp_cache[key] = {"value": stamps, "ts": now}
+    return stamps
+
+
+def _session_codes_current(firm_id):
+    """False once the firm code changes; drops tracker access once the tracker code changes.
+    Sessions without a stamp get the current one rather than being signed out."""
+    stamps = _firm_code_stamps(firm_id)
+    if stamps is None:
+        return False
+    firm_stamp, tracker_stamp = stamps
+    if "firm_code_stamp" not in session:
+        session["firm_code_stamp"] = firm_stamp
+    elif session["firm_code_stamp"] != firm_stamp:
+        return False
+    if session.get("tracker_authenticated"):
+        if "tracker_code_stamp" not in session:
+            session["tracker_code_stamp"] = tracker_stamp
+        elif session["tracker_code_stamp"] != tracker_stamp:
+            session.pop("tracker_authenticated", None)
+            session.pop("tracker_code_stamp", None)
+    return True
+
+
+def _stamp_firm_login(firm_id):
+    if not tracker_db.DATABASE_URL:
+        return
+    stamps = _firm_code_stamps(firm_id, fresh=True)
+    if stamps:
+        session["firm_code_stamp"] = stamps[0]
 
 
 def _firm_feedback_widget_enabled(firm_id):
@@ -307,7 +363,7 @@ def _clear_firm_session():
     for key in (
         "authenticated", "firm_id", "firm_name", "firm_slug",
         "tracker_authenticated", "employee_id", "employee_code", "employee_name",
-        "pending_firm_id", "pending_firm_name",
+        "pending_firm_id", "pending_firm_name", "firm_code_stamp", "tracker_code_stamp",
     ):
         session.pop(key, None)
 
@@ -337,7 +393,7 @@ def _employee_session_valid():
     if not firm_id:
         return False
     required = _firm_requires_employee_login(firm_id)
-    if required is None:
+    if required is None or not _session_codes_current(firm_id):
         return False
     if not required:
         return True
@@ -411,10 +467,26 @@ def tool_enabled(tool_key):
     return wrapper
 
 
+_ADMIN_SESSION_SECONDS = 12 * 3600
+
+
+def _admin_session_valid():
+    since = session.get("admin_since")
+    if (
+        session.get("is_admin")
+        and isinstance(since, (int, float))
+        and 0 <= time.time() - since < _ADMIN_SESSION_SECONDS
+    ):
+        return True
+    session.pop("is_admin", None)
+    session.pop("admin_since", None)
+    return False
+
+
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get("is_admin"):
+        if not _admin_session_valid():
             return redirect(url_for("admin_login"))
         return f(*args, **kwargs)
     return decorated
@@ -594,8 +666,14 @@ def waitlist():
 @limiter.limit("5/minute")
 def onboarding():
     if request.method == "GET":
-        if request.args.get("session_id"):
-            return render_template("onboarding.html", step="success")
+        checkout_id = request.args.get("session_id")
+        if checkout_id:
+            if _checkout_complete(checkout_id):
+                return render_template("onboarding.html", step="success")
+            return render_template(
+                "onboarding.html",
+                error="We could not confirm your payment. Please try again or email ben@ep-intelligence.com.",
+            )
         return render_template("onboarding.html")
 
     firm_name = request.form.get("firm_name", "").strip()
@@ -632,6 +710,17 @@ def onboarding():
     return render_template("onboarding.html", step="payment")
 
 
+def _checkout_complete(checkout_id):
+    if not STRIPE_SECRET_KEY:
+        return False
+    try:
+        checkout_session = stripe.checkout.Session.retrieve(checkout_id)
+    except Exception as e:
+        app.logger.warning("Stripe checkout session lookup failed: %s", e)
+        return False
+    return getattr(checkout_session, "status", None) == "complete"
+
+
 @app.route("/api/create-checkout-session", methods=["POST"])
 @limiter.limit("5/minute")
 def create_checkout_session():
@@ -647,7 +736,7 @@ def create_checkout_session():
         return jsonify({"clientSecret": checkout_session.client_secret})
     except Exception as e:
         app.logger.error("Stripe checkout session error: %s", e)
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Please try again later or email ben@ep-intelligence.com."}), 500
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -668,7 +757,7 @@ def login():
         if tracker_db.DATABASE_URL:
             tracker_db.log_login_attempt(
                 ip_address=request.remote_addr or "",
-                access_code_used=code,
+                access_code_used="",
                 firm_name=None,
                 firm_slug=None,
                 success=False,
@@ -690,6 +779,7 @@ def login():
         session["firm_id"] = str(firm["id"])
         session["firm_name"] = firm["name"]
         session["firm_slug"] = firm["slug"]
+        _stamp_firm_login(firm["id"])
         session.pop("employee_id", None)
         session.pop("employee_code", None)
         session.pop("employee_name", None)
@@ -759,6 +849,7 @@ def login_employee():
     session["firm_id"] = str(firm["id"])
     session["firm_name"] = firm["name"]
     session["firm_slug"] = firm["slug"]
+    _stamp_firm_login(firm["id"])
     session["employee_id"] = str(employee["id"])
     session["employee_code"] = employee["employee_id_code"]
     session["employee_name"] = employee["name"]
@@ -2358,6 +2449,9 @@ def api_tracker_auth():
             row = cur.fetchone()
             if row and check_password_hash(row[0], code):
                 session["tracker_authenticated"] = True
+                session["tracker_code_stamp"] = _code_stamp(row[0])
+                with _firm_config_lock:
+                    _firm_code_stamp_cache.pop(str(firm_id), None)
                 return jsonify({"ok": True})
 
     return jsonify({"error": "Invalid access code"}), 401
@@ -2661,13 +2755,14 @@ REQUIRED_CONFIG_KEYS = [
 @app.route("/admin/login", methods=["GET", "POST"])
 @limiter.limit("10/minute")
 def admin_login():
-    if session.get("is_admin"):
+    if _admin_session_valid():
         return redirect(url_for("admin_firms"))
     error = None
     if request.method == "POST":
         pw = request.form.get("password", "")
-        if ADMIN_PASSWORD and pw == ADMIN_PASSWORD:
+        if ADMIN_PASSWORD and hmac.compare_digest(pw.encode(), ADMIN_PASSWORD.encode()):
             session["is_admin"] = True
+            session["admin_since"] = time.time()
             return redirect(url_for("admin_firms"))
         error = "Invalid password"
     return render_template("admin_login.html", error=error)
@@ -2676,6 +2771,7 @@ def admin_login():
 @app.route("/admin/logout")
 def admin_logout():
     session.pop("is_admin", None)
+    session.pop("admin_since", None)
     return redirect(url_for("admin_login"))
 
 
@@ -3779,13 +3875,7 @@ def _notify_tool_error(tool_name, error, firm_id=None, firm_name=None, firm_slug
         for key, value in details.items():
             if value is None or value == "":
                 continue
-            if key in ("response_start", "response_end"):
-                rows.append(
-                    f"<p><strong>{_e(key)}:</strong></p>"
-                    f"<pre style=\"font-size:12px;white-space:pre-wrap;\">{_e(value)}</pre>"
-                )
-            else:
-                rows.append(f"<p><strong>{_e(key)}:</strong> {_e(value)}</p>")
+            rows.append(f"<p><strong>{_e(key)}:</strong> {_e(value)}</p>")
         if rows:
             details_html = "<h3>Model diagnostics</h3>" + "".join(rows) + "<hr>"
 

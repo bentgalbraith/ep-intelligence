@@ -140,7 +140,7 @@ def _extract_json(text):
                 except (json.JSONDecodeError, ValueError):
                     pass
 
-    raise ValueError(f"No valid JSON in model response: {text[:500]}")
+    raise ValueError(f"No valid JSON in model response ({len(text or '')} chars)")
 
 
 def _get_documentai_client():

@@ -628,6 +628,22 @@ def get_employee_by_code(firm_id, employee_id_code):
             return cur.fetchone()
 
 
+def firm_code_hashes(firm_id):
+    """(access_code_hash, tracker_access_code_hash), or None if the firm does not exist."""
+    try:
+        firm_uuid = uuid.UUID(str(firm_id))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT access_code_hash, tracker_access_code_hash FROM firms WHERE id = %s",
+                (firm_uuid,),
+            )
+            row = cur.fetchone()
+            return (row[0] or "", row[1] or "") if row else None
+
+
 def employee_exists(employee_id, firm_id):
     try:
         emp_uuid = uuid.UUID(str(employee_id))
