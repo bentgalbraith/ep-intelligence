@@ -65,6 +65,10 @@
             <div class="usage-kpi-value">${{ '%.2f'|format(overview.cost_openai or 0) }}</div>
         </div>
         <div class="usage-kpi">
+            <div class="usage-kpi-label">Gemini</div>
+            <div class="usage-kpi-value">${{ '%.2f'|format(overview.cost_gemini or 0) }}</div>
+        </div>
+        <div class="usage-kpi">
             <div class="usage-kpi-label">Document AI</div>
             <div class="usage-kpi-value">${{ '%.2f'|format(overview.cost_ocr or 0) }}</div>
         </div>

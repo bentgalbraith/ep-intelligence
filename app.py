@@ -911,7 +911,10 @@ def _render_firm_usage_dashboard():
             overview["last_seen"] = row.get("last_seen")
             overview["tools"] = int(row.get("tools") or 0)
             overview["cost"] = float(row.get("cost") or 0)
-            overview["cost_openai"] = float(row.get("cost_openai") or 0)
+            # Firm "Model" is OpenAI plus Gemini. Admin lists those providers separately.
+            overview["cost_openai"] = (
+                float(row.get("cost_openai") or 0) + float(row.get("cost_gemini") or 0)
+            )
             overview["cost_ocr"] = float(row.get("cost_ocr") or 0)
 
         events_by_tool = {}
@@ -2170,11 +2173,169 @@ def api_actionstep_schedule():
 # Validate Signatures
 # ---------------------------------------------------------------------------
 
+def _is_job_id(value):
+    return isinstance(value, str) and len(value) == 32 and all(c in "0123456789abcdef" for c in value)
+
+
 @app.route("/validate-signatures")
 @login_required
 @tool_enabled("validate_signatures")
 def validate_signatures():
     return render_template("validate_signatures.html", firm_name=session.get("firm_name", ""))
+
+
+def _signature_job(job_id):
+    if not _is_job_id(job_id):
+        return None
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if not job or job.get("tool") != "validate_signatures" or not _same_firm(job):
+        return None
+    return job
+
+
+def _fail_signature_job(job_id, message):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is not None:
+            job.update({"status": "error", "error": message, "ts": time.time(), "crops": {}})
+
+
+def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
+    with log_context(**(log_ctx or {})):
+        with _jobs_lock:
+            existing = _jobs.get(job_id) or {}
+            firm_name = existing.get("firm_name")
+            firm_slug = existing.get("firm_slug")
+        try:
+            from validate_signatures import SignatureError, validate_documents
+
+            def on_progress(message):
+                with _jobs_lock:
+                    job = _jobs.get(job_id)
+                    if job is not None:
+                        job["progress"] = message
+                        job["ts"] = time.time()
+
+            started = time.time()
+            result, crops = validate_documents(
+                uploads, openai_client, firm_id=firm_id, on_progress=on_progress,
+            )
+            with _jobs_lock:
+                current = _jobs.get(job_id)
+                if current is None:
+                    return
+                current.update({
+                    "status": "complete",
+                    "ts": time.time(),
+                    "result": result,
+                    "crops": crops,
+                    "progress": "",
+                })
+            log_tool_use(
+                tool="validate_signatures",
+                status="success",
+                firm_id=firm_id,
+                execution_ms=int((time.time() - started) * 1000),
+                notes=(
+                    f"{result['files']} files, {result['pages']} pages, "
+                    f"{len(result['items'])} items"
+                ),
+            )
+        except SignatureError as e:
+            _fail_signature_job(job_id, str(e))
+            if not e.logged:
+                log_tool_use(
+                    tool="validate_signatures", status="error", firm_id=firm_id, notes=e.notes,
+                )
+            if e.notify:
+                _notify_tool_error(
+                    "Validate Signatures", e.alert, firm_id=firm_id,
+                    firm_name=firm_name, firm_slug=firm_slug,
+                    employee_id_code=(log_ctx or {}).get("employee_id_code"),
+                )
+        except Exception as e:
+            app.logger.exception("Validate signatures failed")
+            _fail_signature_job(job_id, "Something went wrong while checking these documents.")
+            log_tool_use(
+                tool="validate_signatures", status="error", firm_id=firm_id,
+                notes=type(e).__name__,
+            )
+            _notify_tool_error(
+                "Validate Signatures", type(e).__name__, firm_id=firm_id,
+                firm_name=firm_name, firm_slug=firm_slug,
+                employee_id_code=(log_ctx or {}).get("employee_id_code"),
+            )
+
+
+@app.route("/api/validate-signatures", methods=["POST"])
+@login_required
+@tool_enabled("validate_signatures")
+def api_validate_signatures():
+    incoming = request.files.getlist("pdfs")
+    payload = []
+    for uploaded in incoming:
+        if not uploaded or not uploaded.filename:
+            continue
+        payload.append((uploaded.filename, uploaded.read()))
+    try:
+        from validate_signatures import SignatureError, prepare_uploads
+        uploads = prepare_uploads(payload)
+    except SignatureError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        app.logger.exception("Validate signatures import failed")
+        return jsonify({"error": "Validate Signatures is not configured yet. Contact your administrator."}), 500
+
+    firm_id = session.get("firm_id")
+    log_ctx = _session_log_ctx()
+    job_id = uuid.uuid4().hex
+    with _jobs_lock:
+        _purge_stale(_jobs)
+        _jobs[job_id] = {
+            "status": "processing",
+            "ts": time.time(),
+            "tool": "validate_signatures",
+            "firm_id": firm_id,
+            "firm_name": session.get("firm_name"),
+            "firm_slug": session.get("firm_slug"),
+            "progress": "",
+        }
+    _executor.submit(_run_validate_signatures, job_id, uploads, firm_id, log_ctx)
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/validate-signatures/status/<job_id>")
+@login_required
+@tool_enabled("validate_signatures")
+def api_validate_signatures_status(job_id):
+    job = _signature_job(job_id)
+    if job is None:
+        return jsonify({"error": "Job not found or expired."}), 404
+    if job["status"] == "processing":
+        return jsonify({"status": "processing", "progress": job.get("progress") or ""})
+    if job["status"] == "error":
+        return jsonify({"status": "error", "error": job.get("error") or "Processing failed"}), 500
+    return jsonify({"status": "complete", **(job.get("result") or {})})
+
+
+@app.route("/api/validate-signatures/crop/<job_id>/<item_id>")
+@login_required
+@tool_enabled("validate_signatures")
+def api_validate_signatures_crop(job_id, item_id):
+    if not _is_job_id(item_id):
+        return jsonify({"error": "Not found."}), 404
+    job = _signature_job(job_id)
+    if job is None or job.get("status") != "complete":
+        return jsonify({"error": "Not found."}), 404
+    image = (job.get("crops") or {}).get(item_id)
+    if not image:
+        return jsonify({"error": "Not found."}), 404
+    return Response(
+        image,
+        mimetype="image/jpeg",
+        headers={"Cache-Control": "private, no-store", "Content-Disposition": "inline"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2995,6 +3156,7 @@ def admin_firm_doc_separator_redos_csv(firm_id):
 
 _USAGE_PROVIDER_LABELS = {
     "openai": "OpenAI",
+    "gemini": "Gemini",
     "google_documentai": "Document AI",
     "local": "Local",
 }
@@ -3284,7 +3446,7 @@ def admin_usage():
 
     overview = {
         "calls": 0, "errors": 0, "cost": 0, "pages": 0,
-        "cost_openai": 0, "cost_ocr": 0, "error_rate": 0,
+        "cost_openai": 0, "cost_gemini": 0, "cost_ocr": 0, "error_rate": 0,
         "cost_delta": None, "cost_delta_pct": None,
         "cost_delta_display": None,
     }

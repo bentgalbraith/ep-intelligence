@@ -5,6 +5,7 @@ import logging
 import os
 import traceback
 from contextlib import contextmanager
+from datetime import date, datetime, timezone
 
 import psycopg2
 
@@ -30,7 +31,25 @@ MODEL_PRICING = {
         "output": 6.00e-6,
         "reasoning": 6.00e-6,
     },
+    "gpt-6-sol": {
+        "input": 2.00e-6,
+        "output": 10.00e-6,
+        "reasoning": 10.00e-6,
+    },
 }
+
+
+def _gemini_38_flash_pricing(today=None):
+    """Introductory rates through December 31, 2026. Standard rates after that.
+
+    Thinking tokens are billed as output tokens.
+    """
+    today = today or datetime.now(timezone.utc).date()
+    if today <= date(2026, 12, 31):
+        input_rate, output_rate = 0.75e-6, 3.75e-6
+    else:
+        input_rate, output_rate = 1.50e-6, 7.50e-6
+    return {"input": input_rate, "output": output_rate, "reasoning": output_rate}
 
 DOCUMENTAI_COST_PER_PAGE = 0.0015
 
@@ -39,7 +58,10 @@ def _compute_cost(provider, model, input_tokens, output_tokens, reasoning_tokens
     if provider == "google_documentai" and pages_processed:
         return round(pages_processed * DOCUMENTAI_COST_PER_PAGE, 6)
 
-    pricing = MODEL_PRICING.get(model)
+    if model == "gemini-3.8-flash":
+        pricing = _gemini_38_flash_pricing()
+    else:
+        pricing = MODEL_PRICING.get(model)
     if not pricing:
         return None
 

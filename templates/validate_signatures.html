@@ -22,82 +22,12 @@
 {% endblock %}
 
 {% block tool_scripts %}
+<script src="{{ url_for('static', filename='js/validate-signatures.js') }}"></script>
 <script>
-    const dropZone = document.getElementById('drop-zone');
-    const fileInput = document.getElementById('pdf-input');
-    const fileList = document.getElementById('file-list');
-
-    let selectedFiles = [];
-
-    function isPdf(file) {
-        if (!file) return false;
-        return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-    }
-
-    function fileKey(file) {
-        return [file.name, file.size, file.lastModified].join('\0');
-    }
-
-    fileInput.addEventListener('click', (e) => e.stopPropagation());
-    dropZone.addEventListener('click', () => fileInput.click());
-
-    fileInput.addEventListener('change', () => {
-        if (fileInput.files.length) addFiles(fileInput.files);
-        fileInput.value = '';
-    });
-
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('drag-over');
-    });
-
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('drag-over');
-        if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
-    });
-
-    function addFiles(files) {
-        const existing = new Set(selectedFiles.map(fileKey));
-        for (const file of files) {
-            if (!isPdf(file) || existing.has(fileKey(file))) continue;
-            existing.add(fileKey(file));
-            selectedFiles.push(file);
-        }
-        renderFileList();
-    }
-
-    function renderFileList() {
-        tool.btn.disabled = !selectedFiles.length;
-        if (!selectedFiles.length) {
-            fileList.innerHTML = '';
-            return;
-        }
-        fileList.innerHTML = selectedFiles.map((file, i) =>
-            `<div class="file-list-item">
-                <span class="file-list-name">${escapeHtml(file.name)}</span>
-                <button type="button" class="file-list-remove" data-idx="${i}" title="Remove">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-                    </svg>
-                </button>
-            </div>`
-        ).join('');
-    }
-
-    fileList.addEventListener('click', (e) => {
-        const btn = e.target.closest('.file-list-remove');
-        if (!btn) return;
-        selectedFiles.splice(parseInt(btn.dataset.idx, 10), 1);
-        renderFileList();
-    });
-
-    const tool = initToolForm({
-        formId: 'sig-form',
-        btnId: 'btn-validate',
-        async onSubmit() {},
+    initValidateSignatures({
+        submitUrl: {{ url_for('api_validate_signatures')|tojson }},
+        statusUrl: {{ url_for('api_validate_signatures_status', job_id='__JOB__')|tojson }},
+        cropUrl: {{ url_for('api_validate_signatures_crop', job_id='__JOB__', item_id='__ITEM__')|tojson }},
     });
 </script>
 {% endblock %}

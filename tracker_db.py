@@ -1140,6 +1140,9 @@ def usage_overview(days=None, firm_id=None, employee_code=None):
                                   AND l.provider = 'openai'), 0) AS cost_openai,
                             COALESCE(SUM(l.cost_usd) FILTER (
                                 WHERE l.timestamp >= b.cutoff
+                                  AND l.provider = 'gemini'), 0) AS cost_gemini,
+                            COALESCE(SUM(l.cost_usd) FILTER (
+                                WHERE l.timestamp >= b.cutoff
                                   AND l.provider = 'google_documentai'), 0) AS cost_ocr,
                             COALESCE(SUM(l.cost_usd) FILTER (
                                 WHERE l.timestamp < b.cutoff), 0) AS cost_prior
@@ -1161,6 +1164,7 @@ def usage_overview(days=None, firm_id=None, employee_code=None):
                             COALESCE(SUM(l.cost_usd), 0) AS cost,
                             COALESCE(SUM(l.pages_processed), 0) AS pages,
                             COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'openai'), 0) AS cost_openai,
+                            COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'gemini'), 0) AS cost_gemini,
                             COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'google_documentai'), 0) AS cost_ocr,
                             NULL AS cost_prior
                         FROM ai_usage_log l
@@ -1289,6 +1293,7 @@ def firm_usage_overview(firm_id, days=None):
                         MAX(l.timestamp) AS last_seen,
                         COALESCE(SUM(l.cost_usd), 0) AS cost,
                         COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'openai'), 0) AS cost_openai,
+                        COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'gemini'), 0) AS cost_gemini,
                         COALESCE(SUM(l.cost_usd) FILTER (WHERE l.provider = 'google_documentai'), 0) AS cost_ocr
                     FROM ai_usage_log l
                     {where}""",
