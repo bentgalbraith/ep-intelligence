@@ -1092,6 +1092,12 @@ def _purge_stale(store):
             del store[k]
 
 
+def _same_firm(entry):
+    """True when an in-memory job or download belongs to the signed-in firm."""
+    owner = str((entry or {}).get("firm_id") or "")
+    return bool(owner) and owner == str(session.get("firm_id") or "")
+
+
 def _run_doc_separate(job_id, pdf_content, firm_id, firm_config, log_ctx=None):
     with log_context(**(log_ctx or {})):
         try:
@@ -1100,7 +1106,8 @@ def _run_doc_separate(job_id, pdf_content, firm_id, firm_config, log_ctx=None):
             )
             token = uuid.uuid4().hex
             with _jobs_lock:
-                _zip_cache[token] = {"data": zip_buf.getvalue(), "ts": time.time()}
+                _zip_cache[token] = {"data": zip_buf.getvalue(), "ts": time.time(),
+                                     "firm_id": firm_id}
                 _jobs[job_id].update({
                     "status": "complete",
                     "documents": documents,
@@ -1150,6 +1157,7 @@ def api_doc_separate():
         _purge_stale(_jobs)
         _purge_stale(_zip_cache)
         _jobs[job_id] = {"status": "processing", "ts": time.time(),
+                         "firm_id": firm_id,
                          "firm_name": session.get("firm_name"),
                          "firm_slug": session.get("firm_slug"),
                          "log_ctx": log_ctx}
@@ -1165,7 +1173,7 @@ def api_doc_separate_status(job_id):
     with _jobs_lock:
         job = _jobs.get(job_id)
 
-    if not job:
+    if not job or job.get("tool") or not _same_firm(job):
         return jsonify({"error": "Job not found or expired."}), 404
 
     if job["status"] == "processing":
@@ -1188,7 +1196,7 @@ def api_doc_separate_download(token):
     with _jobs_lock:
         entry = _zip_cache.get(token)
 
-    if not entry:
+    if not entry or not _same_firm(entry):
         return jsonify({"error": "Download expired or not found."}), 404
 
     return Response(
@@ -1205,7 +1213,7 @@ def api_doc_separate_download_single(token, doc_index):
     with _jobs_lock:
         entry = _zip_cache.get(token)
 
-    if not entry:
+    if not entry or not _same_firm(entry):
         return jsonify({"error": "Download expired or not found."}), 404
 
     zip_buf = io.BytesIO(entry["data"])
@@ -1269,7 +1277,8 @@ def _run_doc_separate_redo(job_id, pdf_content, page_texts, total_pages,
             with _jobs_lock:
                 firm_name = _jobs[job_id].get("firm_name") or ""
                 firm_slug = _jobs[job_id].get("firm_slug") or ""
-                _zip_cache[token] = {"data": zip_buf.getvalue(), "ts": time.time()}
+                _zip_cache[token] = {"data": zip_buf.getvalue(), "ts": time.time(),
+                                     "firm_id": firm_id}
                 _jobs[job_id].update({
                     "status": "complete",
                     "documents": documents,
@@ -1319,7 +1328,12 @@ def api_doc_separate_redo():
     with _jobs_lock:
         original_job = _jobs.get(original_job_id)
 
-    if not original_job or original_job.get("status") != "complete":
+    if (
+        not original_job
+        or original_job.get("tool")
+        or not _same_firm(original_job)
+        or original_job.get("status") != "complete"
+    ):
         return jsonify({"error": "Original job not found or not complete."}), 404
 
     page_texts = original_job.get("page_texts")
@@ -1340,6 +1354,7 @@ def api_doc_separate_redo():
         _purge_stale(_jobs)
         _purge_stale(_zip_cache)
         _jobs[new_job_id] = {"status": "processing", "ts": time.time(),
+                             "firm_id": firm_id,
                              "firm_name": session.get("firm_name"),
                              "firm_slug": session.get("firm_slug"),
                              "log_ctx": log_ctx}
@@ -1352,14 +1367,53 @@ def api_doc_separate_redo():
     return jsonify({"job_id": new_job_id})
 
 
+_QPRT_JOB_TOOL = "doc_separator_qprt"
+
+
 def _doc_separate_job_for_session(job_id):
     with _jobs_lock:
         job = _jobs.get(job_id)
-    if not job or job.get("status") != "complete":
-        return None
-    if str(job.get("firm_id") or "") != str(session.get("firm_id") or ""):
+    if not job or job.get("status") != "complete" or job.get("tool") or not _same_firm(job):
         return None
     return job
+
+
+def _qprt_job_for_session(job_id):
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if not job or job.get("tool") != _QPRT_JOB_TOOL or not _same_firm(job):
+        return None
+    return job
+
+
+def _run_qprt_terms(job_id, documents, page_texts, total_pages, firm_id,
+                    filename_fmt, log_ctx=None):
+    with log_context(**(log_ctx or {})):
+        try:
+            rows = extract_qprt_terms(
+                documents, page_texts, total_pages, openai_client,
+                firm_id=firm_id, filename_fmt=filename_fmt,
+            )
+            with _jobs_lock:
+                job = _jobs.get(job_id)
+                if job:
+                    job.update({"status": "complete", "qprt_terms": rows})
+        except Exception as e:
+            app.logger.error("QPRT term extract error (job %s): %s", job_id, e)
+            with _jobs_lock:
+                job = _jobs.get(job_id) or {}
+            _notify_tool_error(
+                "Document Separator (QPRT)", str(e), firm_id=firm_id,
+                firm_name=job.get("firm_name"), firm_slug=job.get("firm_slug"),
+                employee_id_code=(log_ctx or {}).get("employee_id_code"),
+                details=getattr(e, "details", None),
+            )
+            with _jobs_lock:
+                if job_id in _jobs:
+                    _jobs[job_id].update({
+                        "status": "error",
+                        "error": "Could not read the QPRT term. Please try again.",
+                    })
 
 
 def _public_qprt_row(row, job_id, index):
@@ -1401,29 +1455,38 @@ def api_doc_separate_qprt_terms():
         return jsonify({"error": "Original job data expired. Please re-upload."}), 410
 
     firm_config = job.get("firm_config") or {}
-    try:
-        rows = extract_qprt_terms(
-            documents, page_texts, job.get("total_pages"), openai_client,
-            firm_id=job.get("firm_id"),
-            filename_fmt=firm_config.get("doc_filename_format"),
-        )
-    except Exception as e:
-        app.logger.error("QPRT term extract error (job %s): %s", job_id, e)
-        _notify_tool_error(
-            "Document Separator (QPRT)", str(e), firm_id=job.get("firm_id"),
-            firm_name=job.get("firm_name"), firm_slug=job.get("firm_slug"),
-            employee_id_code=(job.get("log_ctx") or {}).get("employee_id_code"),
-            details=getattr(e, "details", None),
-        )
-        return jsonify({"error": "Could not read the QPRT term. Please try again."}), 500
-
+    log_ctx = job.get("log_ctx") or _session_log_ctx()
+    qprt_job_id = uuid.uuid4().hex
     with _jobs_lock:
-        current = _jobs.get(job_id)
-        if not current:
-            return jsonify({"error": "Original job not found or expired. Please re-upload."}), 404
-        current["qprt_terms"] = rows
+        _purge_stale(_jobs)
+        _jobs[qprt_job_id] = {
+            "status": "processing", "ts": time.time(), "tool": _QPRT_JOB_TOOL,
+            "firm_id": job.get("firm_id"),
+            "firm_name": job.get("firm_name") or session.get("firm_name"),
+            "firm_slug": job.get("firm_slug") or session.get("firm_slug"),
+        }
 
+    _executor.submit(
+        _run_qprt_terms, qprt_job_id, documents, page_texts, job.get("total_pages"),
+        job.get("firm_id"), firm_config.get("doc_filename_format"), log_ctx,
+    )
+    return jsonify({"job_id": qprt_job_id})
+
+
+@app.route("/api/doc-separate/qprt-terms/status/<job_id>")
+@login_required
+@tool_enabled("doc_separator")
+def api_doc_separate_qprt_status(job_id):
+    job = _qprt_job_for_session(job_id)
+    if not job:
+        return jsonify({"error": "Job not found or expired. Please try again."}), 404
+    if job["status"] == "processing":
+        return jsonify({"status": "processing"})
+    if job["status"] == "error":
+        return jsonify({"status": "error", "error": job.get("error")}), 500
+    rows = job.get("qprt_terms") or []
     return jsonify({
+        "status": "complete",
         "qprts": [_public_qprt_row(row, job_id, i) for i, row in enumerate(rows)],
     })
 
@@ -1432,7 +1495,7 @@ def api_doc_separate_qprt_terms():
 @login_required
 @tool_enabled("doc_separator")
 def api_doc_separate_qprt_calendar(job_id, index):
-    job = _doc_separate_job_for_session(job_id)
+    job = _qprt_job_for_session(job_id)
     rows = (job or {}).get("qprt_terms") or []
     if job is None or index < 0 or index >= len(rows) or not rows[index].get("ics"):
         return jsonify({"error": "Calendar file not found. Extract the QPRT date again."}), 404
@@ -1509,6 +1572,7 @@ def api_prospect_summarize():
     with _jobs_lock:
         _purge_stale(_jobs)
         _jobs[job_id] = {"status": "processing", "ts": time.time(),
+                         "tool": "prospect_summarizer", "firm_id": firm_id,
                          "firm_name": session.get("firm_name"),
                          "firm_slug": session.get("firm_slug"),
                          "log_ctx": log_ctx}
@@ -1524,7 +1588,7 @@ def api_prospect_summarize_status(job_id):
     with _jobs_lock:
         job = _jobs.get(job_id)
 
-    if not job:
+    if not job or job.get("tool") != "prospect_summarizer" or not _same_firm(job):
         return jsonify({"error": "Job not found or expired."}), 404
 
     if job["status"] == "processing":
@@ -1630,7 +1694,8 @@ def api_doc_differences():
     token = uuid.uuid4().hex
     with _jobs_lock:
         _purge_stale(_zip_cache)
-        _zip_cache[token] = {"data": upload_bytes, "name": upload_name, "ts": time.time()}
+        _zip_cache[token] = {"data": upload_bytes, "name": upload_name, "ts": time.time(),
+                             "firm_id": firm_id}
 
     return jsonify({"rankings": rankings, "upload_token": token, "upload_name": upload_name})
 
@@ -1649,7 +1714,7 @@ def api_doc_differences_export():
 
     with _jobs_lock:
         cached = _zip_cache.get(upload_token)
-    if not cached:
+    if not cached or not _same_firm(cached):
         return jsonify({"error": "Upload expired. Please re-upload the document."}), 410
     upload_bytes = cached["data"]
     upload_name = cached.get("name", "Document")
@@ -3731,4 +3796,4 @@ def internal_server_error(e):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=int(os.environ.get("PORT", "8080")))
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1", port=int(os.environ.get("PORT", "8080")))

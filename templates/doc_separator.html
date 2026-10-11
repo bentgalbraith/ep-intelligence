@@ -260,6 +260,30 @@
         }).join('');
     }
 
+    const QPRT_STATUS_URL_TEMPLATE = '{{ url_for("api_doc_separate_qprt_status", job_id="__JID__") }}';
+
+    async function readJson(res) {
+        try {
+            return await res.json();
+        } catch {
+            throw new Error('Something went wrong. Please try again.');
+        }
+    }
+
+    async function pollQprt(jobId) {
+        const url = QPRT_STATUS_URL_TEMPLATE.replace('__JID__', jobId);
+        while (true) {
+            await sleep(2000);
+            const res = await fetchWithTimeout(url);
+            const data = await readJson(res);
+            if (data.status === 'processing') continue;
+            if (!res.ok || data.status !== 'complete') {
+                throw new Error(data.error || 'Something went wrong. Please try again.');
+            }
+            return data;
+        }
+    }
+
     async function handleQprt() {
         const panel = document.getElementById('qprt-panel');
         const btn = document.getElementById('btn-qprt');
@@ -275,14 +299,9 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ job_id: lastJobId }),
             });
-            let data;
-            try {
-                data = await res.json();
-            } catch {
-                throw new Error('Something went wrong. Please try again.');
-            }
+            const data = await readJson(res);
             if (!res.ok) throw new Error(data.error || 'Something went wrong');
-            panel.innerHTML = renderQprt(data);
+            panel.innerHTML = renderQprt(await pollQprt(data.job_id));
         } catch (err) {
             panel.innerHTML = `<p class="qprt-error">${escapeHtml(err.message)}</p>`;
         } finally {
