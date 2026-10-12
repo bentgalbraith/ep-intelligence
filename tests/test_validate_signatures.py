@@ -14,6 +14,15 @@ def _dark_pixels(pix):
     return count
 
 
+def _blue_pixels(pix):
+    samples = pix.samples
+    count = 0
+    for i in range(0, len(samples), pix.n):
+        if samples[i] < 80 and samples[i + 1] < 80 and samples[i + 2] > 180:
+            count += 1
+    return count
+
+
 def _red_pixels(pix):
     samples = pix.samples
     count = 0
@@ -111,24 +120,18 @@ class RulesTest(unittest.TestCase):
         self.assertTrue(ready[0][0].lower().endswith(".pdf"))
         self.assertLessEqual(len(ready[0][0]), 180)
 
-    def test_crop_window_includes_ink_above_a_line(self):
-        # A thin line near the bottom of a letter page.
-        x0, y0, x1, y1 = sig.context_fractions((0.12, 0.88, 0.08, 0.015), 612, 792)
-        self.assertLess(y0, 0.88)
-        self.assertGreater(y1, 0.895)
-        self.assertGreater(x1 - x0, 0.25)
-        self.assertLessEqual(x0, 0.12)
-        self.assertGreaterEqual(x1, 0.20)
-        self.assertLessEqual(y1, 1)
-
-    def test_paragraph_box_reaches_the_signature_line_under_it(self):
-        # The model boxed the declaration paragraph and stopped at the words.
-        # The signature line is just below that paragraph.
-        x0, y0, x1, y1 = sig.context_fractions((0.12, 0.37, 0.55, 0.08), 612, 792)
-        self.assertLess(y0, 0.40)
-        self.assertGreater(y1, 0.54)
-        self.assertLess(x0, 0.10)
-        self.assertGreater(x1, 0.90)
+    def test_paragraph_box_snaps_to_the_line_under_it(self):
+        import pymupdf
+        doc = pymupdf.open()
+        page = doc.new_page(width=612, height=792)
+        page.draw_rect(pymupdf.Rect(80, 640, 220, 696), color=(1, 0, 0), fill=(1, 0, 0), width=0)
+        page.draw_line(pymupdf.Point(72, 704), pymupdf.Point(400, 704), width=1.2)
+        paragraph = (72 / 612, 560 / 792, 400 / 612, 60 / 792)
+        image = sig.crop_jpeg(doc, 1, paragraph)
+        doc.close()
+        pix = _jpeg_pixmap(image)
+        self.assertGreater(_red_pixels(pix), 0)
+        self.assertLess(pix.height, pix.width)
 
     def test_thin_box_is_expanded(self):
         box = sig.parse_box([0.5, 0.9, 0.01, 0.005])
@@ -248,6 +251,30 @@ class PricingTest(unittest.TestCase):
 
 
 class PdfTest(unittest.TestCase):
+    def test_sentence_on_the_left_crops_the_initial_on_the_right(self):
+        import pymupdf
+        doc = pymupdf.open()
+        page = doc.new_page(width=612, height=792)
+        page.draw_rect(pymupdf.Rect(80, 400, 150, 450), color=(0, 0, 1), fill=(0, 0, 1), width=0)
+        page.draw_rect(pymupdf.Rect(470, 448, 524, 478), color=(1, 0, 0), fill=(1, 0, 0), width=0)
+        page.draw_line(pymupdf.Point(460, 482), pymupdf.Point(540, 482), width=1.2)
+        sentence = (72 / 612, 468 / 792, 180 / 612, 16 / 792)
+        image = sig.crop_jpeg(doc, 1, sentence)
+        doc.close()
+        pix = _jpeg_pixmap(image)
+        self.assertGreater(_red_pixels(pix), 0)
+        self.assertEqual(_blue_pixels(pix), 0)
+
+    def test_distant_text_stays_away_from_the_signature_line(self):
+        import pymupdf
+        doc = pymupdf.open()
+        page = doc.new_page(width=612, height=792)
+        page.draw_rect(pymupdf.Rect(80, 640, 200, 695), color=(1, 0, 0), fill=(1, 0, 0), width=0)
+        page.draw_line(pymupdf.Point(72, 704), pymupdf.Point(280, 704), width=1.2)
+        image = sig.crop_jpeg(doc, 1, (0.12, 0.08, 0.3, 0.04))
+        doc.close()
+        self.assertEqual(_red_pixels(_jpeg_pixmap(image)), 0)
+
     def test_crop_includes_writing_above_the_line(self):
         import pymupdf
         doc = pymupdf.open()

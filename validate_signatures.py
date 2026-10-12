@@ -754,38 +754,325 @@ def _inch(page_size, inches):
     return inches * 72.0 / max(float(page_size), 1.0)
 
 
-def context_fractions(box, page_width, page_height):
-    """Window around a signature spot, in fractions of the displayed page.
+def _displayed_rect(page, rect):
+    """Map a box from PDF coordinates into the upright page the reader sees."""
+    pymupdf = _pymupdf()
+    shown = pymupdf.Rect(rect) * page.rotation_matrix
+    return pymupdf.Rect(
+        min(shown.x0, shown.x1), min(shown.y0, shown.y1),
+        max(shown.x0, shown.x1), max(shown.y0, shown.y1),
+    )
 
-    Models often box the sentence above a signature and stop at the words.
-    The line and the printed name sit just below that, so the window hangs
-    from the bottom of the box. A wide box is a line of text: show the whole
-    column instead of cutting words off on either side.
+
+def _fraction_rect(page, rect):
+    shown = _displayed_rect(page, rect)
+    bounds = page.rect
+    width = max(bounds.width, 1)
+    height = max(bounds.height, 1)
+    x0 = min(max((shown.x0 - bounds.x0) / width, 0.0), 1.0)
+    y0 = min(max((shown.y0 - bounds.y0) / height, 0.0), 1.0)
+    x1 = min(max((shown.x1 - bounds.x0) / width, 0.0), 1.0)
+    y1 = min(max((shown.y1 - bounds.y0) / height, 0.0), 1.0)
+    if x1 - x0 < 0.012 or y1 - y0 < 0.01:
+        return None
+    return (round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4))
+
+
+def _rule_lines(page):
+    """Horizontal rules that can be a signature or initial line, in PDF points."""
+    width = max(page.mediabox.width, 1)
+    height = max(page.mediabox.height, 1)
+    lines = []
+    for drawing in page.get_drawings():
+        for item in drawing.get("items") or []:
+            kind = item[0]
+            if kind == "l":
+                start, end = item[1], item[2]
+                if abs(start.y - end.y) > 1.4:
+                    continue
+                x0, x1 = sorted((start.x, end.x))
+                y = (start.y + end.y) / 2.0
+            elif kind == "re":
+                rect = item[1]
+                if rect.height > 2.4 or rect.width < 36:
+                    continue
+                x0, x1 = rect.x0, rect.x1
+                y = (rect.y0 + rect.y1) / 2.0
+            else:
+                continue
+            length = x1 - x0
+            if length < 36 or length > width * 0.9:
+                continue
+            # A long rule in the top band is a running header, not a signature.
+            if y < height * 0.16 and length > width * 0.55:
+                continue
+            lines.append((x0, y, x1))
+    lines.sort(key=lambda line: (line[1], line[0]))
+    return lines
+
+
+def _ink_rects(page):
+    """Handwriting images and filled marks, in PDF points. Skips a full-page scan."""
+    pymupdf = _pymupdf()
+    found = []
+    try:
+        images = page.get_image_info()
+    except Exception:
+        images = []
+    for info in images:
+        found.append(pymupdf.Rect(info["bbox"]))
+    for drawing in page.get_drawings():
+        rect = drawing.get("rect")
+        if not rect or not drawing.get("fill"):
+            continue
+        found.append(pymupdf.Rect(rect))
+    marks = []
+    for rect in found:
+        if 16 <= rect.width <= 440 and 8 <= rect.height <= 90:
+            marks.append(rect)
+    return marks
+
+
+def _cluster_rules(lines):
+    """Join a signature rule with the date rule on the same baseline."""
+    rows = []
+    for x0, y, x1 in lines:
+        placed = False
+        for row in rows:
+            if abs(row["y"] - y) > 2.6:
+                continue
+            gap = x0 - row["x1"] if x0 >= row["x0"] else row["x0"] - x1
+            if gap < 56:
+                row["x0"] = min(row["x0"], x0)
+                row["x1"] = max(row["x1"], x1)
+                row["y"] = (row["y"] + y) / 2.0
+                placed = True
+                break
+        if not placed:
+            rows.append({"x0": x0, "x1": x1, "y": y})
+    return rows
+
+
+def _words_under(words, x0, x1, y):
+    return [
+        word for word in words
+        if y - 1 <= word[1] <= y + 16 and word[2] > x0 - 8 and word[0] < x1 + 8
+    ]
+
+
+def _words_left_of_short_rule(words, x0, y):
+    """The label on the same row as a short line, stopping at a wide gap."""
+    nearby = [
+        word for word in words
+        if word[2] <= x0 + 4 and abs(((word[1] + word[3]) / 2.0) - y) <= 9
+    ]
+    nearby.sort(key=lambda word: word[0])
+    chain = []
+    edge = x0
+    for word in reversed(nearby):
+        if edge - word[2] > 36:
+            break
+        chain.append(word)
+        edge = word[0]
+    chain.reverse()
+    if not chain:
+        return []
+    if x0 - chain[0][0] <= 300:
+        return chain
+    kept = []
+    for word in reversed(chain):
+        if x0 - word[0] > 160:
+            break
+        kept.append(word)
+    kept.reverse()
+    return kept
+
+
+def _union(rects, fallback):
+    pymupdf = _pymupdf()
+    if not rects:
+        return pymupdf.Rect(fallback)
+    x0 = min(rect[0] for rect in rects)
+    y0 = min(rect[1] for rect in rects)
+    x1 = max(rect[2] for rect in rects)
+    y1 = max(rect[3] for rect in rects)
+    return pymupdf.Rect(x0, y0, x1, y1)
+
+
+def _stamp_rects(page):
+    """Notary seals drawn as circles. Concentric rings become one stamp."""
+    pymupdf = _pymupdf()
+    found = []
+    for drawing in page.get_drawings():
+        rect = drawing.get("rect")
+        items = drawing.get("items") or []
+        kinds = [item[0] for item in items]
+        if not rect or "c" not in kinds or "l" in kinds:
+            continue
+        if not (40 <= rect.width <= 180 and 40 <= rect.height <= 180):
+            continue
+        if abs(rect.width - rect.height) > 24:
+            continue
+        found.append(pymupdf.Rect(rect))
+    merged = []
+    for rect in found:
+        placed = False
+        for index, have in enumerate(merged):
+            if have.intersects(rect):
+                merged[index] = have | rect
+                placed = True
+                break
+        if not placed:
+            merged.append(rect)
+    return merged
+
+
+def signature_spots(page):
+    """Each signature or initial line, with the ink and the printed name on it.
+
+    Returned as fractions of the displayed page: (x0, y0, x1, y1).
+    """
+    pymupdf = _pymupdf()
+    words = page.get_text("words") or []
+    inks = _ink_rects(page)
+    used = set()
+    spots = []
+    rows = _cluster_rules(_rule_lines(page))
+    rows.sort(key=lambda row: row["y"])
+    for row_index, row in enumerate(rows):
+        attached = []
+        for index, ink in enumerate(inks):
+            overlaps_x = ink.x1 > row["x0"] - 8 and ink.x0 < row["x1"] + 8
+            sits_on_rule = row["y"] - 40 <= ink.y1 <= row["y"] + 8
+            if overlaps_x and sits_on_rule:
+                attached.append(ink)
+                used.add(index)
+        under = _words_under(words, row["x0"], row["x1"], row["y"])
+        beside = []
+        if row["x1"] - row["x0"] <= 160:
+            beside = _words_left_of_short_rule(words, row["x0"], row["y"])
+        pieces = [(ink.x0, ink.y0, ink.x1, ink.y1) for ink in attached]
+        pieces.extend(word[:4] for word in under)
+        pieces.extend(word[:4] for word in beside)
+        above = 4 if attached else 26
+        pieces.append((row["x0"], row["y"] - above, row["x1"], row["y"] + 3))
+        rect = _union(pieces, (row["x0"], row["y"] - above, row["x1"], row["y"] + 3))
+        if row_index:
+            previous = rows[row_index - 1]["y"]
+            if row["y"] - previous < 55:
+                rect.y0 = max(rect.y0, previous + 20)
+        rect = pymupdf.Rect(rect.x0 - 6, rect.y0 - 3, rect.x1 + 6, rect.y1 + 4)
+        window = _fraction_rect(page, rect)
+        if window:
+            spots.append(window)
+    for index, ink in enumerate(inks):
+        if index in used:
+            continue
+        under = _words_under(words, ink.x0, ink.x1, ink.y1)
+        pieces = [(ink.x0, ink.y0, ink.x1, ink.y1)]
+        pieces.extend(word[:4] for word in under)
+        rect = _union(pieces, ink)
+        rect = pymupdf.Rect(rect.x0 - 6, rect.y0 - 4, rect.x1 + 6, rect.y1 + 4)
+        window = _fraction_rect(page, rect)
+        if window:
+            spots.append(window)
+    for stamp in _stamp_rects(page):
+        rect = pymupdf.Rect(stamp.x0 - 1, stamp.y0 - 2, stamp.x1 + 1, stamp.y1 + 2)
+        window = _fraction_rect(page, rect)
+        if window:
+            spots.append(window)
+    return spots
+
+
+def _point_box(box, width, height):
+    x, y, w, h = box
+    return (x * width, y * height, (x + w) * width, (y + h) * height)
+
+
+def _edge_gaps(box, spot):
+    horizontal = max(0.0, spot[0] - box[2], box[0] - spot[2])
+    vertical = max(0.0, spot[1] - box[3], box[1] - spot[3])
+    return horizontal, vertical
+
+
+def _snap_cost(box, spot):
+    """How well a model box belongs to a real signature line. None keeps the model box.
+
+    The model often boxes the sentence and misses the line beside it or just
+    below it. Overlap always counts. A wide line does not claim the block under it.
+    """
+    horizontal, vertical = _edge_gaps(box, spot)
+    center_y = (box[1] + box[3]) / 2.0
+    above = box[3] <= spot[1] + 12
+    left = box[2] <= spot[0] + 16
+    spot_width = spot[2] - spot[0]
+    shares_row = box[3] >= spot[1] - 8 and box[1] <= spot[3] + 8
+    if horizontal == 0 and vertical == 0:
+        return abs(center_y - (spot[1] + spot[3]) / 2.0) * 0.2
+    near = spot[1] - 20 <= center_y <= spot[3] + 20
+    if horizontal <= 24 and vertical <= 16 and near:
+        return horizontal + vertical + 4
+    if above and vertical <= 28 and horizontal <= 40:
+        return vertical + horizontal + 8
+    if left and spot_width <= 190 and horizontal <= 380 and (shares_row or vertical <= 28):
+        return vertical + horizontal * 0.35 + 12
+    return None
+
+
+def _fallback_window(box, page_width, page_height):
+    """Small pad around the model box when the page has no line to snap to.
+
+    A tall or wide box is trimmed. It is not grown into a column of body text.
     """
     x, y, w, h = box
-    width = max(float(page_width), 1.0)
-    height = max(float(page_height), 1.0)
-    bottom = y + h
-    y1 = min(1.0, bottom + _inch(height, 1.15))
-    y0 = min(bottom - _inch(height, 1.05), y - _inch(height, 0.12))
-    y0 = max(0.0, y0)
-    cap = _inch(height, 2.7)
-    if y1 - y0 > cap:
-        y0 = max(0.0, y1 - cap)
-
-    pad = _inch(width, 0.28)
-    x0 = max(0.0, x - pad)
-    x1 = min(1.0, x + w + pad)
-    if w >= _inch(width, 1.5) and x < 0.7:
-        x0 = min(x0, _inch(width, 0.55))
-        x1 = max(x1, 1.0 - _inch(width, 0.5))
-    else:
-        min_w = min(0.72, _inch(width, 2.6))
-        if x1 - x0 < min_w:
-            cx = min(max(x + w / 2.0, min_w / 2.0), 1.0 - min_w / 2.0)
-            x0 = max(0.0, cx - min_w / 2.0)
-            x1 = min(1.0, x0 + min_w)
+    pad_x = _inch(page_width, 0.14)
+    pad_y = _inch(page_height, 0.08)
+    x0 = max(0.0, x - pad_x)
+    y0 = max(0.0, y - pad_y)
+    x1 = min(1.0, x + w + pad_x)
+    y1 = min(1.0, y + h + pad_y)
+    max_w = min(0.62, _inch(page_width, 4.4))
+    max_h = min(0.2, _inch(page_height, 1.4))
+    if x1 - x0 > max_w:
+        center = min(max(x + w / 2.0, max_w / 2.0), 1.0 - max_w / 2.0)
+        x0 = center - max_w / 2.0
+        x1 = x0 + max_w
+    if y1 - y0 > max_h:
+        y1 = min(1.0, y + h + pad_y)
+        y0 = max(0.0, y1 - max_h)
     return (round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4))
+
+
+def assign_windows(page, boxes):
+    """Crop window for each model box, snapped onto a real line when one is close."""
+    bounds = page.rect
+    windows_on_page = signature_spots(page)
+    spots = [
+        _point_box((window[0], window[1], window[2] - window[0], window[3] - window[1]),
+                   bounds.width, bounds.height)
+        for window in windows_on_page
+    ]
+    chosen = [None] * len(boxes)
+    pairs = []
+    point_boxes = [_point_box(box, bounds.width, bounds.height) for box in boxes]
+    for index, box in enumerate(point_boxes):
+        for spot_index, spot in enumerate(spots):
+            cost = _snap_cost(box, spot)
+            if cost is not None:
+                pairs.append((cost, index, spot_index))
+    pairs.sort()
+    used_spots = set()
+    for cost, index, spot_index in pairs:
+        if chosen[index] is not None:
+            continue
+        if spot_index in used_spots and cost > 36:
+            continue
+        chosen[index] = windows_on_page[spot_index]
+        used_spots.add(spot_index)
+    return [
+        spot if spot is not None else _fallback_window(box, bounds.width, bounds.height)
+        for box, spot in zip(boxes, chosen)
+    ]
 
 
 def _jpeg_region(pix, x0, y0, x1, y1):
@@ -815,8 +1102,7 @@ def render_page_jpeg(doc, page_number):
 
 def crop_jpeg(doc, page_number, box):
     page = doc[page_number - 1]
-    rect = page.rect
-    window = context_fractions(box, rect.width, rect.height)
+    window = assign_windows(page, [box])[0]
     return _jpeg_region(_render_page(page, 2000), *window)
 
 
@@ -862,19 +1148,26 @@ def _crop_items(doc, items):
         try:
             page = doc[page_number - 1]
             pix = _render_page(page, 2000)
-            rect = page.rect
         except Exception:
             log.warning("Signature crop failed on page %s", page_number)
             continue
-        for item in group:
+        try:
+            windows = assign_windows(page, [item["box"] for item in group])
+        except Exception:
+            log.warning("Signature crop failed on page %s", page_number)
+            continue
+        for item, window in zip(group, windows):
             try:
-                window = context_fractions(item["box"], rect.width, rect.height)
                 image = _jpeg_region(pix, *window)
             except Exception:
                 log.warning("Signature crop failed on page %s", page_number)
                 image = None
-            if image:
-                crops[item["id"]] = image
+            if not image:
+                continue
+            x0, y0, x1, y1 = window
+            item["box"] = (x0, y0, round(x1 - x0, 4), round(y1 - y0, 4))
+            item["region"] = region_label(item["box"])
+            crops[item["id"]] = image
     return crops
 
 
