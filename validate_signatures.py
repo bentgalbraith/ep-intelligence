@@ -85,7 +85,7 @@ For each item:
 - type is signature, initial, or notary
 - status is completed when ink, a stamp, or a seal is present; blank when the line or block is empty; ambiguous when you cannot tell
 - page is an integer from 1 through {count}
-- box is [x, y, width, height], fractions of the full page from 0 to 1, origin at the top-left. Include the handwriting or stamp and the line it sits on. Do not box a single letter
+- box is [x, y, width, height], fractions of the full page from 0 to 1, origin at the top-left. Box the handwriting or stamp and the line it sits on, plus the printed name under that line. Do not box the paragraph above the line, and do not box a single letter
 - label is a few words such as "Grantor", "Witness", or "Notary acknowledgment". Do not quote the document
 - date_line is filled when a date beside this item is written in, blank when that date line is empty, none when there is no date line, unclear when you cannot tell
 - confidence is high, medium, or low
@@ -750,36 +750,41 @@ def _render_page(page, max_width):
     return pix
 
 
-def context_fractions(box, page_width, page_height):
-    """A readable window around a line, in fractions of the displayed page.
+def _inch(page_size, inches):
+    return inches * 72.0 / max(float(page_size), 1.0)
 
-    Handwriting sits above the line, so a tight box needs room above it.
-    A box that is already a tall block keeps a smaller margin.
+
+def context_fractions(box, page_width, page_height):
+    """Window around a signature spot, in fractions of the displayed page.
+
+    Models often box the sentence above a signature and stop at the words.
+    The line and the printed name sit just below that, so the window hangs
+    from the bottom of the box. A wide box is a line of text: show the whole
+    column instead of cutting words off on either side.
     """
     x, y, w, h = box
     width = max(float(page_width), 1.0)
     height = max(float(page_height), 1.0)
-    if h * height >= 1.3 * 72:
-        pad_x = 0.2 * 72 / width
-        pad_above = 0.22 * 72 / height
-        pad_below = 0.18 * 72 / height
+    bottom = y + h
+    y1 = min(1.0, bottom + _inch(height, 1.15))
+    y0 = min(bottom - _inch(height, 1.05), y - _inch(height, 0.12))
+    y0 = max(0.0, y0)
+    cap = _inch(height, 2.7)
+    if y1 - y0 > cap:
+        y0 = max(0.0, y1 - cap)
+
+    pad = _inch(width, 0.28)
+    x0 = max(0.0, x - pad)
+    x1 = min(1.0, x + w + pad)
+    if w >= _inch(width, 1.5) and x < 0.7:
+        x0 = min(x0, _inch(width, 0.55))
+        x1 = max(x1, 1.0 - _inch(width, 0.5))
     else:
-        pad_x = 0.45 * 72 / width
-        pad_above = 0.95 * 72 / height
-        pad_below = 0.40 * 72 / height
-    x0 = max(0.0, x - pad_x)
-    y0 = max(0.0, y - pad_above)
-    x1 = min(1.0, x + w + pad_x)
-    y1 = min(1.0, y + h + pad_below)
-    min_w = min(0.62, 3.4 * 72 / width)
-    min_h = min(0.28, 1.7 * 72 / height)
-    if x1 - x0 < min_w:
-        cx = min(max((x0 + x1) / 2, min_w / 2), 1.0 - min_w / 2)
-        x0 = max(0.0, cx - min_w / 2)
-        x1 = min(1.0, x0 + min_w)
-    if y1 - y0 < min_h:
-        y0 = max(0.0, min(y0, 1.0 - min_h))
-        y1 = min(1.0, y0 + min_h)
+        min_w = min(0.72, _inch(width, 2.6))
+        if x1 - x0 < min_w:
+            cx = min(max(x + w / 2.0, min_w / 2.0), 1.0 - min_w / 2.0)
+            x0 = max(0.0, cx - min_w / 2.0)
+            x1 = min(1.0, x0 + min_w)
     return (round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4))
 
 

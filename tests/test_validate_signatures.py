@@ -114,11 +114,21 @@ class RulesTest(unittest.TestCase):
     def test_crop_window_includes_ink_above_a_line(self):
         # A thin line near the bottom of a letter page.
         x0, y0, x1, y1 = sig.context_fractions((0.12, 0.88, 0.08, 0.015), 612, 792)
-        self.assertLess(y0, 0.80)
-        self.assertGreater(y1, 0.89)
-        self.assertGreater(x1 - x0, 0.35)
-        self.assertGreaterEqual(x0, 0)
+        self.assertLess(y0, 0.88)
+        self.assertGreater(y1, 0.895)
+        self.assertGreater(x1 - x0, 0.25)
+        self.assertLessEqual(x0, 0.12)
+        self.assertGreaterEqual(x1, 0.20)
         self.assertLessEqual(y1, 1)
+
+    def test_paragraph_box_reaches_the_signature_line_under_it(self):
+        # The model boxed the declaration paragraph and stopped at the words.
+        # The signature line is just below that paragraph.
+        x0, y0, x1, y1 = sig.context_fractions((0.12, 0.37, 0.55, 0.08), 612, 792)
+        self.assertLess(y0, 0.40)
+        self.assertGreater(y1, 0.54)
+        self.assertLess(x0, 0.10)
+        self.assertGreater(x1, 0.90)
 
     def test_thin_box_is_expanded(self):
         box = sig.parse_box([0.5, 0.9, 0.01, 0.005])
