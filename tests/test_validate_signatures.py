@@ -127,6 +127,11 @@ class RulesTest(unittest.TestCase):
         page.draw_rect(pymupdf.Rect(80, 640, 220, 696), color=(1, 0, 0), fill=(1, 0, 0), width=0)
         page.draw_line(pymupdf.Point(72, 704), pymupdf.Point(400, 704), width=1.2)
         paragraph = (72 / 612, 560 / 792, 400 / 612, 60 / 792)
+        tight = sig.assign_windows(page, [paragraph])[0]
+        shown = sig.context_window(page, tight)
+        self.assertLess(shown[1], tight[1] - 0.03)
+        self.assertLessEqual(shown[0], tight[0])
+        self.assertGreaterEqual(shown[2], tight[2])
         image = sig.crop_jpeg(doc, 1, paragraph)
         doc.close()
         pix = _jpeg_pixmap(image)
@@ -255,7 +260,7 @@ class PdfTest(unittest.TestCase):
         import pymupdf
         doc = pymupdf.open()
         page = doc.new_page(width=612, height=792)
-        page.draw_rect(pymupdf.Rect(80, 400, 150, 450), color=(0, 0, 1), fill=(0, 0, 1), width=0)
+        page.draw_rect(pymupdf.Rect(80, 80, 150, 130), color=(0, 0, 1), fill=(0, 0, 1), width=0)
         page.draw_rect(pymupdf.Rect(470, 448, 524, 478), color=(1, 0, 0), fill=(1, 0, 0), width=0)
         page.draw_line(pymupdf.Point(460, 482), pymupdf.Point(540, 482), width=1.2)
         sentence = (72 / 612, 468 / 792, 180 / 612, 16 / 792)
@@ -273,7 +278,23 @@ class PdfTest(unittest.TestCase):
         page.draw_line(pymupdf.Point(72, 704), pymupdf.Point(280, 704), width=1.2)
         image = sig.crop_jpeg(doc, 1, (0.12, 0.08, 0.3, 0.04))
         doc.close()
-        self.assertEqual(_red_pixels(_jpeg_pixmap(image)), 0)
+        pix = _jpeg_pixmap(image)
+        self.assertEqual(_red_pixels(pix), 0)
+        self.assertLess(pix.width, 900)
+
+    def test_crop_keeps_a_line_that_starts_in_a_narrow_margin(self):
+        import pymupdf
+        doc = pymupdf.open()
+        page = doc.new_page(width=612, height=792)
+        page.insert_text(pymupdf.Point(36, 470), "Reviewed the paragraph above.", fontsize=11)
+        page.draw_rect(pymupdf.Rect(470, 448, 524, 478), color=(1, 0, 0), fill=(1, 0, 0), width=0)
+        page.draw_line(pymupdf.Point(460, 482), pymupdf.Point(540, 482), width=1.2)
+        sentence = (36 / 612, 458 / 792, 200 / 612, 16 / 792)
+        tight = sig.assign_windows(page, [sentence])[0]
+        shown = sig.context_window(page, tight)
+        doc.close()
+        self.assertLess(shown[0] * 612, 36)
+        self.assertGreater(shown[2] * 612, 530)
 
     def test_crop_includes_writing_above_the_line(self):
         import pymupdf

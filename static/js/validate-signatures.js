@@ -72,17 +72,35 @@ function initValidateSignatures(options) {
     const tool = initToolForm({
         formId: 'sig-form',
         btnId: 'btn-validate',
-        async onSubmit({ setLoading, showResult, showError, btnLabel, hasRun }) {
+        async onSubmit({ setLoading, showResult, showError, hasRun }) {
             if (!selectedFiles.length) return;
-            const state = setLoading(true);
-            state.btnLabel.textContent = 'Checking...';
+            setLoading(true);
+            const elapsedEl = document.getElementById('elapsed-time');
+            const started = Date.now();
+            let progress = 'Checking';
+            function formatElapsed(ms) {
+                const total = Math.max(0, ms / 1000);
+                const minutes = Math.floor(total / 60);
+                const seconds = total - minutes * 60;
+                if (minutes) return minutes + 'm ' + Math.floor(seconds) + 's';
+                return total.toFixed(1) + 's';
+            }
+            function paintProgress() {
+                if (!elapsedEl) return;
+                elapsedEl.textContent = progress + ' · ' + formatElapsed(Date.now() - started);
+            }
+            paintProgress();
+            const timer = setInterval(paintProgress, 500);
             try {
                 const body = new FormData();
                 for (const file of selectedFiles) body.append('pdfs', file);
                 const uploadRes = await fetchWithTimeout(options.submitUrl, { method: 'POST', body });
                 const uploadData = await uploadRes.json();
                 if (!uploadRes.ok) throw new Error(uploadData.error || 'Something went wrong');
-                const result = await pollJob(uploadData.job_id, state.btnLabel);
+                const result = await pollJob(uploadData.job_id, (message) => {
+                    if (message) progress = message;
+                });
+                clearInterval(timer);
                 showResult('<div class="sig-report" id="sig-report"></div>');
                 renderSignatureReport(document.getElementById('sig-report'), result, {
                     jobId: uploadData.job_id,
@@ -90,23 +108,26 @@ function initValidateSignatures(options) {
                     fileUrl: options.fileUrl,
                 });
             } catch (err) {
+                clearInterval(timer);
+                if (elapsedEl) elapsedEl.textContent = '';
                 showError(err.message);
             } finally {
-                const next = setLoading(false);
+                clearInterval(timer);
+                setLoading(false);
                 tool.btn.disabled = !selectedFiles.length;
-                next.btnLabel.textContent = hasRun() ? 'Re-Validate' : 'Validate';
+                tool.btnLabel.textContent = hasRun() ? 'Re-Validate' : 'Validate';
             }
         },
     });
 
-    async function pollJob(jobId, btnLabel) {
+    async function pollJob(jobId, onProgress) {
         const url = options.statusUrl.replace('__JOB__', jobId);
         while (true) {
-            await sleep(3000);
             const res = await fetchWithTimeout(url);
             const data = await res.json();
             if (data.status === 'processing') {
-                if (data.progress) btnLabel.textContent = data.progress;
+                if (data.progress) onProgress(data.progress);
+                await sleep(3000);
                 continue;
             }
             if (!res.ok || data.status === 'error') throw new Error(data.error || 'Something went wrong');

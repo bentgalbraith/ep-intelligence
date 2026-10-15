@@ -1043,8 +1043,104 @@ def _fallback_window(box, page_width, page_height):
     return (round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4))
 
 
-def assign_windows(page, boxes):
-    """Crop window for each model box, snapped onto a real line when one is close."""
+def _word_windows(page):
+    """Each word as fractions of the displayed page. Keeps short words."""
+    pymupdf = _pymupdf()
+    bounds = page.rect
+    width = max(bounds.width, 1)
+    height = max(bounds.height, 1)
+    windows = []
+    for word in page.get_text("words") or []:
+        shown = _displayed_rect(page, pymupdf.Rect(word[:4]))
+        windows.append((
+            (shown.x0 - bounds.x0) / width,
+            (shown.y0 - bounds.y0) / height,
+            (shown.x1 - bounds.x0) / width,
+            (shown.y1 - bounds.y0) / height,
+        ))
+    return windows
+
+
+def context_window(page, window):
+    """Pull the crop back a little so the mark can be placed on the page.
+
+    A mark narrower than the text column is widened to that column. The crop
+    then keeps the lines it touches, instead of cutting them off mid-word.
+    """
+    x0, y0, x1, y1 = window
+    width = max(page.rect.width, 1)
+    height = max(page.rect.height, 1)
+    if (x1 - x0) < _inch(width, 5.5):
+        margin = _inch(width, 0.35)
+        x0 = min(x0, margin)
+        x1 = max(x1, 1.0 - margin)
+    else:
+        pad_x = _inch(width, 0.28)
+        x0 = max(0.0, x0 - pad_x)
+        x1 = min(1.0, x1 + pad_x)
+    words = _word_windows(page)
+
+    def hits(word, left, top, right, bottom):
+        return word[2] > left and word[0] < right and word[3] > top and word[1] < bottom
+
+    def absorb(left, top, right, bottom):
+        new_top, new_bottom = top, bottom
+        for word in words:
+            if not hits(word, left, top, right, bottom):
+                continue
+            new_top = min(new_top, word[1])
+            new_bottom = max(new_bottom, word[3])
+        return new_top, new_bottom
+
+    def cover(left, top, right, bottom):
+        for word in words:
+            if word[3] <= top or word[1] >= bottom:
+                continue
+            left = min(left, word[0])
+            right = max(right, word[2])
+        return left, right
+
+    pad_y = _inch(height, 0.62)
+    band_top, band_bottom = absorb(x0, max(0.0, y0 - pad_y), x1, min(1.0, y1 + pad_y))
+    breath = _inch(height, 0.1)
+    band_top, band_bottom = absorb(
+        x0, max(0.0, band_top - breath), x1, min(1.0, band_bottom + breath),
+    )
+    x0, x1 = cover(x0, band_top, x1, band_bottom)
+    band_top, band_bottom = absorb(x0, band_top, x1, band_bottom)
+    x0, x1 = cover(x0, band_top, x1, band_bottom)
+    band_top, band_bottom = absorb(x0, band_top, x1, band_bottom)
+
+    def room(edge_at, before):
+        gap = None
+        for word in words:
+            if word[2] <= x0 or word[0] >= x1:
+                continue
+            if before and word[3] <= edge_at + 0.001:
+                dist = edge_at - word[3]
+            elif not before and word[1] >= edge_at - 0.001:
+                dist = word[1] - edge_at
+            else:
+                continue
+            gap = dist if gap is None else min(gap, dist)
+        if gap is None:
+            return _inch(height, 0.08)
+        return min(_inch(height, 0.08), max(0.0, gap - _inch(height, 0.03)))
+
+    return (
+        round(max(0.0, x0 - _inch(width, 0.06)), 4),
+        round(max(0.0, band_top - room(band_top, True)), 4),
+        round(min(1.0, x1 + _inch(width, 0.06)), 4),
+        round(min(1.0, band_bottom + room(band_bottom, False)), 4),
+    )
+
+
+def _choose_windows(page, boxes):
+    """Each model box, and whether it landed on a real signature line.
+
+    Only a matched line is pulled back for context. A box with no line nearby
+    stays on what the model marked, so a paragraph is not widened into a column.
+    """
     bounds = page.rect
     windows_on_page = signature_spots(page)
     spots = [
@@ -1069,10 +1165,18 @@ def assign_windows(page, boxes):
             continue
         chosen[index] = windows_on_page[spot_index]
         used_spots.add(spot_index)
-    return [
-        spot if spot is not None else _fallback_window(box, bounds.width, bounds.height)
-        for box, spot in zip(boxes, chosen)
-    ]
+    framed = []
+    for box, spot in zip(boxes, chosen):
+        if spot is None:
+            framed.append((_fallback_window(box, bounds.width, bounds.height), False))
+        else:
+            framed.append((spot, True))
+    return framed
+
+
+def assign_windows(page, boxes):
+    """Crop window for each model box, snapped onto a real line when one is close."""
+    return [window for window, _matched in _choose_windows(page, boxes)]
 
 
 def _jpeg_region(pix, x0, y0, x1, y1):
@@ -1100,24 +1204,62 @@ def render_page_jpeg(doc, page_number):
     return _render_page(page, 1600).tobytes("jpeg", jpg_quality=82)
 
 
+def _finish_words(page, window):
+    """Keep a model box from slicing a word it already crosses.
+
+    Word boxes can overlap the next word, so this repeats until the crop
+    no longer stops inside a word.
+    """
+    left, top, right, bottom = window
+    words = _word_windows(page)
+    for _ in range(12):
+        grew = False
+        for word in words:
+            if word[2] <= left or word[0] >= right or word[3] <= top or word[1] >= bottom:
+                continue
+            if word[0] < left - 1e-6 or word[1] < top - 1e-6 or word[2] > right + 1e-6 or word[3] > bottom + 1e-6:
+                left = min(left, word[0])
+                top = min(top, word[1])
+                right = max(right, word[2])
+                bottom = max(bottom, word[3])
+                grew = True
+        if not grew:
+            break
+    return (
+        round(max(0.0, left), 4), round(max(0.0, top), 4),
+        round(min(1.0, right), 4), round(min(1.0, bottom), 4),
+    )
+
+
+def _shown_window(page, window, matched):
+    if not matched:
+        return _finish_words(page, window)
+    return context_window(page, window)
+
+
 def crop_jpeg(doc, page_number, box):
     page = doc[page_number - 1]
-    window = assign_windows(page, [box])[0]
-    return _jpeg_region(_render_page(page, 2000), *window)
+    window, matched = _choose_windows(page, [box])[0]
+    return _jpeg_region(_render_page(page, 2000), *_shown_window(page, window, matched))
 
 
-def _scan_doc(doc, name, file_index, firm_id):
+def _scan_doc(doc, name, file_index, firm_id, on_progress=None):
     def too_big(start, end):
         return len(slice_pdf(doc, start, end)) > CHUNK_BYTES
 
     found = []
     for start, end in chunk_spans(doc.page_count, too_big):
+        if on_progress:
+            if start == end:
+                on_progress(f"Reading page {start + 1}")
+            else:
+                on_progress(f"Reading pages {start + 1}–{end + 1}")
         raw_items = _scan_chunk(slice_pdf(doc, start, end), start + 1, end + 1, firm_id)
         found.extend(normalize_chunk(raw_items, start + 1, end + 1, name, file_index))
     return mark_uncertain(dedupe_items(found))
 
 
-def _verify_doc(doc, items, openai_client, firm_id):
+def _verify_doc(doc, items, openai_client, firm_id, on_progress=None):
     pages = sorted({item["page"] for item in items if item["status"] == "ambiguous"})
     if not pages or openai_client is None:
         return items
@@ -1130,6 +1272,8 @@ def _verify_doc(doc, items, openai_client, firm_id):
             rest.append(item)
     checked = []
     for page in pages:
+        if on_progress:
+            on_progress(f"Rechecking page {page}")
         try:
             image = render_page_jpeg(doc, page)
             checked.extend(_verify_page(openai_client, image, page, by_page[page], firm_id))
@@ -1152,13 +1296,13 @@ def _crop_items(doc, items):
             log.warning("Signature crop failed on page %s", page_number)
             continue
         try:
-            windows = assign_windows(page, [item["box"] for item in group])
+            choices = _choose_windows(page, [item["box"] for item in group])
         except Exception:
             log.warning("Signature crop failed on page %s", page_number)
             continue
-        for item, window in zip(group, windows):
+        for item, (window, matched) in zip(group, choices):
             try:
-                image = _jpeg_region(pix, *window)
+                image = _jpeg_region(pix, *_shown_window(page, window, matched))
             except Exception:
                 log.warning("Signature crop failed on page %s", page_number)
                 image = None
@@ -1180,14 +1324,22 @@ def validate_documents(uploads, openai_client, firm_id=None, on_progress=None):
     total_pages = 0
     total = len(uploads)
     for index, (name, data) in enumerate(uploads):
-        if on_progress:
-            on_progress(f"Checking document {index + 1} of {total}")
+        def report(message, doc_index=index):
+            if not on_progress:
+                return
+            if total > 1:
+                on_progress(f"Document {doc_index + 1} of {total}: {message}")
+            else:
+                on_progress(message)
+
+        report("Opening the document")
         doc = open_pdf(data, name)
         try:
             total_pages += doc.page_count
             documents.append({"index": index, "name": name, "pages": doc.page_count})
-            file_items = _scan_doc(doc, name, index, firm_id)
-            file_items = _verify_doc(doc, file_items, openai_client, firm_id)
+            file_items = _scan_doc(doc, name, index, firm_id, on_progress=report)
+            file_items = _verify_doc(doc, file_items, openai_client, firm_id, on_progress=report)
+            report("Preparing screenshots")
             for item in file_items:
                 item["region"] = region_label(item["box"])
             crops.update(_crop_items(doc, file_items))
