@@ -938,6 +938,7 @@ def signature_spots(page):
     used = set()
     spots = []
     rows = _cluster_rules(_rule_lines(page))
+    rows.extend(_underscore_rows(words))
     rows.sort(key=lambda row: row["y"])
     for row_index, row in enumerate(rows):
         attached = []
@@ -1231,10 +1232,158 @@ def _finish_words(page, window):
     )
 
 
+def _is_underscore(text):
+    stripped = (text or "").strip()
+    if len(stripped) < 4:
+        return False
+    marks = sum(ch in "_—–-." for ch in stripped)
+    return marks / len(stripped) >= 0.8
+
+
+def _underscore_rows(words):
+    """Signature lines drawn as a run of underscore characters."""
+    marks = [word for word in words if _is_underscore(word[4])]
+    rows = []
+    for word in marks:
+        y = (word[1] + word[3]) / 2.0
+        placed = False
+        for row in rows:
+            if abs(row["y"] - y) <= 3 and word[0] - row["x1"] < 24:
+                row["x0"] = min(row["x0"], word[0])
+                row["x1"] = max(row["x1"], word[2])
+                row["y"] = (row["y"] + y) / 2.0
+                placed = True
+                break
+        if not placed:
+            rows.append({"x0": word[0], "x1": word[2], "y": y})
+    return [row for row in rows if row["x1"] - row["x0"] >= 36]
+
+
+def _window_hits_words(page, window):
+    x0, y0, x1, y1 = window
+    width = max(page.rect.width, 1)
+    height = max(page.rect.height, 1)
+    for word in page.get_text("words") or []:
+        if word[2] / width <= x0 or word[0] / width >= x1:
+            continue
+        if word[3] / height <= y0 or word[1] / height >= y1:
+            continue
+        if not _is_underscore(word[4]):
+            return True
+    return False
+
+
+def _rescue_empty_window(page, window):
+    """A blank signature is often just empty space above its printed name.
+
+    If the crop contains neither words nor a rule, pull in the nearest caption
+    so the picture shows the empty line and the name under it.
+    """
+    if _window_hits_words(page, window):
+        return window
+    width = max(page.rect.width, 1)
+    height = max(page.rect.height, 1)
+    x0, y0, x1, y1 = window
+    lines = []
+    for word in page.get_text("words") or []:
+        if _is_underscore(word[4]):
+            continue
+        y = (word[1] + word[3]) / 2.0
+        placed = False
+        for line in lines:
+            if abs(line["y"] - y) <= 3:
+                line["words"].append(word)
+                placed = True
+                break
+        if not placed:
+            lines.append({"y": y, "words": [word]})
+    best = None
+    best_score = None
+    for line in lines:
+        xs = [edge for word in line["words"] for edge in (word[0], word[2])]
+        if max(xs) < (x0 * width) - 48 or min(xs) > (x1 * width) + 48:
+            continue
+        if line["y"] < y0 * height:
+            dist = y0 * height - line["y"]
+            below = False
+        elif line["y"] > y1 * height:
+            dist = line["y"] - y1 * height
+            below = True
+        else:
+            continue
+        if dist > 78:
+            continue
+        score = dist if below else dist + 20
+        if best_score is None or score < best_score:
+            best_score = score
+            best = line
+    if best is None:
+        return window
+    left = min(x0 * width, min(word[0] for word in best["words"]))
+    right = max(x1 * width, max(word[2] for word in best["words"]))
+    top = min(y0 * height, min(word[1] for word in best["words"]))
+    bottom = max(y1 * height, max(word[3] for word in best["words"]))
+    marks = list(_rule_lines(page))
+    for row in _underscore_rows(page.get_text("words") or []):
+        marks.append((row["x0"], row["y"], row["x1"]))
+    for _x0, rule_y, _x1 in marks:
+        if top - 4 <= rule_y <= bottom + 4:
+            top = min(top, rule_y - 18)
+            bottom = max(bottom, rule_y + 4)
+    pad = 4
+    rescued = (
+        max(0.0, (left - pad) / width),
+        max(0.0, (top - pad) / height),
+        min(1.0, (right + pad) / width),
+        min(1.0, (bottom + pad) / height),
+    )
+    return tuple(round(value, 4) for value in rescued)
+
+
+def _empty_gap_spot(page, window):
+    """An empty box sitting just above a signature line belongs to that line.
+
+    The model often boxes only the blank writing area and misses the rule, so
+    the crop is white. Use the line itself when the gap is empty.
+    """
+    if _window_hits_words(page, window):
+        return None
+    bounds = page.rect
+    width = max(bounds.width, 1)
+    height = max(bounds.height, 1)
+    x0, y0, x1, y1 = (
+        window[0] * width, window[1] * height, window[2] * width, window[3] * height,
+    )
+    best = None
+    best_gap = None
+    for spot in signature_spots(page):
+        sx0 = spot[0] * width
+        sy0 = spot[1] * height
+        sx1 = spot[2] * width
+        if min(x1, sx1) - max(x0, sx0) < 20:
+            continue
+        if y1 > sy0 + 8:
+            continue
+        gap = sy0 - y1
+        if gap > 72:
+            continue
+        if best_gap is None or gap < best_gap:
+            best_gap = gap
+            best = spot
+    return best
+
+
 def _shown_window(page, window, matched):
     if not matched:
-        return _finish_words(page, window)
-    return context_window(page, window)
+        spot = _empty_gap_spot(page, window)
+        if spot is not None:
+            window = spot
+            matched = True
+    if matched:
+        shown = context_window(page, window)
+    else:
+        shown = _finish_words(page, window)
+    return _rescue_empty_window(page, shown)
 
 
 def crop_jpeg(doc, page_number, box):

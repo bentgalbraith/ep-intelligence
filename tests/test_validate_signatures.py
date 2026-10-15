@@ -282,6 +282,20 @@ class PdfTest(unittest.TestCase):
         self.assertEqual(_red_pixels(pix), 0)
         self.assertLess(pix.width, 900)
 
+    def test_blank_signature_crop_includes_the_line_and_the_name(self):
+        import pymupdf
+        doc = pymupdf.open()
+        page = doc.new_page(width=612, height=792)
+        page.draw_line(pymupdf.Point(72, 520), pymupdf.Point(320, 520), width=1.2)
+        page.insert_text(pymupdf.Point(72, 536), "Testator", fontsize=11)
+        # Empty writing area above the line, far enough that it does not overlap it.
+        gap = (72 / 612, 400 / 792, 200 / 612, 40 / 792)
+        image = sig.crop_jpeg(doc, 1, gap)
+        doc.close()
+        pix = _jpeg_pixmap(image)
+        self.assertGreater(_dark_pixels(pix), 40)
+        self.assertGreater(pix.height, 80)
+
     def test_crop_keeps_a_line_that_starts_in_a_narrow_margin(self):
         import pymupdf
         doc = pymupdf.open()
