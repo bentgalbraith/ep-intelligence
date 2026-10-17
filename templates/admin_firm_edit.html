@@ -279,8 +279,18 @@
             </div>
         </section>
 
-        <section class="admin-section">
-            <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_validate_signatures" value="1" {{ 'checked' if tools.get('validate_signatures') }}> Name Files & Validate Signatures</label>
+        <section class="admin-section{% if start_open %} is-open{% endif %}" data-collapsible>
+            <div class="admin-collapse-row">
+                <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_validate_signatures" value="1" data-tool-toggle="validate_signatures" {{ 'checked' if tools.get('validate_signatures') }}> Name Files & Validate Signatures</label>
+                <button type="button" class="admin-collapse-btn admin-collapse-btn-icon" aria-expanded="{{ 'true' if start_open else 'false' }}" aria-label="Name Files & Validate Signatures settings">{{ collapse_chevron() }}</button>
+            </div>
+            <div class="admin-section-body" {% if not start_open %}hidden{% endif %}>
+                <div class="admin-tool-fields" data-tool-fields="validate_signatures">
+                    <label class="admin-label">File Naming Rules</label>
+                    <p class="admin-hint">How this firm wants estate-planning PDFs named. Each file is named from the document itself. The uploaded file name is not used. Leave this blank and every name is flagged for review.</p>
+                    <textarea class="admin-textarea" name="signature_naming_rules" rows="12">{{ cfg.get('signature_naming_rules', '') }}</textarea>
+                </div>
+            </div>
         </section>
 
         <section class="admin-section">

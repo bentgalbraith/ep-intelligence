@@ -31,6 +31,8 @@ TOOL_LABELS = {
     "validate_signatures": "Name Files & Validate Signatures",
     "validate_signatures_scan": "Name Files & Validate Signatures (scan)",
     "validate_signatures_verify": "Name Files & Validate Signatures (verify)",
+    "validate_signatures_name": "Name Files & Validate Signatures (name)",
+    "validate_signatures_name_verify": "Name Files & Validate Signatures (name check)",
     "client_doc_summary": "Summarize Documents for Clients",
     "client_doc_summary_ocr": "Summarize Documents for Clients (OCR)",
     "client_doc_summary_part": "Summarize Documents for Clients (part)",
@@ -48,6 +50,8 @@ STEP_OF = {
     "client_doc_summary_part": "client_doc_summary",
     "validate_signatures_scan": "validate_signatures",
     "validate_signatures_verify": "validate_signatures",
+    "validate_signatures_name": "validate_signatures",
+    "validate_signatures_name_verify": "validate_signatures",
 }
 
 ALIAS_OF = {

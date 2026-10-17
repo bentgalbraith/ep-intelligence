@@ -306,6 +306,7 @@ def seed_firm_if_empty():
         "prospect_schema": prospect_schema,
         "doc_separator_rules": "",
         "doc_filename_format": "{last}, {first} - {type} {date}",
+        "signature_naming_rules": "",
         "tracker_default_steps": DEFAULT_STEPS,
         "client_site_url": "https://gwclient.com",
         "tools_enabled": {

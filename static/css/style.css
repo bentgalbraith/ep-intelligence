@@ -4453,12 +4453,29 @@ a.specimen-name:hover {
     min-width: 0;
 }
 
+.sig-doc[hidden] {
+    display: none;
+}
+
 .sig-doc-name {
     display: block;
     font-size: 0.9rem;
     font-weight: 600;
     color: #1a1a1a;
     word-break: break-word;
+}
+
+.sig-doc-name.is-attention {
+    color: #ea580c;
+}
+
+.sig-doc-reason {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: #ea580c;
+    overflow-wrap: anywhere;
 }
 
 .sig-doc-facts {

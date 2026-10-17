@@ -77,7 +77,7 @@ function initValidateSignatures(options) {
             setLoading(true);
             const elapsedEl = document.getElementById('elapsed-time');
             function showProgress(message) {
-                if (elapsedEl && message) elapsedEl.textContent = message;
+                if (elapsedEl && message) elapsedEl.textContent = message.replace(/\.{3}$/, '') + '...';
             }
             showProgress('Checking');
             try {
@@ -124,19 +124,20 @@ function initValidateSignatures(options) {
 function renderSignatureReport(root, result, urls) {
     const items = Array.isArray(result.items) ? result.items : [];
     const documents = documentsOf(result, items);
-    root.appendChild(summaryBlock(result.pages || 0, items));
+    root.appendChild(summaryBlock(result.pages || 0, items, documents));
     if (!documents.length) {
         root.appendChild(el('p', 'sig-empty', 'No signature, initial, or notary lines found.'));
         return;
     }
-    if (items.length) root.appendChild(filterBar(root));
+    const namesKnown = documents.some((doc) => doc.name_status);
+    if (items.length || namesKnown) root.appendChild(filterBar(root, namesKnown));
     documents.forEach((doc) => {
         const docItems = items.filter((item) => item.file === doc.name);
         root.appendChild(renderDocument(doc, docItems, urls, false));
     });
 }
 
-function summaryBlock(pages, items) {
+function summaryBlock(pages, items, documents) {
     const summary = el('div', 'sig-summary');
     const grid = el('div', 'sig-summary-grid');
     function count(key, value) {
@@ -165,14 +166,25 @@ function summaryBlock(pages, items) {
         const chip = el('span', 'sig-chip' + (status !== 'completed' && n > 0 ? ' is-attention' : ''), countLabel(n, singular, plural));
         statuses.appendChild(chip);
     });
+    const namedDocs = (documents || []).filter((doc) => doc.name_status);
+    if (namedDocs.length) {
+        const unclearNames = namedDocs.filter((doc) => doc.name_status === 'ambiguous').length;
+        statuses.appendChild(el(
+            'span',
+            'sig-chip' + (unclearNames > 0 ? ' is-attention' : ''),
+            countLabel(unclearNames, 'unclear name', 'unclear names'),
+        ));
+    }
     summary.appendChild(statuses);
     return summary;
 }
 
-function filterBar(root) {
+function filterBar(root, includeNames) {
     let active = 'all';
     const filters = el('div', 'sig-filters');
-    [['all', 'All'], ['blank', 'Blanks'], ['ambiguous', 'Unclear'], ['completed', 'Completed']].forEach(([value, label]) => {
+    const choices = [['all', 'All'], ['blank', 'Blanks'], ['ambiguous', 'Unclear'], ['completed', 'Completed']];
+    if (includeNames) choices.push(['names', 'Unclear names']);
+    choices.forEach(([value, label]) => {
         const button = el('button', 'sig-filter' + (value === 'all' ? ' is-active' : ''), label);
         button.type = 'button';
         button.dataset.filter = value;
@@ -185,13 +197,16 @@ function filterBar(root) {
         filters.querySelectorAll('.sig-filter').forEach((node) => {
             node.classList.toggle('is-active', node === button);
         });
+        root.querySelectorAll('.sig-doc').forEach((section) => {
+            section.hidden = active === 'names' && section.dataset.nameStatus !== 'ambiguous';
+        });
         root.querySelectorAll('.sig-row').forEach((row) => {
-            row.hidden = active !== 'all' && row.dataset.status !== active;
+            row.hidden = active !== 'all' && active !== 'names' && row.dataset.status !== active;
         });
         root.querySelectorAll('.sig-doc').forEach((section) => {
             const visible = section.querySelectorAll('.sig-row:not([hidden])').length;
             const empty = section.querySelector('.sig-doc-none');
-            if (empty) empty.hidden = visible > 0;
+            if (empty) empty.hidden = visible > 0 || active === 'names';
         });
     });
     return filters;
@@ -208,13 +223,17 @@ function documentsOf(result, items) {
 
 function renderDocument(doc, items, urls, startOpen) {
     const section = el('section', 'sig-doc' + (startOpen ? ' is-open' : ''));
+    section.dataset.nameStatus = doc.name_status || '';
     const head = el('div', 'sig-doc-head');
     const toggle = el('button', 'sig-doc-toggle');
     toggle.type = 'button';
     toggle.setAttribute('aria-expanded', startOpen ? 'true' : 'false');
     toggle.appendChild(chevron());
     const text = el('span', 'sig-doc-text');
-    text.appendChild(el('span', 'sig-doc-name', doc.name || 'Document'));
+    const unclearName = doc.name_status === 'ambiguous';
+    const heading = doc.proposed_name || (unclearName ? 'Unclear name' : (doc.name || 'Document'));
+    text.appendChild(el('span', 'sig-doc-name' + (unclearName ? ' is-attention' : ''), heading));
+    if (unclearName && doc.name_reason) text.appendChild(el('span', 'sig-doc-reason', doc.name_reason));
     text.appendChild(docFacts(doc, items));
     toggle.appendChild(text);
     head.appendChild(toggle);
@@ -222,9 +241,12 @@ function renderDocument(doc, items, urls, startOpen) {
         const link = document.createElement('a');
         link.className = 'sig-download';
         link.href = urls.fileUrl.replace('__JOB__', urls.jobId).replace('__FILE__', String(doc.index));
-        link.download = doc.name || 'document.pdf';
+        const downloadName = doc.name_status === 'ready' && doc.proposed_name
+            ? doc.proposed_name
+            : (doc.name || 'document.pdf');
+        link.download = downloadName;
         link.title = 'Download PDF';
-        link.setAttribute('aria-label', 'Download ' + (doc.name || 'PDF'));
+        link.setAttribute('aria-label', 'Download ' + downloadName);
         link.appendChild(downloadIcon());
         head.appendChild(link);
     }

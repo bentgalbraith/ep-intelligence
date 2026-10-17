@@ -2204,6 +2204,19 @@ def _fail_signature_job(job_id, message):
             })
 
 
+def _signature_naming_rules(firm_id):
+    """The firm's naming instructions, '' when unset, or None when they could not be loaded."""
+    if not firm_id:
+        return ""
+    try:
+        config = tracker_db.get_firm_config(firm_id)
+    except Exception:
+        app.logger.warning("Naming rules could not be loaded")
+        return None
+    rules = (config or {}).get("signature_naming_rules") or ""
+    return rules if isinstance(rules, str) else ""
+
+
 def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
     with log_context(**(log_ctx or {})):
         with _jobs_lock:
@@ -2223,6 +2236,7 @@ def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
             started = time.time()
             result, crops = validate_documents(
                 uploads, openai_client, firm_id=firm_id, on_progress=on_progress,
+                naming_rules=_signature_naming_rules(firm_id),
             )
             with _jobs_lock:
                 current = _jobs.get(job_id)
@@ -2243,7 +2257,8 @@ def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
                 execution_ms=int((time.time() - started) * 1000),
                 notes=(
                     f"{result['files']} files, {result['pages']} pages, "
-                    f"{len(result['items'])} items"
+                    f"{len(result['items'])} items, "
+                    f"{sum(1 for doc in result['documents'] if doc.get('name_status') == 'ambiguous')} unclear names"
                 ),
             )
         except SignatureError as e:
@@ -2356,7 +2371,13 @@ def api_validate_signatures_file(job_id, file_index):
     documents = (job.get("result") or {}).get("documents") or []
     if index >= len(pdfs) or index >= len(documents):
         return jsonify({"error": "Not found."}), 404
-    name = documents[index].get("name") or "document.pdf"
+    document = documents[index]
+    name = document.get("name") or "document.pdf"
+    if document.get("name_status") == "ready" and document.get("proposed_name"):
+        from validate_signatures import clean_proposed_name
+        safe = clean_proposed_name(document.get("proposed_name"), name)
+        if safe:
+            name = safe
     from urllib.parse import quote
     ascii_name = "".join(ch if 32 <= ord(ch) < 127 and ch not in {'"', "\\"} else "_" for ch in name)
     return Response(
@@ -3944,6 +3965,7 @@ def _parse_config_from_form(form):
     config["firm_context"] = form.get("firm_context", "").strip()
     config["doc_separator_rules"] = form.get("doc_separator_rules", "").strip()
     config["doc_filename_format"] = form.get("doc_filename_format", "").strip()
+    config["signature_naming_rules"] = form.get("signature_naming_rules", "").strip()
     config["client_site_url"] = form.get("client_site_url", "").strip()
     config["tools_enabled"] = {
         "drafting_notes": bool(form.get("tool_drafting_notes")),
@@ -4010,6 +4032,11 @@ def _validate_config(config):
             errors.append("Tracker default steps must be a JSON array")
     if tools.get("doc_separator") and not config.get("doc_filename_format"):
         errors.append("Document filename format is required when Document Separator is enabled")
+    naming_rules = config.get("signature_naming_rules") or ""
+    if not isinstance(naming_rules, str):
+        errors.append("File naming rules must be text")
+    elif len(naming_rules) > 12000:
+        errors.append("File naming rules must be 12,000 characters or fewer")
     if tools.get("actionstep_schedule"):
         errors.extend(validate_schedule_config(config.get("actionstep_schedule") or {}))
     return errors
