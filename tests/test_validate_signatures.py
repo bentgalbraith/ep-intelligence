@@ -481,6 +481,60 @@ class NamingTest(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         self.assertTrue(all(row["name_status"] == "ambiguous" and row["proposed_name"] == "" for row in rows))
 
+    def test_naming_failure_still_leaves_a_download_name(self):
+        def propose(_rules):
+            raise sig.SignatureError("naming failed")
+
+        rows = sig.assign_file_names("Use the surname.", ["scan.pdf"], propose)
+        self.assertEqual(rows[0]["proposed_name"], "Document.pdf")
+        self.assertEqual(rows[0]["name_reason"], sig._CHECK_NAME)
+
+    def test_unloaded_rules_do_not_guess(self):
+        def propose(_rules):
+            raise AssertionError("rules were not loaded")
+
+        rows = sig.assign_file_names(None, ["scan.pdf", "other.pdf"], propose)
+        self.assertEqual([row["proposed_name"] for row in rows], ["Document.pdf", "Document (2).pdf"])
+        self.assertTrue(all(row["name_status"] == "ambiguous" for row in rows))
+        self.assertTrue(all(row["name_reason"] == sig._NAME_FAILED for row in rows))
+
+    def test_blank_rules_use_the_default_and_keep_a_real_name(self):
+        def propose(rules):
+            self.assertEqual(rules, sig.DEFAULT_NAMING_RULES)
+            return {0: {"filename": "EXAMPLE WILL.pdf", "confidence": "high", "reason": ""}}
+
+        rows = sig.assign_file_names("", ["scan.pdf"], propose)
+        self.assertEqual(rows[0]["proposed_name"], "EXAMPLE WILL.pdf")
+        self.assertEqual(rows[0]["name_status"], "ready")
+
+    def test_blank_rules_still_name_files(self):
+        self.assertEqual(sig.naming_instructions(""), sig.DEFAULT_NAMING_RULES)
+        self.assertEqual(sig.naming_instructions(None), sig.DEFAULT_NAMING_RULES)
+        self.assertEqual(sig.naming_instructions("  Use the surname.  "), "Use the surname.")
+        self.assertNotIn("original", sig.DEFAULT_NAMING_RULES.lower())
+
+    def test_every_file_gets_a_download_name(self):
+        rows = sig.ensure_download_names(sig.unnamed_files(2, sig._CHECK_NAME))
+        self.assertEqual([row["proposed_name"] for row in rows], ["Document.pdf", "Document (2).pdf"])
+        kept = sig.ensure_download_names([
+            {"proposed_name": "Document.pdf", "name_status": "ready", "name_reason": ""},
+            {"proposed_name": "", "name_status": "ambiguous", "name_reason": ""},
+        ])
+        self.assertEqual(kept[1]["proposed_name"], "Document (2).pdf")
+        self.assertEqual(kept[1]["name_reason"], sig._CHECK_NAME)
+
+    def test_user_name_can_match_the_upload(self):
+        self.assertEqual(sig.usable_pdf_name("scan.pdf"), "scan.pdf")
+        self.assertEqual(sig.usable_pdf_name("EXAMPLE: TRUST?.pdf"), "EXAMPLE TRUST.pdf")
+        self.assertEqual(sig.usable_pdf_name("../secret/EXAMPLE.pdf"), "EXAMPLE.pdf")
+        self.assertEqual(sig.usable_pdf_name(""), "Document.pdf")
+
+    def test_zip_names_do_not_overwrite(self):
+        self.assertEqual(
+            sig.unique_download_names(["EXAMPLE WILL.pdf", "example will.pdf", ""]),
+            ["EXAMPLE WILL.pdf", "example will (2).pdf", "Document.pdf"],
+        )
+
     def test_review_pages_prefer_titled_pages(self):
         self.assertEqual(sig.name_review_pages(8, [{"page": 4}, {"page": 4}, {"page": 9}]), [1, 4, 8])
         self.assertEqual(sig.name_review_pages(20, [{"page": page} for page in range(2, 12)]), [1, 2, 3, 20])

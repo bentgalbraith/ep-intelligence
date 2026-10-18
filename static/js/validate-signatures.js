@@ -92,6 +92,8 @@ function initValidateSignatures(options) {
                     jobId: uploadData.job_id,
                     cropUrl: options.cropUrl,
                     fileUrl: options.fileUrl,
+                    zipUrl: options.zipUrl,
+                    nameUrl: options.nameUrl,
                 });
             } catch (err) {
                 if (elapsedEl) elapsedEl.textContent = '';
@@ -124,92 +126,62 @@ function initValidateSignatures(options) {
 function renderSignatureReport(root, result, urls) {
     const items = Array.isArray(result.items) ? result.items : [];
     const documents = documentsOf(result, items);
-    root.appendChild(summaryBlock(result.pages || 0, items, documents));
+    const names = documents.map(displayName);
+    root.appendChild(bannerBlock(items, documents, names, urls));
     if (!documents.length) {
-        root.appendChild(el('p', 'sig-empty', 'No signature, initial, or notary lines found.'));
+        root.appendChild(el('p', 'sig-empty', 'No documents to name.'));
         return;
     }
-    const namesKnown = documents.some((doc) => doc.name_status);
-    if (items.length || namesKnown) root.appendChild(filterBar(root, namesKnown));
-    documents.forEach((doc) => {
+    documents.forEach((doc, index) => {
         const docItems = items.filter((item) => item.file === doc.name);
-        root.appendChild(renderDocument(doc, docItems, urls, false));
+        root.appendChild(renderDocument(doc, docItems, urls, names, index));
     });
 }
 
-function summaryBlock(pages, items, documents) {
-    const summary = el('div', 'sig-summary');
-    const grid = el('div', 'sig-summary-grid');
-    function count(key, value) {
-        return items.filter((item) => item[key] === value).length;
+function bannerBlock(items, documents, names, urls) {
+    const banner = el('div', 'sig-banner');
+    const copy = el('div', 'sig-banner-copy');
+    const problems = problemPhrase(items);
+    if (!items.length && documents.length) {
+        copy.appendChild(el('p', 'sig-banner-title', 'No signature lines found'));
+        copy.appendChild(el('p', 'sig-banner-sub', 'The files are named and ready to download.'));
+    } else if (problems) {
+        banner.classList.add('is-problem');
+        copy.appendChild(el('p', 'sig-banner-title', problems));
+        copy.appendChild(el('p', 'sig-banner-sub', 'Fix this before the client leaves.'));
+    } else {
+        copy.appendChild(el('p', 'sig-banner-title', 'Ready to file'));
+        copy.appendChild(el('p', 'sig-banner-sub', 'Every signature, initial, and notarization is filled in.'));
     }
-    [
-        [pages, 'Pages'],
-        [items.length, 'Items'],
-        [count('type', 'signature'), 'Signatures'],
-        [count('type', 'initial'), 'Initials'],
-        [count('type', 'notary'), 'Notaries'],
-    ].forEach(([value, label]) => {
-        const stat = el('div', 'sig-stat');
-        stat.appendChild(el('span', 'sig-stat-value', String(value)));
-        stat.appendChild(el('span', 'sig-stat-label', label));
-        grid.appendChild(stat);
-    });
-    summary.appendChild(grid);
-    const statuses = el('div', 'sig-status-row');
-    [
-        ['completed', 'completed', 'completed'],
-        ['blank', 'blank', 'blanks'],
-        ['ambiguous', 'unclear', 'unclear'],
-    ].forEach(([status, singular, plural]) => {
-        const n = count('status', status);
-        const chip = el('span', 'sig-chip' + (status !== 'completed' && n > 0 ? ' is-attention' : ''), countLabel(n, singular, plural));
-        statuses.appendChild(chip);
-    });
-    const namedDocs = (documents || []).filter((doc) => doc.name_status);
-    if (namedDocs.length) {
-        const unclearNames = namedDocs.filter((doc) => doc.name_status === 'ambiguous').length;
-        statuses.appendChild(el(
-            'span',
-            'sig-chip' + (unclearNames > 0 ? ' is-attention' : ''),
-            countLabel(unclearNames, 'unclear name', 'unclear names'),
-        ));
-    }
-    summary.appendChild(statuses);
-    return summary;
-}
-
-function filterBar(root, includeNames) {
-    let active = 'all';
-    const filters = el('div', 'sig-filters');
-    const choices = [['all', 'All'], ['blank', 'Blanks'], ['ambiguous', 'Unclear'], ['completed', 'Completed']];
-    if (includeNames) choices.push(['names', 'Unclear names']);
-    choices.forEach(([value, label]) => {
-        const button = el('button', 'sig-filter' + (value === 'all' ? ' is-active' : ''), label);
+    banner.appendChild(copy);
+    if (documents.length && urls.zipUrl && urls.jobId) {
+        const button = el('button', 'btn-download sig-zip', 'Download all');
         button.type = 'button';
-        button.dataset.filter = value;
-        filters.appendChild(button);
+        button.addEventListener('click', () => downloadZip(button, names, urls));
+        banner.appendChild(button);
+    }
+    return banner;
+}
+
+function problemPhrase(items) {
+    const parts = [];
+    [
+        ['signature', 'signature', 'signatures'],
+        ['initial', 'initial', 'initials'],
+        ['notary', 'notarization', 'notarizations'],
+    ].forEach(([type, singular, plural]) => {
+        const blanks = items.filter((item) => item.type === type && item.status === 'blank').length;
+        const unclear = items.filter((item) => item.type === type && item.status === 'ambiguous').length;
+        if (blanks) parts.push(countLabel(blanks, 'blank ' + singular, 'blank ' + plural));
+        if (unclear) parts.push(countLabel(unclear, 'unclear ' + singular, 'unclear ' + plural));
     });
-    filters.addEventListener('click', (e) => {
-        const button = e.target.closest('.sig-filter');
-        if (!button) return;
-        active = button.dataset.filter;
-        filters.querySelectorAll('.sig-filter').forEach((node) => {
-            node.classList.toggle('is-active', node === button);
-        });
-        root.querySelectorAll('.sig-doc').forEach((section) => {
-            section.hidden = active === 'names' && section.dataset.nameStatus !== 'ambiguous';
-        });
-        root.querySelectorAll('.sig-row').forEach((row) => {
-            row.hidden = active !== 'all' && active !== 'names' && row.dataset.status !== active;
-        });
-        root.querySelectorAll('.sig-doc').forEach((section) => {
-            const visible = section.querySelectorAll('.sig-row:not([hidden])').length;
-            const empty = section.querySelector('.sig-doc-none');
-            if (empty) empty.hidden = visible > 0 || active === 'names';
-        });
-    });
-    return filters;
+    if (!parts.length) return '';
+    if (parts.length === 1) return capitalize(parts[0]);
+    return capitalize(parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1]);
+}
+
+function capitalize(text) {
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
 }
 
 function documentsOf(result, items) {
@@ -221,75 +193,147 @@ function documentsOf(result, items) {
     return names.map((name, index) => ({ index: index, name: name, pages: null }));
 }
 
-function renderDocument(doc, items, urls, startOpen) {
-    const section = el('section', 'sig-doc' + (startOpen ? ' is-open' : ''));
-    section.dataset.nameStatus = doc.name_status || '';
+function renderDocument(doc, items, urls, names, index) {
+    const problems = items.filter((item) => item.status === 'blank' || item.status === 'ambiguous');
+    const open = problems.length > 0;
+    const section = el('section', 'sig-doc' + (open ? ' is-open is-problem' : ''));
     const head = el('div', 'sig-doc-head');
     const toggle = el('button', 'sig-doc-toggle');
     toggle.type = 'button';
-    toggle.setAttribute('aria-expanded', startOpen ? 'true' : 'false');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.setAttribute('aria-label', open ? 'Hide signatures' : 'Show signatures');
     toggle.appendChild(chevron());
-    const text = el('span', 'sig-doc-text');
-    const unclearName = doc.name_status === 'ambiguous';
-    const heading = doc.proposed_name || (unclearName ? 'Unclear name' : (doc.name || 'Document'));
-    text.appendChild(el('span', 'sig-doc-name' + (unclearName ? ' is-attention' : ''), heading));
-    if (unclearName && doc.name_reason) text.appendChild(el('span', 'sig-doc-reason', doc.name_reason));
-    text.appendChild(docFacts(doc, items));
-    toggle.appendChild(text);
     head.appendChild(toggle);
+
+    const field = el('div', 'sig-name-field');
+    const input = document.createElement('input');
+    input.className = 'sig-name';
+    input.type = 'text';
+    input.value = names[index];
+    input.spellcheck = false;
+    input.setAttribute('aria-label', 'File name');
+    input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') input.blur();
+    });
+    const fileIndex = doc.index != null ? doc.index : index;
+    input.addEventListener('blur', () => {
+        const next = pdfName(input.value) || names[index];
+        input.value = next;
+        names[index] = next;
+        rememberName(fileIndex, next, urls, input, names, index);
+    });
+    field.appendChild(input);
+    const issue = problemPhrase(items);
+    if (issue) field.appendChild(el('p', 'sig-file-issue', issue));
+    else if (doc.name_status === 'ambiguous' && doc.name_reason) {
+        field.appendChild(el('p', 'sig-name-note', doc.name_reason));
+    }
+    head.appendChild(field);
+
     if (urls.fileUrl && urls.jobId) {
         const link = document.createElement('a');
         link.className = 'sig-download';
-        link.href = urls.fileUrl.replace('__JOB__', urls.jobId).replace('__FILE__', String(doc.index));
-        const downloadName = doc.name_status === 'ready' && doc.proposed_name
-            ? doc.proposed_name
-            : (doc.name || 'document.pdf');
-        link.download = downloadName;
+        link.href = urls.fileUrl.replace('__JOB__', urls.jobId).replace('__FILE__', String(fileIndex));
         link.title = 'Download PDF';
-        link.setAttribute('aria-label', 'Download ' + downloadName);
+        link.setAttribute('aria-label', 'Download PDF');
         link.appendChild(downloadIcon());
+        link.addEventListener('click', (event) => {
+            event.preventDefault();
+            const next = pdfName(input.value) || names[index];
+            input.value = next;
+            names[index] = next;
+            postDownload(link.href, [['name', next]]);
+        });
         head.appendChild(link);
     }
+
     const body = el('div', 'sig-doc-body');
-    body.hidden = !startOpen;
+    body.hidden = !open;
     if (!items.length) {
         body.appendChild(el('p', 'sig-empty', 'No signature, initial, or notary lines found.'));
     } else {
-        const none = el('p', 'sig-doc-none', 'Nothing in this filter.');
-        none.hidden = true;
-        body.appendChild(none);
-        items.forEach((item) => body.appendChild(renderRow(item, urls)));
+        orderedItems(items).forEach((item) => body.appendChild(renderRow(item, urls)));
     }
     toggle.addEventListener('click', () => {
-        const open = toggle.getAttribute('aria-expanded') !== 'true';
-        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-        body.hidden = !open;
-        section.classList.toggle('is-open', open);
+        const nowOpen = toggle.getAttribute('aria-expanded') !== 'true';
+        toggle.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+        toggle.setAttribute('aria-label', nowOpen ? 'Hide signatures' : 'Show signatures');
+        body.hidden = !nowOpen;
+        section.classList.toggle('is-open', nowOpen);
     });
     section.appendChild(head);
     section.appendChild(body);
     return section;
 }
 
-function docFacts(doc, items) {
-    const wrap = el('span', 'sig-doc-facts');
-    const bits = [];
-    if (doc.pages != null) bits.push([countLabel(doc.pages, 'page', 'pages'), false]);
-    bits.push([countLabel(items.length, 'item', 'items'), false]);
-    bits.push([countLabel(statusCount(items, 'completed'), 'completed', 'completed'), false]);
-    const blanks = statusCount(items, 'blank');
-    const unclear = statusCount(items, 'ambiguous');
-    bits.push([countLabel(blanks, 'blank', 'blanks'), blanks > 0]);
-    bits.push([countLabel(unclear, 'unclear', 'unclear'), unclear > 0]);
-    bits.forEach(([text, attention], index) => {
-        if (index) wrap.appendChild(el('span', 'sig-sep', ' · '));
-        wrap.appendChild(el('span', attention ? 'is-attention' : null, text));
+function orderedItems(items) {
+    return items.slice().sort((a, b) => {
+        const rank = (item) => (item.status === 'blank' ? 0 : item.status === 'ambiguous' ? 1 : 2);
+        return rank(a) - rank(b) || (a.page || 0) - (b.page || 0);
     });
-    return wrap;
 }
 
-function statusCount(items, status) {
-    return items.filter((item) => item.status === status).length;
+function displayName(doc) {
+    return doc.download_name || doc.proposed_name || 'Document.pdf';
+}
+
+function pdfName(value) {
+    let name = String(value || '')
+        .replace(/[<>:"|?*\\/\u0000-\u001f\u2028\u2029]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (name.toLowerCase().endsWith('.pdf')) name = name.slice(0, -4).trim();
+    name = name.replace(/^\.+|\.+$/g, '').trim();
+    if (name.length > 176) name = name.slice(0, 176).trim();
+    if (!name) return '';
+    return name + '.pdf';
+}
+
+function rememberName(fileIndex, name, urls, input, names, index) {
+    if (!urls.nameUrl || !urls.jobId || !name) return;
+    fetch(urls.nameUrl.replace('__JOB__', urls.jobId).replace('__FILE__', String(fileIndex)), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name }),
+    }).then((res) => res.ok ? res.json() : null).then((data) => {
+        if (!data || !data.name || input.value !== name) return;
+        input.value = data.name;
+        names[index] = data.name;
+    }).catch(() => {});
+}
+
+function downloadZip(button, names, urls) {
+    const fields = button.closest('.sig-report')
+        ? button.closest('.sig-report').querySelectorAll('.sig-name')
+        : [];
+    const payload = names.map((name, index) => {
+        const next = pdfName(fields[index] ? fields[index].value : name) || name;
+        if (fields[index]) fields[index].value = next;
+        names[index] = next;
+        return next;
+    });
+    postDownload(
+        urls.zipUrl.replace('__JOB__', urls.jobId),
+        payload.map((name) => ['names', name]),
+    );
+}
+
+function postDownload(action, fields) {
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = action;
+    form.acceptCharset = 'UTF-8';
+    form.hidden = true;
+    fields.forEach(([key, value]) => {
+        const field = document.createElement('input');
+        field.type = 'hidden';
+        field.name = key;
+        field.value = value;
+        form.appendChild(field);
+    });
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
 }
 
 function renderRow(item, urls) {

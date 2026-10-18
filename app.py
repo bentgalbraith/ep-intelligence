@@ -2357,7 +2357,7 @@ def api_validate_signatures_crop(job_id, item_id):
     )
 
 
-@app.route("/api/validate-signatures/file/<job_id>/<file_index>")
+@app.route("/api/validate-signatures/file/<job_id>/<file_index>", methods=["GET", "POST"])
 @login_required
 @tool_enabled("validate_signatures")
 def api_validate_signatures_file(job_id, file_index):
@@ -2372,24 +2372,118 @@ def api_validate_signatures_file(job_id, file_index):
     if index >= len(pdfs) or index >= len(documents):
         return jsonify({"error": "Not found."}), 404
     document = documents[index]
-    name = document.get("name") or "document.pdf"
-    if document.get("name_status") == "ready" and document.get("proposed_name"):
-        from validate_signatures import clean_proposed_name
-        safe = clean_proposed_name(document.get("proposed_name"), name)
-        if safe:
-            name = safe
-    from urllib.parse import quote
-    ascii_name = "".join(ch if 32 <= ord(ch) < 127 and ch not in {'"', "\\"} else "_" for ch in name)
+    posted = request.form.get("name") if request.method == "POST" else ""
+    if not isinstance(posted, str):
+        posted = ""
+    from validate_signatures import usable_pdf_name
+    name = usable_pdf_name(
+        posted.strip() or document.get("download_name") or document.get("proposed_name"),
+        "Document.pdf",
+    )
+    if posted.strip():
+        _store_signature_name(job_id, index, name)
     return Response(
         pdfs[index],
         mimetype="application/pdf",
-        headers={
-            "Cache-Control": "private, no-store",
-            "Content-Disposition": (
-                f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
-            ),
-        },
+        headers=_pdf_disposition(name),
     )
+
+
+@app.route("/api/validate-signatures/name/<job_id>/<file_index>", methods=["POST"])
+@login_required
+@tool_enabled("validate_signatures")
+def api_validate_signatures_name(job_id, file_index):
+    if not file_index.isdigit() or len(file_index) > 4:
+        return jsonify({"error": "Not found."}), 404
+    index = int(file_index)
+    job = _signature_job(job_id)
+    if job is None or job.get("status") != "complete":
+        return jsonify({"error": "Not found."}), 404
+    documents = (job.get("result") or {}).get("documents") or []
+    if index >= len(documents):
+        return jsonify({"error": "Not found."}), 404
+    payload = request.get_json(silent=True) or {}
+    raw = payload.get("name")
+    if not isinstance(raw, str) or not raw.strip():
+        return jsonify({"error": "Enter a file name."}), 400
+    from validate_signatures import usable_pdf_name
+    name = usable_pdf_name(raw.strip(), "Document.pdf")
+    if _store_signature_name(job_id, index, name) is None:
+        return jsonify({"error": "Not found."}), 404
+    return jsonify({"name": name})
+
+
+@app.route("/api/validate-signatures/zip/<job_id>", methods=["POST"])
+@login_required
+@tool_enabled("validate_signatures")
+def api_validate_signatures_zip(job_id):
+    job = _signature_job(job_id)
+    if job is None or job.get("status") != "complete":
+        return jsonify({"error": "Not found."}), 404
+    pdfs = job.get("pdfs") or []
+    documents = (job.get("result") or {}).get("documents") or []
+    if not pdfs or len(pdfs) != len(documents):
+        return jsonify({"error": "Not found."}), 404
+    if request.is_json:
+        incoming = (request.get_json(silent=True) or {}).get("names")
+    else:
+        incoming = request.form.getlist("names")
+    if isinstance(incoming, list):
+        incoming = [value if isinstance(value, str) else "" for value in incoming]
+    if not isinstance(incoming, list) or len(incoming) != len(pdfs):
+        incoming = [
+            doc.get("download_name") or doc.get("proposed_name") or ""
+            for doc in documents
+        ]
+    from validate_signatures import unique_download_names, usable_pdf_name
+    chosen = [usable_pdf_name(raw, "Document.pdf") for raw in incoming]
+    names = unique_download_names(chosen)
+    with _jobs_lock:
+        current = _jobs.get(job_id)
+        if current is not None and current.get("status") == "complete" and _same_firm(current):
+            docs = (current.get("result") or {}).get("documents") or []
+            if len(docs) == len(chosen):
+                for doc, name in zip(docs, chosen):
+                    doc["download_name"] = name
+                current["ts"] = time.time()
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_STORED) as archive:
+        for name, data in zip(names, pdfs):
+            archive.writestr(name, data)
+    return Response(
+        buf.getvalue(),
+        mimetype="application/zip",
+        headers=_pdf_disposition("Signed documents.zip"),
+    )
+
+
+def _store_signature_name(job_id, index, name):
+    """Store an edited download name. Returns the job, or None when it is gone."""
+    with _jobs_lock:
+        current = _jobs.get(job_id)
+        if current is None or current.get("status") != "complete" or not _same_firm(current):
+            return None
+        docs = (current.get("result") or {}).get("documents") or []
+        if index >= len(docs):
+            return None
+        docs[index]["download_name"] = name
+        current["ts"] = time.time()
+        return current
+
+
+def _pdf_disposition(name):
+    from urllib.parse import quote
+    ascii_name = "".join(ch if 32 <= ord(ch) < 127 and ch not in {'"', "\\"} else "_" for ch in name)
+    disposition = "attachment"
+    return {
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": (
+            f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
+        ),
+        "X-Content-Type-Options": "nosniff",
+    }
 
 
 # ---------------------------------------------------------------------------

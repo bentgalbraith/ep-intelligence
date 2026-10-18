@@ -287,7 +287,7 @@
             <div class="admin-section-body" {% if not start_open %}hidden{% endif %}>
                 <div class="admin-tool-fields" data-tool-fields="validate_signatures">
                     <label class="admin-label">File Naming Rules</label>
-                    <p class="admin-hint">How this firm wants estate-planning PDFs named. Each file is named from the document itself. The uploaded file name is not used. Leave this blank and every name is flagged for review.</p>
+                    <p class="admin-hint">How this firm wants estate-planning PDFs named. Each file is named from the document itself. The uploaded file name is not used. Leave this blank and files are still named from the document as best we can.</p>
                     <textarea class="admin-textarea" name="signature_naming_rules" rows="12">{{ cfg.get('signature_naming_rules', '') }}</textarea>
                 </div>
             </div>

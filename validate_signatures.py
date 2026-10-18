@@ -47,6 +47,12 @@ _NAME_CONFIDENCE = ("high", "medium", "needs_review")
 _CONFIDENCE = {"high": 3, "medium": 2, "low": 1}
 _NO_RULES = "No naming rules for this firm."
 _NAME_FAILED = "This name could not be checked."
+_CHECK_NAME = "Check this name."
+DEFAULT_NAMING_RULES = (
+    "Name each file from its title and contents. Use the client surname, then a short "
+    "uppercase document type, and end with .pdf. If you are unsure of the surname or the "
+    "type, still propose the best name you can and mark it needs_review."
+)
 _NAME_REVIEW = "This name needs review."
 _NAME_COLLISION = "Another file in this batch would have the same name."
 _NO_NAME = "No name could be proposed."
@@ -765,6 +771,96 @@ def apply_name_review(current, review):
     if reviewed["reason"]:
         current["reason"] = reviewed["reason"]
     return current
+
+
+def naming_instructions(rules):
+    """Firm rules, or a short default so a file is still named when none are set."""
+    return clean_naming_rules(rules or "") or DEFAULT_NAMING_RULES
+
+
+def usable_pdf_name(filename, fallback="Document.pdf"):
+    """A safe PDF basename. An empty or unsafe value becomes the fallback.
+
+    Unlike a model proposal, this does not reject a name the user typed just
+    because it matches the uploaded file.
+    """
+    base = os.path.basename(str(filename or "").replace("\\", "/")).strip().strip(".")
+    base = "".join(
+        " " if (ch < " " or ch in '<>:"|?*\\/\u2028\u2029') else ch
+        for ch in base
+    )
+    base = " ".join(base.split())
+    stem, dot, ext = base.rpartition(".")
+    if dot and ext.lower() == "pdf" and stem.strip(" ."):
+        cleaned = stem.strip(" .")
+    else:
+        cleaned = base.strip(" .")
+    cleaned = unicodedata.normalize("NFC", cleaned)
+    proposed = (cleaned + ".pdf") if cleaned else ""
+    if len(proposed) > 180:
+        proposed = cleaned[:176].rstrip(" .") + ".pdf"
+    if proposed[:-4].strip(" ."):
+        return proposed
+    if fallback and fallback != filename:
+        return usable_pdf_name(fallback, "Document.pdf")
+    return "Document.pdf"
+
+
+def unique_download_names(names):
+    """PDF names that can sit together in one zip without overwriting."""
+    seen = {}
+    unique = []
+    for raw in names:
+        name = usable_pdf_name(raw, "Document.pdf")
+        key = name.casefold()
+        count = seen.get(key, 0) + 1
+        seen[key] = count
+        if count > 1:
+            stem = name[:-4]
+            while True:
+                candidate = f"{stem} ({count}).pdf"
+                if candidate.casefold() not in seen:
+                    seen[candidate.casefold()] = 1
+                    name = candidate
+                    break
+                count += 1
+        unique.append(name)
+    return unique
+
+
+def ensure_download_names(rows):
+    """Every file gets a PDF name, including when the model proposed none."""
+    used = {_fold(row.get("proposed_name") or "") for row in rows if row.get("proposed_name")}
+    number = 1
+    named = []
+    for row in rows:
+        row = dict(row)
+        if not row.get("proposed_name"):
+            while True:
+                candidate = "Document.pdf" if number == 1 else f"Document ({number}).pdf"
+                number += 1
+                if _fold(candidate) not in used:
+                    break
+            row["proposed_name"] = candidate
+            used.add(_fold(candidate))
+            row["name_status"] = "ambiguous"
+            if not row.get("name_reason"):
+                row["name_reason"] = _CHECK_NAME
+        named.append(row)
+    return named
+
+
+def assign_file_names(naming_rules, upload_names, propose):
+    """Name every file. A failed rules load does not guess with the default rules."""
+    total = len(upload_names)
+    if naming_rules is None:
+        return ensure_download_names(unnamed_files(total, _NAME_FAILED))
+    try:
+        named = finalize_names(propose(naming_instructions(naming_rules)), upload_names)
+    except SignatureError:
+        log.warning("File naming failed")
+        named = unnamed_files(total, _CHECK_NAME)
+    return ensure_download_names(named)
 
 
 def unnamed_files(count, reason):
@@ -2117,25 +2213,17 @@ def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, n
             briefs.append(file_brief(index + 1, doc.page_count, file_items, evidence))
         finally:
             doc.close()
-    if naming_rules is None:
-        named = unnamed_files(total, _NAME_FAILED)
-        rules = ""
-    else:
-        rules = clean_naming_rules(naming_rules)
-    if naming_rules is not None and not rules:
-        named = unnamed_files(total, _NO_RULES)
-    elif naming_rules is not None:
+    def propose(rules):
         if on_progress:
             on_progress("Naming the files")
-        try:
-            proposals = _name_batch(rules, briefs, firm_id)
-            proposals = _second_look_names(
-                uploads, proposals, briefs, openai_client, firm_id, on_progress,
-            )
-            named = finalize_names(proposals, [name for name, _data in uploads])
-        except SignatureError:
-            log.warning("File naming failed")
-            named = unnamed_files(total, _NAME_FAILED)
+        proposals = _name_batch(rules, briefs, firm_id)
+        return _second_look_names(
+            uploads, proposals, briefs, openai_client, firm_id, on_progress,
+        )
+
+    named = assign_file_names(
+        naming_rules, [name for _name, _data in uploads], propose,
+    )
     for doc, row in zip(documents, named):
         doc.update(row)
     items = _sort_items(items)
