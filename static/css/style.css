@@ -4314,6 +4314,7 @@ a.specimen-name:hover {
     border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: 12px;
     overflow: hidden;
+    margin-bottom: 0.9rem;
 }
 
 .sig-summary.is-clear {
@@ -4328,11 +4329,17 @@ a.specimen-name:hover {
     border-color: rgba(234, 88, 12, 0.5);
 }
 
+.sig-download-row {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.65rem 0.85rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
 .sig-summary-top {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    padding: 0.85rem 0.9rem 0.8rem 0.4rem;
+    padding: 0.85rem 0.4rem 0.8rem;
 }
 
 .sig-counts {
@@ -4368,7 +4375,10 @@ a.specimen-name:hover {
 
 .sig-zip {
     flex-shrink: 0;
-    margin-right: 0.15rem;
+}
+
+.sig-summary-foot {
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .sig-summary-status {
@@ -4376,20 +4386,19 @@ a.specimen-name:hover {
     align-items: center;
     gap: 0.45rem;
     padding: 0.7rem 1rem;
-    border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
 
-.sig-summary.is-clear .sig-summary-status {
+.sig-summary.is-clear .sig-summary-foot {
     color: #15803d;
     background: rgba(22, 163, 74, 0.08);
 }
 
-.sig-summary.is-potential .sig-summary-status {
+.sig-summary.is-potential .sig-summary-foot {
     color: #a16207;
     background: rgba(202, 138, 4, 0.1);
 }
 
-.sig-summary.is-issue .sig-summary-status {
+.sig-summary.is-issue .sig-summary-foot {
     color: #ea580c;
     background: rgba(234, 88, 12, 0.08);
 }
@@ -4408,8 +4417,6 @@ a.specimen-name:hover {
 .sig-issue-log {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
-    margin: 0.65rem 0 0.9rem;
 }
 
 .sig-issue {
@@ -4418,17 +4425,18 @@ a.specimen-name:hover {
     align-items: flex-start;
     gap: 0.12rem;
     width: 100%;
-    padding: 0.55rem 0.75rem;
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    border-radius: 10px;
-    background: #fff;
+    padding: 0.6rem 1rem 0.7rem;
+    border: none;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 0;
+    background: transparent;
     text-align: left;
     font-family: 'Inter', sans-serif;
     cursor: pointer;
 }
 
 .sig-issue:hover {
-    border-color: rgba(0, 0, 0, 0.16);
+    background: rgba(0, 0, 0, 0.03);
 }
 
 .sig-issue-kind {
@@ -4664,16 +4672,25 @@ a.specimen-name:hover {
 @media (max-width: 720px) {
     .sig-summary-top {
         align-items: stretch;
-        flex-direction: column;
         padding-right: 0.75rem;
+        padding-left: 0.35rem;
     }
 
     .sig-counts {
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
     }
 
     .sig-count {
-        flex: 1 1 30%;
+        flex: 1 1 0;
+    }
+
+    .sig-count-value {
+        font-size: 1.1rem;
+    }
+
+    .sig-count-label {
+        font-size: 0.52rem;
+        letter-spacing: 0.03em;
     }
 
     .sig-row {

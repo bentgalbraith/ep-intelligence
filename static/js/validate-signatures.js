@@ -134,7 +134,6 @@ function renderSignatureReport(root, result, urls) {
         });
     }
     root.appendChild(summaryCard(result.pages || 0, items, documents, names, urls, issues));
-    if (issues.length) root.appendChild(issueLog(issues, names));
     if (!documents.length) {
         root.appendChild(el('p', 'sig-empty', 'No documents to name.'));
         return;
@@ -150,6 +149,14 @@ function summaryCard(pages, items, documents, names, urls, issues) {
     const unclear = issues.length - blanks;
     const state = blanks ? 'is-issue' : unclear ? 'is-potential' : 'is-clear';
     const card = el('section', 'sig-summary ' + state);
+    if (documents.length && urls.zipUrl && urls.jobId) {
+        const download = el('div', 'sig-download-row');
+        const button = el('button', 'btn-download sig-zip', 'Download all');
+        button.type = 'button';
+        button.addEventListener('click', () => downloadZip(button, names, urls));
+        download.appendChild(button);
+        card.appendChild(download);
+    }
     const top = el('div', 'sig-summary-top');
     const counts = el('div', 'sig-counts');
     [
@@ -165,21 +172,18 @@ function summaryCard(pages, items, documents, names, urls, issues) {
         counts.appendChild(stat);
     });
     top.appendChild(counts);
-    if (documents.length && urls.zipUrl && urls.jobId) {
-        const button = el('button', 'btn-download sig-zip', 'Download all');
-        button.type = 'button';
-        button.addEventListener('click', () => downloadZip(button, names, urls));
-        top.appendChild(button);
-    }
     card.appendChild(top);
 
+    const foot = el('div', 'sig-summary-foot');
     const status = el('div', 'sig-summary-status');
     status.appendChild(state === 'is-clear' ? checkIcon() : warningIcon());
     const label = blanks
         ? countLabel(issues.length, 'Issue Found', 'Issues Found')
         : unclear ? 'Potential Issues' : 'No Issues Found';
     status.appendChild(el('p', 'sig-status-label', label));
-    card.appendChild(status);
+    foot.appendChild(status);
+    if (issues.length) foot.appendChild(issueLog(issues, names));
+    card.appendChild(foot);
     return card;
 }
 
