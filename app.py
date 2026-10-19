@@ -2378,7 +2378,7 @@ def api_validate_signatures_file(job_id, file_index):
     from validate_signatures import usable_pdf_name
     name = usable_pdf_name(
         posted.strip() or document.get("download_name") or document.get("proposed_name"),
-        "Document.pdf",
+        "Unnamed.pdf",
     )
     if posted.strip():
         _store_signature_name(job_id, index, name)
@@ -2407,7 +2407,7 @@ def api_validate_signatures_name(job_id, file_index):
     if not isinstance(raw, str) or not raw.strip():
         return jsonify({"error": "Enter a file name."}), 400
     from validate_signatures import usable_pdf_name
-    name = usable_pdf_name(raw.strip(), "Document.pdf")
+    name = usable_pdf_name(raw.strip(), "Unnamed.pdf")
     if _store_signature_name(job_id, index, name) is None:
         return jsonify({"error": "Not found."}), 404
     return jsonify({"name": name})
@@ -2436,7 +2436,7 @@ def api_validate_signatures_zip(job_id):
             for doc in documents
         ]
     from validate_signatures import unique_download_names, usable_pdf_name
-    chosen = [usable_pdf_name(raw, "Document.pdf") for raw in incoming]
+    chosen = [usable_pdf_name(raw, "Unnamed.pdf") for raw in incoming]
     names = unique_download_names(chosen)
     with _jobs_lock:
         current = _jobs.get(job_id)

@@ -316,7 +316,7 @@ function orderedItems(items) {
 }
 
 function displayName(doc) {
-    return doc.download_name || doc.proposed_name || 'Document.pdf';
+    return doc.download_name || doc.proposed_name || 'Unnamed.pdf';
 }
 
 function pdfName(value) {

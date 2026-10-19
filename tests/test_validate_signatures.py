@@ -410,19 +410,19 @@ class NamingTest(unittest.TestCase):
         self.assertEqual(ready[0]["name_status"], "ready")
         self.assertEqual(ready[0]["proposed_name"], "EXAMPLE WILL.pdf")
         self.assertEqual(ready[0]["name_reason"], "")
-        echoed = sig.finalize_names(
-            {0: {"filename": "scan_1038.pdf", "confidence": "high", "reason": "copied"}},
-            ["scan_1038.pdf"],
+        matched = sig.finalize_names(
+            {0: {"filename": "WELLS DISCLOSURES.pdf", "confidence": "high", "reason": ""}},
+            ["WELLS DISCLOSURES.pdf"],
         )
-        self.assertEqual(echoed[0]["name_status"], "ambiguous")
-        self.assertEqual(echoed[0]["proposed_name"], "")
-        self.assertNotIn("scan_1038", echoed[0]["name_reason"])
+        self.assertEqual(matched[0]["name_status"], "ready")
+        self.assertEqual(matched[0]["proposed_name"], "WELLS DISCLOSURES.pdf")
+        self.assertEqual(matched[0]["name_reason"], "")
         duplicate = sig.finalize_names(
-            {0: {"filename": "scan.pdf", "confidence": "high", "reason": ""}},
-            ["scan.pdf (1)"],
+            {0: {"filename": "WELLS DISCLOSURES.pdf", "confidence": "high", "reason": ""}},
+            ["WELLS DISCLOSURES.pdf (1)"],
         )
-        self.assertEqual(duplicate[0]["proposed_name"], "")
-        self.assertEqual(duplicate[0]["name_status"], "ambiguous")
+        self.assertEqual(duplicate[0]["proposed_name"], "WELLS DISCLOSURES.pdf")
+        self.assertEqual(duplicate[0]["name_status"], "ready")
 
     def test_unsafe_characters_are_removed_from_a_name(self):
         rows = sig.finalize_names(
@@ -486,17 +486,28 @@ class NamingTest(unittest.TestCase):
             raise sig.SignatureError("naming failed")
 
         rows = sig.assign_file_names("Use the surname.", ["scan.pdf"], propose)
-        self.assertEqual(rows[0]["proposed_name"], "Document.pdf")
+        self.assertEqual(rows[0]["proposed_name"], "Unnamed.pdf")
         self.assertEqual(rows[0]["name_reason"], sig._CHECK_NAME)
+        named = sig.assign_file_names(
+            "Use the surname.", ["scan.pdf"], propose,
+            [[{"client": "Wells", "kind": "will"}]],
+        )
+        self.assertEqual(named[0]["proposed_name"], "Wells will.pdf")
+        self.assertEqual(named[0]["name_reason"], sig._CHECK_NAME)
 
     def test_unloaded_rules_do_not_guess(self):
         def propose(_rules):
             raise AssertionError("rules were not loaded")
 
         rows = sig.assign_file_names(None, ["scan.pdf", "other.pdf"], propose)
-        self.assertEqual([row["proposed_name"] for row in rows], ["Document.pdf", "Document (2).pdf"])
+        self.assertEqual([row["proposed_name"] for row in rows], ["Unnamed.pdf", "Unnamed (2).pdf"])
         self.assertTrue(all(row["name_status"] == "ambiguous" for row in rows))
         self.assertTrue(all(row["name_reason"] == sig._NAME_FAILED for row in rows))
+        named = sig.assign_file_names(
+            None, ["scan.pdf"], propose, [[{"client": "Wells", "kind": "will"}]],
+        )
+        self.assertEqual(named[0]["proposed_name"], "Wells will.pdf")
+        self.assertEqual(named[0]["name_reason"], sig._NAME_FAILED)
 
     def test_blank_rules_use_the_default_and_keep_a_real_name(self):
         def propose(rules):
@@ -515,24 +526,108 @@ class NamingTest(unittest.TestCase):
 
     def test_every_file_gets_a_download_name(self):
         rows = sig.ensure_download_names(sig.unnamed_files(2, sig._CHECK_NAME))
-        self.assertEqual([row["proposed_name"] for row in rows], ["Document.pdf", "Document (2).pdf"])
+        self.assertEqual([row["proposed_name"] for row in rows], ["Unnamed.pdf", "Unnamed (2).pdf"])
         kept = sig.ensure_download_names([
-            {"proposed_name": "Document.pdf", "name_status": "ready", "name_reason": ""},
+            {"proposed_name": "EXAMPLE WILL.pdf", "name_status": "ready", "name_reason": ""},
             {"proposed_name": "", "name_status": "ambiguous", "name_reason": ""},
         ])
-        self.assertEqual(kept[1]["proposed_name"], "Document (2).pdf")
+        self.assertEqual(kept[0]["proposed_name"], "EXAMPLE WILL.pdf")
+        self.assertEqual(kept[0]["name_status"], "ready")
+        self.assertEqual(kept[1]["proposed_name"], "Unnamed.pdf")
         self.assertEqual(kept[1]["name_reason"], sig._CHECK_NAME)
+
+    def test_a_placeholder_name_uses_the_document(self):
+        def propose(rules):
+            self.assertIn("surname", rules.lower())
+            return {0: {"filename": "Document.pdf", "confidence": "needs_review", "reason": ""}}
+
+        rows = sig.assign_file_names(
+            "Use the client surname and the document type.",
+            ["scan.pdf"],
+            propose,
+            [[{"client": "Wells", "kind": "engagement letter"}]],
+        )
+        self.assertEqual(rows[0]["proposed_name"], "Wells engagement letter.pdf")
+        self.assertEqual(rows[0]["name_status"], "ambiguous")
+        self.assertEqual(rows[0]["name_reason"], sig._NAME_REVIEW)
+        self.assertNotIn("scan", rows[0]["proposed_name"].lower())
+
+    def test_an_echo_of_the_upload_uses_the_document(self):
+        rows = sig.assign_file_names(
+            "Use the surname.",
+            ["WELLS DISCLOSURES.pdf"],
+            lambda _rules: {0: {"filename": "WELLS DISCLOSURES.pdf", "confidence": "high", "reason": ""}},
+            [[{"client": "Wells", "kind": "disclosures"}]],
+        )
+        self.assertEqual(rows[0]["proposed_name"], "WELLS DISCLOSURES.pdf")
+        self.assertEqual(rows[0]["name_status"], "ready")
+        placeholder = sig.assign_file_names(
+            "Use the surname.",
+            ["scan.pdf"],
+            lambda _rules: {0: {"filename": "scan.pdf", "confidence": "high", "reason": ""}},
+            [[{"client": "Wells", "kind": "will"}]],
+        )
+        self.assertEqual(placeholder[0]["proposed_name"], "Wells will.pdf")
+
+    def test_an_unsure_real_name_is_kept(self):
+        rows = sig.assign_file_names(
+            "Use the surname.",
+            ["scan.pdf"],
+            lambda _rules: {0: {
+                "filename": "WELLS WILL.pdf",
+                "confidence": "needs_review",
+                "reason": "Check the type",
+            }},
+            [[{"client": "Other", "kind": "trust"}]],
+        )
+        self.assertEqual(rows[0]["proposed_name"], "WELLS WILL.pdf")
+        self.assertEqual(rows[0]["name_reason"], "Check the type")
+
+    def test_one_file_keeps_a_mismatched_file_number(self):
+        parsed = {"files": [{
+            "file": 0, "filename": "WELLS WILL.pdf", "confidence": "high", "reason": "",
+        }]}
+        self.assertEqual(sig.parse_name_proposals(parsed, 1)[0]["filename"], "WELLS WILL.pdf")
+
+    def test_client_alone_is_kept_as_evidence(self):
+        rows = sig.normalize_evidence([{
+            "title": "", "client": "Wells", "whose": "hers", "kind": "",
+            "qualifiers": [], "page": 1,
+        }], 1, 5)
+        self.assertEqual(rows[0]["client"], "Wells")
+
+    def test_page_review_receives_the_firm_rules(self):
+        prompt = sig.build_name_review_prompt(
+            "WELLS then the document type.",
+            {"filename": "Document.pdf", "reason": "unsure"},
+            {"evidence": [{"client": "Wells", "kind": "will"}], "signatures": {}},
+        )
+        self.assertIn("WELLS then the document type.", prompt)
+        self.assertIn("Wells", prompt)
+        self.assertIn('"filename": ""', prompt)
+        self.assertNotIn("scan_1038", prompt)
+        self.assertEqual(prompt.count("</firm_naming_rules>"), 1)
+        ignored = sig.apply_name_review(
+            {"filename": "Document.pdf", "confidence": "needs_review", "reason": ""},
+            {"filename": "Document.pdf", "confidence": "high", "reason": ""},
+        )
+        self.assertEqual(ignored["filename"], "")
+        replaced = sig.apply_name_review(
+            {"filename": "Document.pdf", "confidence": "needs_review", "reason": ""},
+            {"filename": "WELLS WILL.pdf", "confidence": "high", "reason": "Will"},
+        )
+        self.assertEqual(replaced["filename"], "WELLS WILL.pdf")
 
     def test_user_name_can_match_the_upload(self):
         self.assertEqual(sig.usable_pdf_name("scan.pdf"), "scan.pdf")
         self.assertEqual(sig.usable_pdf_name("EXAMPLE: TRUST?.pdf"), "EXAMPLE TRUST.pdf")
         self.assertEqual(sig.usable_pdf_name("../secret/EXAMPLE.pdf"), "EXAMPLE.pdf")
-        self.assertEqual(sig.usable_pdf_name(""), "Document.pdf")
+        self.assertEqual(sig.usable_pdf_name(""), "Unnamed.pdf")
 
     def test_zip_names_do_not_overwrite(self):
         self.assertEqual(
             sig.unique_download_names(["EXAMPLE WILL.pdf", "example will.pdf", ""]),
-            ["EXAMPLE WILL.pdf", "example will (2).pdf", "Document.pdf"],
+            ["EXAMPLE WILL.pdf", "example will (2).pdf", "Unnamed.pdf"],
         )
 
     def test_review_pages_prefer_titled_pages(self):
