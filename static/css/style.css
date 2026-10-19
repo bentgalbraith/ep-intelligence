@@ -4330,10 +4330,7 @@ a.specimen-name:hover {
 }
 
 .sig-download-row {
-    display: flex;
-    justify-content: flex-end;
-    padding: 0.65rem 0.85rem;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    display: block;
 }
 
 .sig-summary-top {
@@ -4373,8 +4370,12 @@ a.specimen-name:hover {
     color: rgba(0, 0, 0, 0.4);
 }
 
-.sig-zip {
-    flex-shrink: 0;
+.sig-summary .sig-zip {
+    width: 100%;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    min-height: 3rem;
 }
 
 .sig-summary-foot {

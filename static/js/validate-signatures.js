@@ -151,7 +151,7 @@ function summaryCard(pages, items, documents, names, urls, issues) {
     const card = el('section', 'sig-summary ' + state);
     if (documents.length && urls.zipUrl && urls.jobId) {
         const download = el('div', 'sig-download-row');
-        const button = el('button', 'btn-download sig-zip', 'Download all');
+        const button = el('button', 'btn-download btn-download--primary sig-zip', 'Download all');
         button.type = 'button';
         button.addEventListener('click', () => downloadZip(button, names, urls));
         download.appendChild(button);
