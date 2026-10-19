@@ -4309,49 +4309,146 @@ a.specimen-name:hover {
 
 /* ── Name Files & Validate Signatures ── */
 
-.sig-banner {
+.sig-summary {
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.sig-summary.is-clear {
+    border-color: rgba(22, 163, 74, 0.45);
+}
+
+.sig-summary.is-potential {
+    border-color: rgba(202, 138, 4, 0.55);
+}
+
+.sig-summary.is-issue {
+    border-color: rgba(234, 88, 12, 0.5);
+}
+
+.sig-summary-top {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 1rem;
-    margin-bottom: 0.85rem;
-    padding: 0.9rem 1rem;
-    background: #fff;
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    border-radius: 12px;
+    padding: 0.85rem 0.9rem 0.8rem 0.4rem;
 }
 
-.sig-banner.is-problem {
-    border-color: rgba(234, 88, 12, 0.45);
-    background: rgba(234, 88, 12, 0.07);
-}
-
-.sig-banner-copy {
+.sig-counts {
+    display: flex;
+    flex: 1;
     min-width: 0;
 }
 
-.sig-banner-title {
-    margin: 0;
-    font-size: 1.05rem;
+.sig-count {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+}
+
+.sig-count-value {
+    display: block;
+    font-size: 1.25rem;
     font-weight: 600;
-    letter-spacing: -0.02em;
-    line-height: 1.25;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
     color: #1a1a1a;
 }
 
-.sig-banner.is-problem .sig-banner-title,
-.sig-banner.is-problem .sig-banner-sub {
-    color: #ea580c;
-}
-
-.sig-banner-sub {
-    margin: 0.18rem 0 0;
-    font-size: 0.82rem;
-    color: rgba(0, 0, 0, 0.45);
+.sig-count-label {
+    display: block;
+    margin-top: 0.28rem;
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: rgba(0, 0, 0, 0.4);
 }
 
 .sig-zip {
     flex-shrink: 0;
+    margin-right: 0.15rem;
+}
+
+.sig-summary-status {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.7rem 1rem;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.sig-summary.is-clear .sig-summary-status {
+    color: #15803d;
+    background: rgba(22, 163, 74, 0.08);
+}
+
+.sig-summary.is-potential .sig-summary-status {
+    color: #a16207;
+    background: rgba(202, 138, 4, 0.1);
+}
+
+.sig-summary.is-issue .sig-summary-status {
+    color: #ea580c;
+    background: rgba(234, 88, 12, 0.08);
+}
+
+.sig-status-icon {
+    flex-shrink: 0;
+}
+
+.sig-status-label {
+    margin: 0;
+    font-size: 0.92rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.sig-issue-log {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin: 0.65rem 0 0.9rem;
+}
+
+.sig-issue {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.12rem;
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 10px;
+    background: #fff;
+    text-align: left;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+}
+
+.sig-issue:hover {
+    border-color: rgba(0, 0, 0, 0.16);
+}
+
+.sig-issue-kind {
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: #1a1a1a;
+}
+
+.sig-issue.is-blank .sig-issue-kind {
+    color: #ea580c;
+}
+
+.sig-issue.is-unclear .sig-issue-kind {
+    color: #a16207;
+}
+
+.sig-issue-where {
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: rgba(0, 0, 0, 0.45);
 }
 
 .sig-empty,
@@ -4374,10 +4471,6 @@ a.specimen-name:hover {
     margin-bottom: 0.65rem;
 }
 
-.sig-doc.is-problem {
-    border-color: rgba(234, 88, 12, 0.4);
-}
-
 .sig-doc-head {
     display: flex;
     align-items: flex-start;
@@ -4389,7 +4482,8 @@ a.specimen-name:hover {
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    padding: 0.35rem 0.1rem 0 0;
+    margin: 0;
+    padding: 0.45rem 0.35rem 0.45rem 0;
     border: 0;
     background: transparent;
     cursor: pointer;
@@ -4434,19 +4528,10 @@ a.specimen-name:hover {
     outline: none;
 }
 
-.sig-file-issue,
 .sig-name-note {
     margin: 0.05rem 0 0 0.4rem;
     font-size: 0.75rem;
     line-height: 1.4;
-}
-
-.sig-file-issue {
-    color: #ea580c;
-    font-weight: 600;
-}
-
-.sig-name-note {
     color: rgba(0, 0, 0, 0.45);
 }
 
@@ -4481,11 +4566,21 @@ a.specimen-name:hover {
 
 .sig-row {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.4rem;
-    padding: 0.85rem 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.75rem 0.15rem;
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.sig-row.is-target {
+    background: rgba(234, 88, 12, 0.08);
+    border-radius: 8px;
+}
+
+.sig-info {
+    flex: 1;
+    min-width: 0;
 }
 
 .sig-row:last-child {
@@ -4497,20 +4592,21 @@ a.specimen-name:hover {
 }
 
 .sig-crop-btn {
+    flex: 0 1 auto;
+    max-width: 52%;
     padding: 0;
     border: 0;
     background: transparent;
     cursor: pointer;
     line-height: 0;
-    width: 100%;
 }
 
 .sig-crop {
     display: block;
     width: auto;
     height: auto;
-    max-width: 100%;
-    max-height: 200px;
+    max-width: 240px;
+    max-height: 132px;
     min-width: 0;
     align-self: flex-start;
     object-fit: contain;
@@ -4527,6 +4623,10 @@ a.specimen-name:hover {
 
 .sig-status-attention {
     color: #ea580c;
+}
+
+.sig-status-unclear {
+    color: #a16207;
 }
 
 .sig-meta,
@@ -4562,12 +4662,25 @@ a.specimen-name:hover {
 }
 
 @media (max-width: 720px) {
-    .sig-banner {
-        align-items: flex-start;
+    .sig-summary-top {
+        align-items: stretch;
         flex-direction: column;
+        padding-right: 0.75rem;
+    }
+
+    .sig-counts {
+        flex-wrap: wrap;
+    }
+
+    .sig-count {
+        flex: 1 1 30%;
+    }
+
+    .sig-row {
+        align-items: flex-start;
     }
 
     .sig-crop {
-        max-height: 160px;
+        max-height: 110px;
     }
 }
