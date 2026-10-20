@@ -2455,7 +2455,9 @@ def api_validate_signatures_zip(job_id):
     return Response(
         buf.getvalue(),
         mimetype="application/zip",
-        headers=_pdf_disposition("Signed documents.zip"),
+        headers=_pdf_disposition(
+            "EPI Document Export " + time.strftime("%m-%d-%Y_%H%M%S") + ".zip"
+        ),
     )
 
 
