@@ -297,18 +297,19 @@ function renderDocument(doc, items, urls, names, index, onRename) {
         rememberName(fileIndex, next, urls, input, names, index, onRename);
     });
     const nameLine = el('div', 'sig-name-line');
+    nameLine.appendChild(input);
+    field.appendChild(nameLine);
     const docIssues = items.filter((item) => item.status === 'blank' || item.status === 'ambiguous');
+    const metaBits = [];
+    if (doc.pages) metaBits.push(countLabel(doc.pages, 'page', 'pages'));
+    metaBits.push(countLabel(items.length, 'item', 'items'));
+    const meta = el('p', 'sig-doc-meta', metaBits.join(' · '));
     if (docIssues.length) {
         const warn = el('span', 'sig-doc-warn' + (docIssues.some((item) => item.status === 'blank') ? ' is-issue' : ' is-potential'));
         warn.appendChild(warningIcon());
-        nameLine.appendChild(warn);
+        meta.appendChild(warn);
     }
-    nameLine.appendChild(input);
-    field.appendChild(nameLine);
-    const meta = [];
-    if (doc.pages) meta.push(countLabel(doc.pages, 'page', 'pages'));
-    meta.push(countLabel(items.length, 'item', 'items'));
-    field.appendChild(el('p', 'sig-doc-meta', meta.join(' · ')));
+    field.appendChild(meta);
     if (doc.name_status === 'ambiguous' && doc.name_reason) {
         field.appendChild(el('p', 'sig-name-note', doc.name_reason));
     }
