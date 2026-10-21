@@ -296,6 +296,59 @@ class PdfTest(unittest.TestCase):
         self.assertGreater(_dark_pixels(pix), 40)
         self.assertGreater(pix.height, 80)
 
+    def test_scanned_blank_line_is_not_a_white_crop(self):
+        import pymupdf
+        width, height = 612, 792
+        samples = bytearray([255]) * (width * height * 3)
+        def dark(x, y):
+            index = (y * width + x) * 3
+            samples[index:index + 3] = b"\x20\x20\x20"
+        for x in range(90, 340):
+            dark(x, 640)
+        for y in range(652, 670):
+            for x in range(90, 230):
+                if (x + y) % 2 == 0:
+                    dark(x, y)
+        pix = pymupdf.Pixmap(pymupdf.csRGB, width, height, bytes(samples), False)
+        doc = pymupdf.open()
+        page = doc.new_page(width=width, height=height)
+        page.insert_image(page.rect, pixmap=pix)
+        gap = (90 / width, 560 / height, 180 / width, 36 / height)
+        image = sig.crop_jpeg(doc, 1, gap)
+        doc.close()
+        cropped = _jpeg_pixmap(image)
+        self.assertGreater(_dark_pixels(cropped), 40)
+        self.assertLess(cropped.height, 500)
+
+    def test_paragraph_above_a_scanned_gap_does_not_replace_the_line(self):
+        import pymupdf
+        width, height = 612, 792
+        samples = bytearray([255]) * (width * height * 3)
+
+        def paint(x, y, color):
+            index = (y * width + x) * 3
+            samples[index:index + 3] = color
+
+        for y in range(540, 590):
+            for x in range(90, 400, 3):
+                paint(x, y, b"\xff\x00\x00")
+        for x in range(90, 340):
+            paint(x, 680, b"\x20\x20\x20")
+        for y in range(692, 710):
+            for x in range(90, 220, 2):
+                paint(x, y, b"\x20\x20\x20")
+        pix = pymupdf.Pixmap(pymupdf.csRGB, width, height, bytes(samples), False)
+        doc = pymupdf.open()
+        page = doc.new_page(width=width, height=height)
+        page.insert_image(page.rect, pixmap=pix)
+        gap = (90 / width, 592 / height, 180 / width, 28 / height)
+        image = sig.crop_jpeg(doc, 1, gap)
+        doc.close()
+        cropped = _jpeg_pixmap(image)
+        self.assertEqual(_red_pixels(cropped), 0)
+        self.assertGreater(_dark_pixels(cropped), 40)
+        self.assertLess(cropped.height, 400)
+
     def test_crop_keeps_a_line_that_starts_in_a_narrow_margin(self):
         import pymupdf
         doc = pymupdf.open()
@@ -646,6 +699,120 @@ class NamingTest(unittest.TestCase):
             self.assertNotIn("scan_1038", sliced.metadata.get("title") or "")
         finally:
             sliced.close()
+
+
+class FundingTest(unittest.TestCase):
+    def _item(self, file_index, page, kind="signature", status="completed"):
+        return {"file_index": file_index, "page": page, "type": kind, "status": status}
+
+    def _files(self):
+        return [
+            {"pages": 2, "evidence": [{
+                "page": 1, "role": "certificate_of_trust", "client": "Wells", "whose": "hers",
+                "title": "Certificate of Trust", "kind": "certificate of trust", "article_i": [],
+            }]},
+            {"pages": 2, "evidence": [{
+                "page": 1, "role": "certificate_of_trust", "client": "Wells", "whose": "hers",
+                "title": "Certificate of Trust", "kind": "certificate of trust", "article_i": [],
+            }]},
+            {"pages": 6, "evidence": [{
+                "page": 1, "role": "trust", "client": "Wells", "whose": "hers",
+                "title": "Revocable Trust", "kind": "revocable trust", "article_i": [2, 3],
+            }]},
+        ]
+
+    def test_signed_certificate_article_and_signature_pages_make_one_packet(self):
+        items = [
+            self._item(0, 1, status="blank"),
+            self._item(1, 1, status="completed"),
+            self._item(2, 2, "initial"),
+            self._item(2, 3, "signature", "completed"),
+            self._item(2, 6, "notary", "completed"),
+        ]
+        plan = sig.plan_funding(self._files(), items)
+        self.assertTrue(plan["created"])
+        self.assertEqual(plan["detail"], "")
+        self.assertEqual(plan["packets"][0]["name"], "WELLS FUNDING PACKET.pdf")
+        self.assertEqual(
+            [(part["file_index"], part["pages"]) for part in plan["packets"][0]["parts"]],
+            [(1, [1, 2]), (2, [2, 3]), (2, [6])],
+        )
+
+    def test_a_missing_piece_does_not_build_a_partial_packet(self):
+        items = [
+            self._item(1, 1, status="completed"),
+            self._item(2, 6, "signature", "completed"),
+        ]
+        files = self._files()
+        files[2]["evidence"][0]["article_i"] = []
+        plan = sig.plan_funding(files, items)
+        self.assertFalse(plan["created"])
+        self.assertEqual(plan["detail"], "Missing Article I of the trust.")
+        unsigned = sig.plan_funding(self._files(), [self._item(2, 2), self._item(2, 6)])
+        self.assertEqual(
+            unsigned["detail"],
+            "Missing signed certificate of trust.",
+        )
+        empty = sig.plan_funding([{"pages": 3, "evidence": [{
+            "page": 1, "role": "other", "client": "Wells", "whose": "one",
+            "title": "Will", "kind": "pour-over will", "article_i": [],
+        }]}], [])
+        self.assertEqual(
+            empty["detail"],
+            "Missing signed certificate of trust, Article I of the trust, and signature pages.",
+        )
+
+    def test_initials_are_not_signature_pages(self):
+        items = [
+            self._item(1, 1, status="completed"),
+            self._item(2, 4, "initial", "completed"),
+        ]
+        plan = sig.plan_funding(self._files(), items)
+        self.assertFalse(plan["created"])
+        self.assertIn("signature pages", plan["detail"])
+
+    def test_kind_names_a_certificate_without_a_role(self):
+        rows = sig.normalize_evidence([{
+            "title": "Certificate of Trust", "client": "Wells", "whose": "hers",
+            "kind": "certificate of trust", "qualifiers": [], "page": 1,
+            "article_i": [1],
+        }], 16, 20)
+        self.assertEqual(rows[0]["role"], "certificate_of_trust")
+        self.assertEqual(rows[0]["article_i"], [16])
+
+    def test_packet_pages_are_copied_in_order(self):
+        import pymupdf
+
+        def labeled(labels):
+            doc = pymupdf.open()
+            for label in labels:
+                page = doc.new_page()
+                page.insert_text((72, 72), label)
+            raw = doc.tobytes()
+            doc.close()
+            return raw
+
+        uploads = [
+            ("unsigned.pdf", labeled(["U1", "U2"])),
+            ("signed.pdf", labeled(["C1", "C2"])),
+            ("trust.pdf", labeled(["T1", "A1", "A2", "T4", "T5", "S1"])),
+        ]
+        plan = sig.plan_funding(self._files(), [
+            self._item(1, 1),
+            self._item(2, 3),
+            self._item(2, 6, "notary"),
+        ])
+        rendered = sig.render_funding_packets(uploads, plan)
+        self.assertEqual(len(rendered), 1)
+        out = pymupdf.open(stream=rendered[0], filetype="pdf")
+        try:
+            self.assertEqual(
+                [page.get_text("text").strip() for page in out],
+                ["C1", "C2", "A1", "A2", "S1"],
+            )
+            self.assertFalse(out.metadata.get("title"))
+        finally:
+            out.close()
 
 
 if __name__ == "__main__":

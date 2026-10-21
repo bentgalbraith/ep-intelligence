@@ -2234,7 +2234,7 @@ def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
                         job["ts"] = time.time()
 
             started = time.time()
-            result, crops = validate_documents(
+            result, crops, funding_pdfs = validate_documents(
                 uploads, openai_client, firm_id=firm_id, on_progress=on_progress,
                 naming_rules=_signature_naming_rules(firm_id),
             )
@@ -2245,6 +2245,7 @@ def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
                 current.update({
                     "result": result,
                     "crops": crops,
+                    "funding_pdfs": funding_pdfs,
                     "pdfs": [data for _, data in uploads],
                     "progress": "",
                     "ts": time.time(),
@@ -2413,6 +2414,29 @@ def api_validate_signatures_name(job_id, file_index):
     return jsonify({"name": name})
 
 
+@app.route("/api/validate-signatures/funding/<job_id>/<packet_index>", methods=["GET", "POST"])
+@login_required
+@tool_enabled("validate_signatures")
+def api_validate_signatures_funding(job_id, packet_index):
+    if not packet_index.isdigit() or len(packet_index) > 2:
+        return jsonify({"error": "Not found."}), 404
+    index = int(packet_index)
+    job = _signature_job(job_id)
+    if job is None or job.get("status") != "complete":
+        return jsonify({"error": "Not found."}), 404
+    pdfs = job.get("funding_pdfs") or []
+    packets = ((job.get("result") or {}).get("funding") or {}).get("packets") or []
+    if index >= len(pdfs) or index >= len(packets):
+        return jsonify({"error": "Not found."}), 404
+    from validate_signatures import usable_pdf_name
+    name = usable_pdf_name(packets[index].get("name"), "FUNDING PACKET.pdf")
+    return Response(
+        pdfs[index],
+        mimetype="application/pdf",
+        headers=_pdf_disposition(name),
+    )
+
+
 @app.route("/api/validate-signatures/zip/<job_id>", methods=["POST"])
 @login_required
 @tool_enabled("validate_signatures")
@@ -2436,8 +2460,16 @@ def api_validate_signatures_zip(job_id):
             for doc in documents
         ]
     from validate_signatures import unique_download_names, usable_pdf_name
+    funding_pdfs = job.get("funding_pdfs") or []
+    packets = ((job.get("result") or {}).get("funding") or {}).get("packets") or []
+    if len(funding_pdfs) != len(packets):
+        funding_pdfs = []
+        packets = []
     chosen = [usable_pdf_name(raw, "Unnamed.pdf") for raw in incoming]
-    names = unique_download_names(chosen)
+    packet_names = [
+        usable_pdf_name(packet.get("name"), "FUNDING PACKET.pdf") for packet in packets
+    ]
+    names = unique_download_names(chosen + packet_names)
     with _jobs_lock:
         current = _jobs.get(job_id)
         if current is not None and current.get("status") == "complete" and _same_firm(current):
@@ -2450,7 +2482,7 @@ def api_validate_signatures_zip(job_id):
     import zipfile
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_STORED) as archive:
-        for name, data in zip(names, pdfs):
+        for name, data in zip(names, list(pdfs) + list(funding_pdfs)):
             archive.writestr(name, data)
     return Response(
         buf.getvalue(),

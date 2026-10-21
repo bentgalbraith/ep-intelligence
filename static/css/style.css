@@ -4376,6 +4376,45 @@ a.specimen-name:hover {
     border-radius: 0;
     box-shadow: none;
     min-height: 3rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.sig-funding {
+    background: rgba(0, 0, 0, 0.045);
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    color: #525252;
+}
+
+.sig-funding-status {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.7rem 0.75rem 0.7rem 1rem;
+}
+
+.sig-funding-status + .sig-funding-status {
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.sig-funding-copy {
+    flex: 1;
+    min-width: 0;
+}
+
+.sig-funding-label {
+    margin: 0;
+    font-size: 0.92rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.sig-funding-detail {
+    margin: 0.12rem 0 0;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    font-weight: 400;
+    color: rgba(0, 0, 0, 0.5);
 }
 
 .sig-summary-foot {
@@ -4478,6 +4517,7 @@ a.specimen-name:hover {
     border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: 12px;
     margin-bottom: 0.65rem;
+    overflow: hidden;
 }
 
 .sig-doc-head {
@@ -4514,6 +4554,41 @@ a.specimen-name:hover {
 .sig-name-field {
     flex: 1;
     min-width: 0;
+}
+
+.sig-name-line {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.sig-name-line .sig-name {
+    flex: 1;
+    min-width: 0;
+}
+
+.sig-doc-warn {
+    display: flex;
+    flex-shrink: 0;
+    color: #a16207;
+}
+
+.sig-doc-warn.is-issue {
+    color: #ea580c;
+}
+
+.sig-doc-warn .sig-status-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.sig-doc-meta {
+    margin: 0.12rem 0 0;
+    padding-left: 0.4rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: rgba(0, 0, 0, 0.45);
 }
 
 .sig-name {
@@ -4570,7 +4645,7 @@ a.specimen-name:hover {
 
 .sig-doc-body {
     border-top: 1px solid rgba(0, 0, 0, 0.05);
-    padding: 0.15rem 0.9rem 0.35rem;
+    padding: 0;
 }
 
 .sig-row {
@@ -4578,13 +4653,12 @@ a.specimen-name:hover {
     flex-direction: row;
     align-items: center;
     gap: 0.85rem;
-    padding: 0.75rem 0.15rem;
+    padding: 0.75rem 0.9rem;
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .sig-row.is-target {
     background: rgba(234, 88, 12, 0.08);
-    border-radius: 8px;
 }
 
 .sig-info {
@@ -4601,23 +4675,27 @@ a.specimen-name:hover {
 }
 
 .sig-crop-btn {
-    flex: 0 1 auto;
-    max-width: 52%;
+    flex: 0 0 240px;
+    width: 240px;
+    min-width: 0;
+    max-width: 46%;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
     padding: 0;
     border: 0;
     background: transparent;
     cursor: pointer;
     line-height: 0;
+    overflow: hidden;
 }
 
 .sig-crop {
     display: block;
     width: auto;
     height: auto;
-    max-width: 240px;
+    max-width: 100%;
     max-height: 132px;
-    min-width: 0;
-    align-self: flex-start;
     object-fit: contain;
     background: #fafaf8;
     border: 1px solid rgba(0, 0, 0, 0.08);

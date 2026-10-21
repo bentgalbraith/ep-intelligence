@@ -107,6 +107,8 @@ _SCAN_SCHEMA = {
                     "kind": {"type": "string"},
                     "qualifiers": {"type": "array", "items": {"type": "string"}},
                     "page": {"type": "integer"},
+                    "role": {"type": "string", "enum": ["certificate_of_trust", "trust", "other"]},
+                    "article_i": {"type": "array", "items": {"type": "integer"}},
                 },
                 "required": ["title", "client", "whose", "kind", "qualifiers", "page"],
             },
@@ -161,8 +163,10 @@ Also describe each distinct document in this part, from its title and contents. 
 - kind: what the document is, in a few words, such as "pour-over will" or "certificate of trust"
 - qualifiers: short flags you can actually see, such as "unsigned", "recorded", "2026", or "homestead". Empty when there are none
 - page: the page of that title, from 1 through {count}
+- role: certificate_of_trust when the document is a certificate of trust, trust when it is the trust agreement itself, otherwise other. A certificate of trust is not the trust
+- article_i: the page numbers, from 1 through {count}, that are Article I of the trust. Empty unless role is trust. Include every page of Article I and no page of another article
 
-An empty documents array is correct when these pages continue a document and have no new title.
+An empty documents array is correct when these pages continue a document, have no new title, and do not contain Article I. If they contain Article I of a trust, return a documents entry with role trust and those article_i pages.
 """
 
 _NAME_PROMPT = """You name estate-planning PDFs. You were not given the original file name. Do not reconstruct that name, and do not guess from a scanner id or a download suffix.
@@ -556,6 +560,30 @@ def clean_naming_rules(text):
     return rules
 
 
+def _article_pages(raw_pages, start, end):
+    pages = []
+    if not isinstance(raw_pages, list):
+        return pages
+    for raw in raw_pages:
+        page = resolve_page(raw, start, end)
+        if page and page not in pages:
+            pages.append(page)
+    return pages
+
+
+def document_role(role, title, kind):
+    """A certificate of trust is not the trust agreement, even though both say trust."""
+    text = _fold(f"{title or ''} {kind or ''}")
+    if "certificate of trust" in text or "certification of trust" in text:
+        return "certificate_of_trust"
+    chosen = _enum(role, ("certificate_of_trust", "trust", "other"))
+    if chosen == "certificate_of_trust":
+        return chosen
+    if "trust" in text:
+        return "trust"
+    return chosen or "other"
+
+
 def normalize_evidence(raw_docs, start, end):
     """Keep short facts from a chunk. Drops anything off these pages."""
     found = []
@@ -570,7 +598,8 @@ def normalize_evidence(raw_docs, start, end):
         title = _clip(raw.get("title"), 160)
         kind = _clip(raw.get("kind"), 80)
         client = _clip(raw.get("client"), 80)
-        if page is None or (not title and not kind and not client):
+        article_i = _article_pages(raw.get("article_i"), start, end)
+        if page is None or (not title and not kind and not client and not article_i):
             continue
         qualifiers = []
         raw_qualifiers = raw.get("qualifiers")
@@ -588,13 +617,15 @@ def normalize_evidence(raw_docs, start, end):
             "kind": kind,
             "qualifiers": qualifiers,
             "page": page,
+            "role": document_role(raw.get("role"), title, kind),
+            "article_i": article_i,
         })
     return found
 
 
 def merge_evidence(rows):
     """Dedupe titles, then keep a spread so a long packet is not cut off at the start."""
-    seen = set()
+    seen = {}
     merged = []
     for row in rows or []:
         key = (
@@ -602,9 +633,16 @@ def merge_evidence(rows):
             _fold(row.get("title") or ""),
             _fold(row.get("kind") or ""),
         )
+        pages = list(row.get("article_i") or [])
         if key in seen:
+            current = seen[key]
+            for page in pages:
+                if page not in current["article_i"]:
+                    current["article_i"].append(page)
             continue
-        seen.add(key)
+        row = dict(row)
+        row["article_i"] = pages
+        seen[key] = row
         merged.append(row)
     if len(merged) <= MAX_EVIDENCE:
         return merged
@@ -1766,6 +1804,134 @@ def assign_windows(page, boxes):
     return [window for window, _matched in _choose_windows(page, boxes)]
 
 
+def _expand_white_crop(page, pix, window):
+    """A scanned blank line has no text layer, so a white box stays white.
+
+    Grow a nearly empty crop to the nearest ink below it: the rule and the
+    printed name. Pages that already have text or vector rules keep the crop
+    the line finder produced.
+    """
+    if page.get_text("words") or _rule_lines(page):
+        return window
+    width, height = pix.width, pix.height
+    if width < 2 or height < 2 or pix.n < 3:
+        return window
+    x0, y0, x1, y1 = window
+
+    def at(frac, limit):
+        return max(0, min(limit - 1, int(round(frac * limit))))
+
+    left, top = at(x0, width), at(y0, height)
+    right = max(left + 1, min(width, int(round(x1 * width))))
+    bottom = max(top + 1, min(height, int(round(y1 * height))))
+    samples = pix.samples
+    channels = pix.n
+
+    def is_ink(index):
+        # Blue pen stays bright in one channel, so the darkest channel is the mark.
+        return min(samples[index], samples[index + 1], samples[index + 2]) < 186
+
+    def row_has_ink(y, x_start, x_end):
+        base = y * width * channels
+        count = 0
+        for x in range(x_start, x_end):
+            if is_ink(base + x * channels):
+                count += 1
+                if count >= 8:
+                    return True
+        return False
+
+    def ink_ratio(y_start, y_end):
+        dark = 0
+        seen = 0
+        for y in range(y_start, y_end):
+            base = y * width * channels
+            for x in range(left, right, 2):
+                seen += 1
+                if is_ink(base + x * channels):
+                    dark += 1
+        if not seen:
+            return 0.0
+        return dark / seen
+
+    # Padding often catches one line of the paragraph above a blank. That
+    # sliver is not enough to keep an otherwise empty crop.
+    if ink_ratio(top, bottom) >= 0.08:
+        return window
+    body_top = min(bottom, top + max(2, int((bottom - top) * 0.18)))
+    if ink_ratio(body_top, bottom) >= 0.015:
+        return window
+
+    scan_top = max(0, top - int(height * 0.045))
+    scan_bottom = min(height - 1, bottom + int(height * 0.16))
+    scan_left = max(0, left - int(width * 0.22))
+    scan_right = min(width, right + int(width * 0.42))
+    ink_ys = [
+        y for y in range(scan_top, scan_bottom + 1)
+        if row_has_ink(y, scan_left, scan_right)
+    ]
+    if not ink_ys:
+        return window
+    gap = max(8, int(height * 0.012))
+    clusters = []
+    start = previous = ink_ys[0]
+    for y in ink_ys[1:]:
+        if y - previous <= gap:
+            previous = y
+            continue
+        clusters.append((start, previous))
+        start = previous = y
+    clusters.append((start, previous))
+
+    def rank(cluster):
+        c0, c1 = cluster
+        # A line of text that only clips the top of an empty box is the
+        # paragraph above the signature, not the signature itself.
+        if c1 <= (top + bottom) / 2:
+            return (1, top - c1 if c1 < top else 0)
+        if c0 > bottom:
+            return (0, c0 - bottom)
+        return (0, 0)
+
+    chosen = None
+    for cluster in sorted(clusters, key=rank):
+        if cluster[1] - cluster[0] <= height * 0.16:
+            chosen = cluster
+            break
+    if chosen is None:
+        return window
+    c0, c1 = chosen
+    ink_left, ink_right = scan_right, scan_left
+    for y in range(c0, c1 + 1):
+        base = y * width * channels
+        found_left = None
+        found_right = None
+        for x in range(scan_left, scan_right):
+            index = base + x * channels
+            if is_ink(index):
+                found_left = x
+                break
+        if found_left is None:
+            continue
+        for x in range(scan_right - 1, found_left - 1, -1):
+            index = base + x * channels
+            if is_ink(index):
+                found_right = x
+                break
+        ink_left = min(ink_left, found_left)
+        ink_right = max(ink_right, found_right if found_right is not None else found_left)
+    if ink_right <= ink_left:
+        return window
+    pad_x = max(4, int(width * 0.012))
+    pad_y = max(4, int(height * 0.008))
+    return (
+        round(max(0.0, (ink_left - pad_x) / width), 4),
+        round(max(0.0, (c0 - pad_y) / height), 4),
+        round(min(1.0, (ink_right + pad_x + 1) / width), 4),
+        round(min(1.0, (c1 + pad_y + 1) / height), 4),
+    )
+
+
 def _jpeg_region(pix, x0, y0, x1, y1):
     """Cut a rectangle out of a rendered page. Fractions use the displayed page."""
     width, height = pix.width, pix.height
@@ -1974,8 +2140,10 @@ def _shown_window(page, window, matched):
 
 def crop_jpeg(doc, page_number, box):
     page = doc[page_number - 1]
+    pix = _render_page(page, 2000)
     window, matched = _choose_windows(page, [box])[0]
-    return _jpeg_region(_render_page(page, 2000), *_shown_window(page, window, matched))
+    shown = _expand_white_crop(page, pix, _shown_window(page, window, matched))
+    return _jpeg_region(pix, *shown)
 
 
 def _scan_doc(doc, name, file_index, firm_id, on_progress=None):
@@ -2041,7 +2209,8 @@ def _crop_items(doc, items):
             continue
         for item, (window, matched) in zip(group, choices):
             try:
-                image = _jpeg_region(pix, *_shown_window(page, window, matched))
+                shown = _expand_white_crop(page, pix, _shown_window(page, window, matched))
+                image = _jpeg_region(pix, *shown)
             except Exception:
                 log.warning("Signature crop failed on page %s", page_number)
                 image = None
@@ -2236,6 +2405,243 @@ def _second_look_names(uploads, proposals, briefs, openai_client, firm_id, on_pr
     return updated
 
 
+def _funding_spans(page_count, evidence):
+    rows = [row for row in evidence or [] if isinstance(row, dict) and row.get("page")]
+    rows.sort(key=lambda row: row["page"])
+    spans = []
+    for index, row in enumerate(rows):
+        start = int(row["page"])
+        end = int(rows[index + 1]["page"]) - 1 if index + 1 < len(rows) else int(page_count)
+        if end < start:
+            continue
+        article = []
+        for page in row.get("article_i") or []:
+            try:
+                number = int(page)
+            except (TypeError, ValueError):
+                continue
+            if start <= number <= end and number not in article:
+                article.append(number)
+        spans.append({
+            "role": row.get("role") or "other",
+            "client": row.get("client") or "",
+            "whose": row.get("whose") or "unclear",
+            "start": start,
+            "end": end,
+            "article_i": article,
+        })
+    return spans
+
+
+def _same_party(left, right):
+    left_name = _fold(left.get("client") or "")
+    right_name = _fold(right.get("client") or "")
+    if left_name and right_name and left_name != right_name:
+        return False
+    left_whose = left.get("whose") or "unclear"
+    right_whose = right.get("whose") or "unclear"
+    if left_whose in ("his", "hers") and right_whose in ("his", "hers") and left_whose != right_whose:
+        return False
+    return True
+
+
+def _span_items(items, span, kinds):
+    found = []
+    for item in items or []:
+        if item.get("file_index") != span.get("file_index"):
+            continue
+        if item.get("type") not in kinds:
+            continue
+        page = item.get("page")
+        if isinstance(page, int) and span["start"] <= page <= span["end"]:
+            found.append(item)
+    return found
+
+
+def _signature_pages(items, span):
+    pages = []
+    for item in _span_items(items, span, ("signature", "notary")):
+        if item["page"] not in pages:
+            pages.append(item["page"])
+    pages.sort()
+    return pages
+
+
+def _is_signed_certificate(items, span):
+    return any(item.get("status") == "completed" for item in _span_items(items, span, ("signature",)))
+
+
+def _funding_surname(client):
+    text = " ".join(str(client or "").split())
+    text = "".join(" " if (ch < " " or ch in '<>:"|?*\\/\u2028\u2029') else ch for ch in text)
+    text = " ".join(text.split()).strip(" .")
+    if not text or _fold(text) in ("unclear", "unknown", "n/a", "none"):
+        return ""
+    return text.upper()
+
+
+def funding_detail(missing):
+    """One sentence naming the pieces that kept a packet from being built."""
+    labels = []
+    for key, label in (
+        ("certificate", "signed certificate of trust"),
+        ("article", "Article I of the trust"),
+        ("signatures", "signature pages"),
+    ):
+        if key in missing:
+            labels.append(label)
+    if not labels:
+        return ""
+    if len(labels) == 1:
+        body = labels[0]
+    elif len(labels) == 2:
+        body = f"{labels[0]} and {labels[1]}"
+    else:
+        body = f"{labels[0]}, {labels[1]}, and {labels[2]}"
+    return "Missing " + body + "."
+
+
+def _funding_gaps(trust, signed):
+    matched = any(_same_party(certificate, trust) for certificate in signed) if trust else False
+    missing = []
+    if not matched:
+        missing.append("certificate")
+    if not trust or not trust.get("article_i"):
+        missing.append("article")
+    if not trust or not trust.get("signature_pages"):
+        missing.append("signatures")
+    return missing
+
+
+def plan_funding(files, items):
+    """A packet needs a signed certificate, Article I, and trust signature pages.
+
+    files are {pages, evidence} in upload order. An unsigned certificate is not used.
+    """
+    spans = []
+    for file_index, file_info in enumerate(files or []):
+        for span in _funding_spans(file_info.get("pages") or 0, file_info.get("evidence")):
+            span["file_index"] = file_index
+            spans.append(span)
+    coalesced = []
+    for span in spans:
+        previous = coalesced[-1] if coalesced else None
+        if (
+            previous
+            and previous["role"] == "trust"
+            and span["role"] == "trust"
+            and previous["file_index"] == span["file_index"]
+            and _same_party(previous, span)
+            and span["start"] <= previous["end"] + 1
+        ):
+            previous["end"] = max(previous["end"], span["end"])
+            for page in span["article_i"]:
+                if page not in previous["article_i"]:
+                    previous["article_i"].append(page)
+            continue
+        coalesced.append(span)
+    for span in coalesced:
+        if span["role"] == "trust":
+            span["signature_pages"] = _signature_pages(items, span)
+    signed = [
+        span for span in coalesced
+        if span["role"] == "certificate_of_trust" and _is_signed_certificate(items, span)
+    ]
+    trusts = [span for span in coalesced if span["role"] == "trust"]
+    used = set()
+    pairs = []
+    for trust in trusts:
+        if not trust.get("article_i") or not trust.get("signature_pages"):
+            continue
+        certificate = next(
+            (span for span in signed if id(span) not in used and _same_party(span, trust)),
+            None,
+        )
+        if certificate is None:
+            continue
+        used.add(id(certificate))
+        pairs.append((certificate, trust))
+    if not pairs:
+        if trusts:
+            closest = min(trusts, key=lambda trust: len(_funding_gaps(trust, signed)))
+            missing = _funding_gaps(closest, signed)
+        else:
+            missing = ["article", "signatures"]
+            if not signed:
+                missing.insert(0, "certificate")
+        return {"created": False, "packets": [], "detail": funding_detail(missing)}
+    packets = []
+    for certificate, trust in pairs:
+        surname = _funding_surname(trust.get("client")) or _funding_surname(certificate.get("client"))
+        included = set()
+        parts = []
+        for source, pages in (
+            (certificate, list(range(certificate["start"], certificate["end"] + 1))),
+            (trust, sorted(trust["article_i"])),
+            (trust, [page for page in trust["signature_pages"] if page not in set(trust["article_i"])]),
+        ):
+            chosen = []
+            for page in pages:
+                key = (source["file_index"], page)
+                if key in included:
+                    continue
+                included.add(key)
+                chosen.append(page)
+            if chosen:
+                parts.append({"file_index": source["file_index"], "pages": chosen})
+        packets.append({"surname": surname, "parts": parts})
+    names = unique_download_names([
+        usable_pdf_name(
+            (packet["surname"] + " FUNDING PACKET") if packet["surname"] else "FUNDING PACKET",
+            "FUNDING PACKET.pdf",
+        )
+        for packet in packets
+    ])
+    for packet, name in zip(packets, names):
+        packet["name"] = name
+        packet.pop("surname", None)
+    return {"created": True, "packets": packets, "detail": ""}
+
+
+def render_funding_packets(uploads, plan):
+    """Copy the planned pages into one PDF per packet. Raises if a page cannot be copied."""
+    if not plan.get("created"):
+        return []
+    pymupdf = _pymupdf()
+    rendered = []
+    sources = []
+    try:
+        for name, data in uploads:
+            sources.append(pymupdf.open(stream=data, filetype="pdf"))
+        for packet in plan["packets"]:
+            out = pymupdf.open()
+            try:
+                for part in packet["parts"]:
+                    source = sources[part["file_index"]]
+                    for page in part["pages"]:
+                        if page < 1 or page > source.page_count:
+                            raise SignatureError("Funding packet page is outside the document")
+                        out.insert_pdf(source, from_page=page - 1, to_page=page - 1)
+                if out.page_count < 1:
+                    raise SignatureError("Funding packet has no pages")
+                _clear_pdf_info(out)
+                rendered.append(out.tobytes(deflate=True))
+            finally:
+                out.close()
+    finally:
+        for source in sources:
+            source.close()
+    return rendered
+
+
+def public_funding(plan):
+    return {
+        "created": bool(plan.get("created")),
+        "packets": [{"name": packet["name"]} for packet in plan.get("packets") or []],
+        "detail": plan.get("detail") or "",
+    }
+
+
 def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, naming_rules=""):
     """Check each PDF. Returns ({pages, files, documents, items}, {item id: jpeg bytes})."""
     uploads = prepare_uploads(uploads)
@@ -2243,6 +2649,7 @@ def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, n
     crops = {}
     documents = []
     briefs = []
+    file_evidence = []
     total_pages = 0
     total = len(uploads)
     for index, (name, data) in enumerate(uploads):
@@ -2267,6 +2674,7 @@ def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, n
             crops.update(_crop_items(doc, file_items))
             items.extend(file_items)
             briefs.append(file_brief(index + 1, doc.page_count, file_items, evidence))
+            file_evidence.append(evidence)
         finally:
             doc.close()
     def propose(rules):
@@ -2283,10 +2691,31 @@ def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, n
     )
     for doc, row in zip(documents, named):
         doc.update(row)
+    plan = plan_funding(
+        [{"pages": doc["pages"], "evidence": evidence} for doc, evidence in zip(documents, file_evidence)],
+        items,
+    )
+    funding_pdfs = []
+    if plan["created"]:
+        if on_progress:
+            on_progress("Building the funding packet")
+        try:
+            funding_pdfs = render_funding_packets(uploads, plan)
+        except Exception:
+            log.warning("Funding packet failed")
+            funding_pdfs = []
+        if len(funding_pdfs) != len(plan["packets"]):
+            plan = {
+                "created": False,
+                "packets": [],
+                "detail": "The funding packet could not be built.",
+            }
+            funding_pdfs = []
     items = _sort_items(items)
     return {
         "pages": total_pages,
         "files": total,
         "documents": documents,
         "items": [public_item(item) for item in items],
-    }, crops
+        "funding": public_funding(plan),
+    }, crops, funding_pdfs

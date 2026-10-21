@@ -93,6 +93,7 @@ function initValidateSignatures(options) {
                     cropUrl: options.cropUrl,
                     fileUrl: options.fileUrl,
                     zipUrl: options.zipUrl,
+                    fundingUrl: options.fundingUrl,
                     nameUrl: options.nameUrl,
                 });
             } catch (err) {
@@ -101,7 +102,7 @@ function initValidateSignatures(options) {
             } finally {
                 setLoading(false);
                 tool.btn.disabled = !selectedFiles.length;
-                tool.btnLabel.textContent = hasRun() ? 'Re-Validate' : 'Validate';
+                tool.btnLabel.textContent = hasRun() ? 'Re-Process' : 'Process';
             }
         },
     });
@@ -133,7 +134,7 @@ function renderSignatureReport(root, result, urls) {
             node.textContent = name;
         });
     }
-    root.appendChild(summaryCard(result.pages || 0, items, documents, names, urls, issues));
+    root.appendChild(summaryCard(result.pages || 0, items, documents, names, urls, issues, result.funding));
     if (!documents.length) {
         root.appendChild(el('p', 'sig-empty', 'No documents to name.'));
         return;
@@ -144,7 +145,7 @@ function renderSignatureReport(root, result, urls) {
     });
 }
 
-function summaryCard(pages, items, documents, names, urls, issues) {
+function summaryCard(pages, items, documents, names, urls, issues, funding) {
     const blanks = issues.filter((entry) => entry.item.status === 'blank').length;
     const unclear = issues.length - blanks;
     const state = blanks ? 'is-issue' : unclear ? 'is-potential' : 'is-clear';
@@ -173,6 +174,7 @@ function summaryCard(pages, items, documents, names, urls, issues) {
     });
     top.appendChild(counts);
     card.appendChild(top);
+    if (funding && (funding.created || funding.detail)) card.appendChild(fundingBlock(funding, urls));
 
     const foot = el('div', 'sig-summary-foot');
     const status = el('div', 'sig-summary-status');
@@ -203,7 +205,7 @@ function issueLog(entries, names) {
     entries.forEach((entry) => {
         const button = el('button', 'sig-issue' + (entry.item.status === 'blank' ? ' is-blank' : ' is-unclear'));
         button.type = 'button';
-        button.appendChild(el('span', 'sig-issue-kind', statusLabel(entry.item.status) + ' ' + typeLabel(entry.item.type).toLowerCase()));
+        button.appendChild(el('span', 'sig-issue-kind', statusLabel(entry.item.status) + ' ' + typeLabel(entry.item.type)));
         const where = el('span', 'sig-issue-where');
         const docName = el('span', null, names[entry.docIndex]);
         docName.dataset.nameFor = String(entry.docIndex);
@@ -215,6 +217,35 @@ function issueLog(entries, names) {
         log.appendChild(button);
     });
     return log;
+}
+
+function fundingBlock(funding, urls) {
+    const box = el('div', 'sig-funding');
+    const packets = funding.created ? (funding.packets || []) : [null];
+    packets.forEach((packet, index) => {
+        const row = el('div', 'sig-funding-status');
+        row.appendChild(funding.created ? checkIcon() : xIcon());
+        const copy = el('div', 'sig-funding-copy');
+        copy.appendChild(el('p', 'sig-funding-label', funding.created ? 'Funding Packet Created' : 'No Funding Packet Created'));
+        if (!funding.created && funding.detail) copy.appendChild(el('p', 'sig-funding-detail', funding.detail));
+        row.appendChild(copy);
+        if (packet && urls.fundingUrl && urls.jobId) {
+            const button = el('button', 'sig-download');
+            button.type = 'button';
+            button.title = packet.name || 'Download funding packet';
+            button.setAttribute('aria-label', 'Download funding packet');
+            button.appendChild(downloadIcon());
+            button.addEventListener('click', () => {
+                postDownload(
+                    urls.fundingUrl.replace('__JOB__', urls.jobId).replace('__PACKET__', String(index)),
+                    [],
+                );
+            });
+            row.appendChild(button);
+        }
+        box.appendChild(row);
+    });
+    return box;
 }
 
 function jumpToItem(itemId) {
@@ -265,7 +296,19 @@ function renderDocument(doc, items, urls, names, index, onRename) {
         if (onRename) onRename(index, next);
         rememberName(fileIndex, next, urls, input, names, index, onRename);
     });
-    field.appendChild(input);
+    const nameLine = el('div', 'sig-name-line');
+    const docIssues = items.filter((item) => item.status === 'blank' || item.status === 'ambiguous');
+    if (docIssues.length) {
+        const warn = el('span', 'sig-doc-warn' + (docIssues.some((item) => item.status === 'blank') ? ' is-issue' : ' is-potential'));
+        warn.appendChild(warningIcon());
+        nameLine.appendChild(warn);
+    }
+    nameLine.appendChild(input);
+    field.appendChild(nameLine);
+    const meta = [];
+    if (doc.pages) meta.push(countLabel(doc.pages, 'page', 'pages'));
+    meta.push(countLabel(items.length, 'item', 'items'));
+    field.appendChild(el('p', 'sig-doc-meta', meta.join(' · ')));
     if (doc.name_status === 'ambiguous' && doc.name_reason) {
         field.appendChild(el('p', 'sig-name-note', doc.name_reason));
     }
@@ -417,6 +460,19 @@ function renderRow(item, urls) {
 
 function checkIcon() {
     const svg = statusIcon('m9 12 2 2 4-4', false);
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', '12');
+    circle.setAttribute('cy', '12');
+    circle.setAttribute('r', '10');
+    svg.insertBefore(circle, svg.firstChild);
+    return svg;
+}
+
+function xIcon() {
+    const svg = statusIcon('m15 9-6 6', false);
+    const slash = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    slash.setAttribute('d', 'm9 9 6 6');
+    svg.appendChild(slash);
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     circle.setAttribute('cx', '12');
     circle.setAttribute('cy', '12');

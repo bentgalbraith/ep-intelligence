@@ -15,7 +15,7 @@
         <div class="file-list" id="file-list"></div>
     </div>
     <button type="submit" class="btn-pill btn-generate" id="btn-validate" disabled>
-        <span class="btn-label">Validate</span>
+        <span class="btn-label">Process</span>
         <span class="spinner" hidden></span>
     </button>
 </form>
@@ -30,6 +30,7 @@
         cropUrl: {{ url_for('api_validate_signatures_crop', job_id='__JOB__', item_id='__ITEM__')|tojson }},
         fileUrl: {{ url_for('api_validate_signatures_file', job_id='__JOB__', file_index='__FILE__')|tojson }},
         zipUrl: {{ url_for('api_validate_signatures_zip', job_id='__JOB__')|tojson }},
+        fundingUrl: {{ url_for('api_validate_signatures_funding', job_id='__JOB__', packet_index='__PACKET__')|tojson }},
         nameUrl: {{ url_for('api_validate_signatures_name', job_id='__JOB__', file_index='__FILE__')|tojson }},
     });
 </script>
