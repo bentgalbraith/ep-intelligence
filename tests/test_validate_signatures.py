@@ -294,7 +294,7 @@ class PdfTest(unittest.TestCase):
         doc.close()
         pix = _jpeg_pixmap(image)
         self.assertGreater(_dark_pixels(pix), 40)
-        self.assertGreater(pix.height, 80)
+        self.assertGreater(pix.height, 45)
 
     def test_scanned_blank_line_is_not_a_white_crop(self):
         import pymupdf
@@ -380,6 +380,54 @@ class PdfTest(unittest.TestCase):
         self.assertGreater(_red_pixels(pix), 0)
         self.assertEqual(_blue_pixels(pix), 0)
 
+    def test_single_spaced_paragraph_stays_out_of_the_signature(self):
+        import pymupdf
+        doc = pymupdf.open()
+        page = doc.new_page(width=612, height=792)
+        for index in range(5):
+            top = 574 + index * 14
+            word = 72
+            for _ in range(8):
+                page.draw_rect(
+                    pymupdf.Rect(word, top, word + 34, top + 8),
+                    color=(0, 0, 1), fill=(0, 0, 1), width=0,
+                )
+                word += 52
+            page.insert_text(pymupdf.Point(74, top + 8), "Duty of the agent.", fontsize=9)
+        page.draw_rect(pymupdf.Rect(80, 652, 220, 700), color=(1, 0, 0), fill=(1, 0, 0), width=0)
+        page.draw_line(pymupdf.Point(72, 708), pymupdf.Point(300, 708), width=1.2)
+        page.insert_text(pymupdf.Point(72, 724), "Mia Jane", fontsize=11)
+        page.draw_rect(pymupdf.Rect(72, 748, 180, 770), color=(0, 0, 1), fill=(0, 0, 1), width=0)
+        line = (72 / 612, 704 / 792, 220 / 612, 8 / 792)
+        signature = _jpeg_pixmap(sig.crop_jpeg(doc, 1, line))
+        paragraph = _jpeg_pixmap(sig.crop_jpeg(doc, 1, (72 / 612, 576 / 792, 160 / 612, 16 / 792)))
+        doc.close()
+        self.assertGreater(_red_pixels(signature), 0)
+        self.assertEqual(_blue_pixels(signature), 0)
+        self.assertGreater(_dark_pixels(signature), 0)
+        self.assertLess(paragraph.height, 160)
+        self.assertEqual(_red_pixels(paragraph), 0)
+
+    def test_notary_box_on_a_paragraph_crops_the_seal(self):
+        import pymupdf
+        doc = pymupdf.open()
+        page = doc.new_page(width=612, height=792)
+        page.insert_text(pymupdf.Point(72, 96), "may engage in transactions with itself personally", fontsize=11)
+        page.insert_text(pymupdf.Point(72, 112), "valid and enforceable executory contract signed", fontsize=11)
+        page.draw_rect(pymupdf.Rect(80, 400, 210, 448), color=(0, 0, 1), fill=(0, 0, 1), width=0)
+        page.draw_line(pymupdf.Point(72, 456), pymupdf.Point(280, 456), width=1.2)
+        page.draw_rect(pymupdf.Rect(78, 640, 176, 738), color=(0, 0, 0), width=1.6)
+        page.draw_rect(pymupdf.Rect(104, 666, 150, 712), color=(1, 0, 0), fill=(1, 0, 0), width=0)
+        paragraph = (72 / 612, 84 / 792, 220 / 612, 16 / 792)
+        signature = (72 / 612, 448 / 792, 200 / 612, 12 / 792)
+        stamp = _jpeg_pixmap(sig.crop_jpeg(doc, 1, paragraph, kind="notary"))
+        kept = _jpeg_pixmap(sig.crop_jpeg(doc, 1, signature, kind="notary"))
+        doc.close()
+        self.assertGreater(_red_pixels(stamp), 0)
+        self.assertEqual(_blue_pixels(stamp), 0)
+        self.assertGreater(_blue_pixels(kept), 0)
+        self.assertEqual(_red_pixels(kept), 0)
+
     def test_crop_is_a_jpeg(self):
         import pymupdf
         doc = pymupdf.open()
@@ -411,6 +459,104 @@ class PdfTest(unittest.TestCase):
         self.assertIn("Smith Will.pdf", str(caught.exception))
         self.assertNotIn("Smith", caught.exception.notes)
         self.assertNotIn("Smith", caught.exception.alert)
+
+
+class ScreenshotTest(unittest.TestCase):
+    def test_an_approved_shot_is_finished(self):
+        row = item(id="a", box=(0.1, 0.1, 0.3, 0.1))
+        open_ids = sig.apply_screenshot_reviews([row], [{"id": "a", "ok": True, "box": [0.5, 0.5, 0.2, 0.2]}])
+        self.assertEqual(open_ids, [])
+        self.assertEqual(row["box"], (0.1, 0.1, 0.3, 0.1))
+
+    def test_a_rejected_shot_moves_and_stays_open(self):
+        row = item(id="a", box=(0.1, 0.1, 0.3, 0.1))
+        open_ids = sig.apply_screenshot_reviews(
+            [row], [{"id": "a", "ok": False, "box": [0.2, 0.72, 0.18, 0.12]}],
+        )
+        self.assertEqual(open_ids, ["a"])
+        self.assertEqual(row["box"][1], 0.72)
+
+    def test_a_shot_the_review_skipped_stays_open(self):
+        first = item(id="a", box=(0.1, 0.1, 0.3, 0.1))
+        second = item(id="b", box=(0.2, 0.4, 0.3, 0.1))
+        open_ids = sig.apply_screenshot_reviews(
+            [first, second], [{"id": "a", "ok": True, "box": [0.1, 0.1, 0.3, 0.1]}],
+        )
+        self.assertEqual(open_ids, ["b"])
+        self.assertEqual(second["box"], (0.2, 0.4, 0.3, 0.1))
+
+    def test_a_review_that_is_not_a_list_keeps_every_shot_open(self):
+        row = item(id="a", box=(0.1, 0.1, 0.3, 0.1))
+        self.assertEqual(sig.apply_screenshot_reviews([row], None), ["a"])
+        self.assertEqual(row["box"], (0.1, 0.1, 0.3, 0.1))
+
+    def test_a_rejection_that_does_not_move_the_box_stops(self):
+        row = item(id="a", box=(0.1, 0.2, 0.3, 0.1))
+        open_ids = sig.apply_screenshot_reviews(
+            [row], [{"id": "a", "ok": False, "box": [0.1, 0.2, 0.3, 0.1]}],
+        )
+        self.assertEqual(open_ids, [])
+        self.assertEqual(row["box"], (0.1, 0.2, 0.3, 0.1))
+
+    def test_review_repeats_until_the_screenshot_is_approved(self):
+        import pymupdf
+        doc = pymupdf.open()
+        doc.new_page(width=612, height=792)
+        row = item(id="mark", page=1, box=(0.05, 0.05, 0.3, 0.08))
+        calls = []
+
+        def ask(_page, shots, _firm):
+            calls.append(shots[0]["box"])
+            if len(calls) == 1:
+                return [{"id": "mark", "ok": False, "box": [0.15, 0.7, 0.25, 0.12]}]
+            return [{"id": "mark", "ok": True, "box": [0.15, 0.7, 0.25, 0.12]}]
+
+        sig._approve_screenshots(doc, [row], None, ask=ask)
+        doc.close()
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(row["box"][1], 0.7)
+
+    def test_a_failed_review_keeps_the_current_box(self):
+        import pymupdf
+        doc = pymupdf.open()
+        doc.new_page(width=612, height=792)
+        row = item(id="mark", page=1, box=(0.2, 0.3, 0.2, 0.08))
+
+        def ask(_page, _shots, _firm):
+            raise RuntimeError("nope")
+
+        sig._approve_screenshots(doc, [row], None, ask=ask)
+        doc.close()
+        self.assertEqual(row["box"], (0.2, 0.3, 0.2, 0.08))
+
+    def test_a_missing_review_is_asked_three_times_then_stops(self):
+        import pymupdf
+        doc = pymupdf.open()
+        doc.new_page(width=612, height=792)
+        row = item(id="mark", page=1, box=(0.2, 0.3, 0.2, 0.08))
+        calls = []
+
+        def ask(_page, _shots, _firm):
+            calls.append(1)
+            return []
+
+        sig._approve_screenshots(doc, [row], None, ask=ask)
+        doc.close()
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(row["box"], (0.2, 0.3, 0.2, 0.08))
+
+    def test_the_stored_crop_is_the_approved_box(self):
+        import pymupdf
+        doc = pymupdf.open()
+        page = doc.new_page(width=612, height=792)
+        page.draw_rect(pymupdf.Rect(72, 80, 400, 140), color=(0, 0, 1), fill=(0, 0, 1), width=0)
+        page.draw_rect(pymupdf.Rect(80, 640, 180, 730), color=(1, 0, 0), fill=(1, 0, 0), width=0)
+        row = item(id="seal", page=1, box=(80 / 612, 640 / 792, 100 / 612, 90 / 792))
+        image = sig._crop_items(doc, [row])["seal"]
+        doc.close()
+        pix = _jpeg_pixmap(image)
+        self.assertGreater(_red_pixels(pix), 0)
+        self.assertEqual(_blue_pixels(pix), 0)
 
 
 class NamingTest(unittest.TestCase):

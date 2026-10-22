@@ -1,7 +1,8 @@
 """Find signature, initial, and notary lines on uploaded PDFs, and name each file.
 
 Gemini reads each PDF in page chunks. A rules pass cleans the list. GPT checks
-only the pages that are still unclear. Crops are cut from the original PDF.
+only the pages that are still unclear. Gemini then checks each screenshot and
+moves the box until it approves the picture. Crops are cut from the original PDF.
 
 File names come from the pages and the firm's naming rules. The uploaded file
 name is never sent to a model.
@@ -22,6 +23,7 @@ log = logging.getLogger("validate_signatures")
 TOOL_KEY = "validate_signatures"
 SCAN_TOOL_KEY = "validate_signatures_scan"
 VERIFY_TOOL_KEY = "validate_signatures_verify"
+CROP_TOOL_KEY = "validate_signatures_crop"
 NAME_TOOL_KEY = "validate_signatures_name"
 NAME_VERIFY_TOOL_KEY = "validate_signatures_name_verify"
 GEMINI_MODEL = "gemini-3.8-flash"
@@ -37,6 +39,7 @@ CHUNK_PAGES = 15
 # Raw PDF bytes. Base64 adds about a third, and the inline request limit is 20MB.
 CHUNK_BYTES = 12 * 1024 * 1024
 MAX_ITEMS_PER_CHUNK = 400
+_CROP_ROUNDS = 3
 MAX_NAMING_RULES = 12000
 MAX_EVIDENCE = 40
 _TYPES = ("signature", "initial", "notary")
@@ -227,6 +230,47 @@ Return JSON with an "items" array. For an item already listed, copy its id. For 
 - label: a few words, with no quotation from the document
 - date_line: filled, blank, none, or unclear
 """
+
+_CROP_PROMPT = """The first image is one page of an estate-planning PDF. Each image after it is a screenshot cut from a box on that page, in the order listed.
+
+Approve a screenshot only when it shows that one mark and little else. Keep the handwriting or the seal, the line it sits on, and the printed name under that line when the line has one. A blank mark still needs its line.
+
+Reject it when the picture is a paragraph, a binder hole, or empty paper where the mark should be. Reject it when another signature, initial, or seal is in the picture. Reject it when a large area of the page surrounds the mark.
+
+Shots:
+{shots}
+
+Return JSON with a "shots" array, one entry for every id:
+- id: the shot id
+- ok: true only when this screenshot is approved
+- box: when ok is false, the replacement [x, y, width, height] on the full page, fractions from 0 to 1, origin at the top-left. When ok is true, repeat the current box.
+
+Do not quote the document.
+"""
+
+_CROP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "shots": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "ok": {"type": "boolean"},
+                    "box": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 4,
+                        "maxItems": 4,
+                    },
+                },
+                "required": ["id", "ok", "box"],
+            },
+        },
+    },
+    "required": ["shots"],
+}
 
 
 class SignatureError(Exception):
@@ -2169,10 +2213,11 @@ def _crop_seed(page, box, window, matched):
 
 
 def _photo_window(pix, seed):
-    """Grow a seed through the ink it touches, then pad a little for context.
+    """Grow a seed through the signature it touches, then pad a little.
 
-    A signature, its line, and the printed name are one mark. A gap stops the
-    walk, so the paragraph above stays out. The last pad is the slight zoom-out.
+    The handwriting, the line, and the printed name are one mark. A line of
+    body text is not, even when the paragraph is single-spaced. The last pad
+    is the slight zoom-out.
     """
     width, height = pix.width, pix.height
     if width < 2 or height < 2 or pix.n < 3:
@@ -2187,15 +2232,17 @@ def _photo_window(pix, seed):
     bottom = max(top + 1, min(height, int(round(y1 * height))))
     samples = pix.samples
     channels = pix.n
-    join = max(10, int(height * 0.016))
-    name_gap = max(join, int(height * 0.028))
-    stroke_gap = max(join, int(height * 0.025))
-    horiz = max(12, int(width * 0.12))
-    date_gap = max(horiz, int(width * 0.22))
-    reach_up = int(height * 0.2)
+    # Glyphs of one letter stay together. The next line of a paragraph does not.
+    join = max(2, int(height * 0.0025))
+    name_gap = max(8, int(height * 0.02))
+    stroke_gap = max(name_gap, int(height * 0.028))
+    near = max(8, int(width * 0.06))
+    date_gap = max(near, int(width * 0.2))
+    text_wide = int(width * 0.33)
+    text_tall = int(height * 0.025)
+    rule_h = max(3, int(height * 0.005))
+    reach_up = int(height * 0.24)
     reach_down = int(height * 0.1)
-    scan_left = max(0, left - int(width * 0.45))
-    scan_right = min(width, right + int(width * 0.45))
     scan_top = max(0, top - reach_up)
     scan_bottom = min(height, bottom + reach_down)
 
@@ -2208,7 +2255,7 @@ def _photo_window(pix, seed):
         spans = []
         run = None
         last = None
-        for x in range(scan_left, scan_right, 2):
+        for x in range(0, width, 2):
             if is_ink(x, y):
                 if run is None:
                     run = x
@@ -2221,10 +2268,10 @@ def _photo_window(pix, seed):
             spans.append((run, last))
         rows.append((y, spans))
 
-    def spans_near(spans, x_start, x_end):
+    def spans_near(spans):
         hit = None
         for start, end in spans:
-            if end < x_start - horiz or start > x_end + horiz:
+            if end < left - near or start > right + near:
                 continue
             if hit is None:
                 hit = [start, end]
@@ -2235,9 +2282,16 @@ def _photo_window(pix, seed):
 
     ink_rows = []
     for y, spans in rows:
-        hit = spans_near(spans, left, right)
-        if hit is not None:
-            ink_rows.append((y, hit[0], hit[1]))
+        hit = spans_near(spans)
+        if hit is None:
+            continue
+        # A paragraph row is many words across the page. A signature line is one stroke.
+        wordy = len(spans) >= 4
+        if wordy:
+            row_width = spans[-1][1] - spans[0][0]
+        else:
+            row_width = hit[1] - hit[0]
+        ink_rows.append((y, hit[0], hit[1], row_width, wordy))
 
     def cluster(source):
         if not source:
@@ -2245,23 +2299,56 @@ def _photo_window(pix, seed):
         groups = []
         start = prev = source[0][0]
         bucket = [source[0]]
-        for y, x_start, x_end in source[1:]:
-            if y - prev <= join:
+        for y, x_start, x_end, wide, wordy in source[1:]:
+            previous_wide = bucket[-1][4] and bucket[-1][3] >= text_wide
+            this_wide = wordy and wide >= text_wide
+            if previous_wide or this_wide:
+                # Rows of one line touch. The next line of a paragraph does not.
+                same_band = previous_wide and this_wide and y - prev <= 2
+            else:
+                same_band = y - prev <= join
+            if same_band:
                 prev = y
-                bucket.append((y, x_start, x_end))
+                bucket.append((y, x_start, x_end, wide, wordy))
                 continue
             groups.append((start, prev, bucket))
             start = prev = y
-            bucket = [(y, x_start, x_end)]
+            bucket = [(y, x_start, x_end, wide, wordy)]
         groups.append((start, prev, bucket))
         return groups
+
+    def is_text_line(group):
+        # A paragraph line is a wide band of words. A signature line is one stroke.
+        height = group[1] - group[0]
+        if height > text_tall:
+            return False
+        if any(item[4] and item[3] >= text_wide for item in group[2]):
+            return True
+        return height > rule_h and any(item[3] >= text_wide for item in group[2])
+
+    def is_rule(group):
+        return not is_text_line(group) and group[1] - group[0] <= rule_h
+
+    def take(group):
+        nonlocal c0, c1, ink_left, ink_right
+        c0 = min(c0, group[0])
+        c1 = max(c1, group[1])
+        ink_left = min(ink_left, min(item[1] for item in group[2]))
+        ink_right = max(ink_right, max(item[2] for item in group[2]))
 
     groups = cluster(ink_rows)
     seed_had_ink = any(group[1] >= top and group[0] <= bottom for group in groups)
     chosen = [group for group in groups if group[1] >= top and group[0] <= bottom]
+    marks = [group for group in chosen if not is_text_line(group)]
+    # A box on the signature drops the paragraph lines it happens to cross.
+    if marks:
+        chosen = marks
     if not chosen:
         # A blank box holds no ink. Take the line below it, not the paragraph above.
-        below = [group for group in groups if group[0] > bottom and group[0] - bottom <= int(height * 0.12)]
+        below = [
+            group for group in groups
+            if group[0] > bottom and group[0] - bottom <= int(height * 0.12) and not is_text_line(group)
+        ]
         if below:
             chosen = [below[0]]
     if not chosen:
@@ -2277,61 +2364,328 @@ def _photo_window(pix, seed):
     c1 = max(group[1] for group in chosen)
     ink_left = min(item[1] for group in chosen for item in group[2])
     ink_right = max(item[2] for group in chosen for item in group[2])
-    if seed_had_ink:
-        # Ink above the line belongs to the signature. A separate text line does not,
-        # and a line further up is not reached by stepping from one line to the next.
+    boxed_text = seed_had_ink and not marks
+    if boxed_text:
+        # Keep the whole line. A box that only crosses the top of it was slicing the words.
+        changed = True
+        while changed:
+            changed = False
+            for group in groups:
+                if not is_text_line(group) or group[1] < c0 - 2 or group[0] > c1 + 2:
+                    continue
+                if group[0] < c0 or group[1] > c1:
+                    take(group)
+                    changed = True
+        for y, spans in rows:
+            if c0 <= y <= c1:
+                for start, end in spans:
+                    ink_left = min(ink_left, start)
+                    ink_right = max(ink_right, end)
+    if seed_had_ink and not boxed_text:
+        # Handwriting above the line. A wide text line is the paragraph, so it stays out.
         base = c0
-        touch = max(8, int(height * 0.008))
         for group in groups:
-            if group[1] >= base:
+            if group[1] >= base or is_text_line(group):
                 continue
             gap = base - group[1]
-            span = group[1] - group[0]
-            if span > int(height * 0.14):
+            if gap > stroke_gap or group[1] - group[0] > int(height * 0.14):
                 continue
-            if span >= int(height * 0.035):
-                if gap > stroke_gap:
-                    continue
-            elif gap > touch:
+            # A descender hanging off the line above belongs to that line.
+            if any(is_text_line(other) and 0 <= group[0] - other[1] <= 3 for other in groups):
                 continue
-            c0 = min(c0, group[0])
-            ink_left = min(ink_left, min(item[1] for item in group[2]))
-            ink_right = max(ink_right, max(item[2] for item in group[2]))
-    # One short band under the mark: the printed name, and the date beside it.
-    for group in groups:
-        if group[0] <= c1 or group[0] - c1 > name_gap:
-            continue
-        if group[1] - group[0] > int(height * 0.04):
-            continue
-        c1 = group[1]
-        ink_left = min(ink_left, min(item[1] for item in group[2]))
-        ink_right = max(ink_right, max(item[2] for item in group[2]))
-        break
+            take(group)
+    if not boxed_text:
+        # The underline, then the printed name. The block under that stays out.
+        added_name = False
+        rule_gap = max(6, int(height * 0.012))
+        for group in groups:
+            if group[0] <= c1:
+                continue
+            gap = group[0] - c1
+            if is_rule(group) and gap <= rule_gap:
+                take(group)
+                continue
+            if added_name or is_text_line(group) or gap > name_gap:
+                break
+            if group[1] - group[0] > int(height * 0.03):
+                break
+            take(group)
+            added_name = True
+            break
     bound_left, bound_right = ink_left, ink_right
-    for y, spans in rows:
-        if y < c0 or y > c1:
-            continue
-        for start, end in spans:
-            if end < bound_left - date_gap or start > bound_right + date_gap:
+    if not boxed_text:
+        for y, spans in rows:
+            if y < c0 or y > c1:
                 continue
-            ink_left = min(ink_left, start)
-            ink_right = max(ink_right, end)
-    pad_x = max(8, int(width * 0.022))
-    pad_y = max(8, int(height * 0.018))
+            for start, end in spans:
+                if end < bound_left - date_gap or start > bound_right + date_gap:
+                    continue
+                ink_left = min(ink_left, start)
+                ink_right = max(ink_right, end)
+    pad_x = max(8, int(width * 0.018))
+    pad_y = max(6, int(height * 0.008))
+    pad_top = pad_bottom = pad_y
+    for group in groups:
+        if not is_text_line(group):
+            continue
+        if c0 - pad_top < group[1] <= c0:
+            pad_top = max(0, c0 - group[1] - 2)
+        if c1 <= group[0] < c1 + pad_bottom:
+            pad_bottom = max(0, group[0] - c1 - 2)
     return (
         round(max(0.0, (ink_left - pad_x) / width), 4),
-        round(max(0.0, (c0 - pad_y) / height), 4),
+        round(max(0.0, (c0 - pad_top) / height), 4),
         round(min(1.0, (ink_right + pad_x + 1) / width), 4),
-        round(min(1.0, (c1 + pad_y + 1) / height), 4),
+        round(min(1.0, (c1 + pad_bottom + 1) / height), 4),
     )
 
 
-def crop_jpeg(doc, page_number, box):
+def _paragraph_only(pix, window):
+    """True when the crop is body text: no signature line, seal, or handwriting."""
+    width, height = pix.width, pix.height
+    if width < 2 or height < 2 or pix.n < 3:
+        return False
+    x0, y0, x1, y1 = window
+    left = max(0, min(width - 1, int(x0 * width)))
+    right = max(left + 1, min(width, int(x1 * width)))
+    top = max(0, min(height - 1, int(y0 * height)))
+    bottom = max(top + 1, min(height, int(y1 * height)))
+    samples = pix.samples
+    channels = pix.n
+    text_rows = 0
+    mark = False
+    band_top = None
+    band_wide = False
+    band_spans = 0
+
+    def flush(end):
+        nonlocal text_rows, mark, band_top, band_wide, band_spans
+        if band_top is None:
+            return
+        span = end - band_top
+        if span <= max(4, int(height * 0.006)) and band_wide and band_spans <= 2:
+            mark = True
+        elif span > int(height * 0.02):
+            mark = True
+        elif band_wide:
+            text_rows += 1
+        band_top = None
+        band_wide = False
+        band_spans = 0
+
+    blank = 0
+    for y in range(top, bottom, 2):
+        spans = []
+        run = None
+        last = None
+        for x in range(left, right, 2):
+            index = (y * width + x) * channels
+            ink = min(samples[index], samples[index + 1], samples[index + 2]) < 186
+            if ink:
+                if run is None:
+                    run = x
+                last = x
+            elif run is not None:
+                if last - run >= 2:
+                    spans.append((run, last))
+                run = None
+        if run is not None and last is not None and last - run >= 2:
+            spans.append((run, last))
+        if not spans:
+            blank += 2
+            if blank > 6 and band_top is not None:
+                flush(y)
+            continue
+        blank = 0
+        wide = spans[-1][1] - spans[0][0] >= int(width * 0.28)
+        if band_top is None:
+            band_top = y
+        band_wide = band_wide or wide
+        band_spans = max(band_spans, len(spans))
+    flush(bottom)
+    return text_rows > 0 and not mark
+
+
+def _seal_frames(page):
+    """Rectangular notary stamps. A signature line is too short to qualify."""
+    pymupdf = _pymupdf()
+    found = list(_stamp_rects(page))
+    for drawing in page.get_drawings():
+        rect = drawing.get("rect")
+        items = drawing.get("items") or []
+        kinds = {item[0] for item in items}
+        if rect is None or not ({"re", "l", "c"} & kinds):
+            continue
+        if rect.height < 36 or rect.width < 36:
+            continue
+        if not (50 <= rect.width <= 220 and 50 <= rect.height <= 220):
+            continue
+        short = min(rect.width, rect.height)
+        long = max(rect.width, rect.height)
+        if long / short > 1.8:
+            continue
+        found.append(pymupdf.Rect(rect))
+    frames = []
+    for rect in found:
+        window = _fraction_rect(page, rect)
+        if window is None:
+            continue
+        if min(window[2] - window[0], window[3] - window[1]) < 0.07:
+            continue
+        frames.append(window)
+    return frames
+
+
+def _pixel_seals(pix):
+    """A stamped seal on a scan: a compact block, not a line of text."""
+    width, height = pix.width, pix.height
+    if width < 40 or height < 40 or pix.n < 3:
+        return []
+    step = 4
+    cols = width // step
+    rows = height // step
+    if cols < 2 or rows < 2:
+        return []
+    samples = pix.samples
+    channels = pix.n
+
+    on = bytearray(cols * rows)
+    for gy in range(rows):
+        y0 = gy * step
+        for gx in range(cols):
+            x0 = gx * step
+            hit = False
+            for y in range(y0, min(height, y0 + step), 2):
+                row = y * width
+                for x in range(x0, min(width, x0 + step), 2):
+                    index = (row + x) * channels
+                    if min(samples[index], samples[index + 1], samples[index + 2]) < 160:
+                        hit = True
+                        break
+                if hit:
+                    break
+            if hit:
+                on[gy * cols + gx] = 1
+    parent = list(range(cols * rows))
+
+    def find(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left, right):
+        left, right = find(left), find(right)
+        if left != right:
+            parent[right] = left
+
+    for gy in range(rows):
+        for gx in range(cols):
+            index = gy * cols + gx
+            if not on[index]:
+                continue
+            if gx + 1 < cols and on[index + 1]:
+                union(index, index + 1)
+            if gy + 1 < rows and on[index + cols]:
+                union(index, index + cols)
+    boxes = {}
+    for index, ink in enumerate(on):
+        if not ink:
+            continue
+        root = find(index)
+        gx, gy = index % cols, index // cols
+        have = boxes.get(root)
+        if have is None:
+            boxes[root] = [gx, gy, gx, gy, 1]
+        else:
+            have[0] = min(have[0], gx)
+            have[1] = min(have[1], gy)
+            have[2] = max(have[2], gx)
+            have[3] = max(have[3], gy)
+            have[4] += 1
+    min_side = int(width * 0.1)
+    max_side = int(width * 0.36)
+    found = []
+    for gx0, gy0, gx1, gy1, count in boxes.values():
+        pixel_w = (gx1 - gx0 + 1) * step
+        pixel_h = (gy1 - gy0 + 1) * step
+        if pixel_w < min_side or pixel_h < min_side:
+            continue
+        if pixel_w > max_side or pixel_h > max_side:
+            continue
+        short = min(pixel_w, pixel_h)
+        long = max(pixel_w, pixel_h)
+        if long / short > 1.75:
+            continue
+        area = max(1, (gx1 - gx0 + 1) * (gy1 - gy0 + 1))
+        if count / area < 0.08:
+            continue
+        found.append((
+            round(gx0 * step / width, 4),
+            round(gy0 * step / height, 4),
+            round(min(1.0, (gx1 + 1) * step / width), 4),
+            round(min(1.0, (gy1 + 1) * step / height), 4),
+        ))
+    return found
+
+
+def _seal_windows(page, pix):
+    """Seals drawn on the page, plus a stamped block on a scan."""
+    found = list(_seal_frames(page))
+    for window in _pixel_seals(pix):
+        if any(_rects_overlap((window[0], window[1], window[2] - window[0], window[3] - window[1]), have) for have in found):
+            continue
+        found.append(window)
+    return found
+
+
+def _nearest_seal(seals, box):
+    if not seals:
+        return None
+    cx = box[0] + box[2] / 2.0
+    cy = box[1] + box[3] / 2.0
+
+    def distance(seal):
+        return (seal[0] + seal[2]) / 2.0 - cx, (seal[1] + seal[3]) / 2.0 - cy
+
+    def score(seal):
+        dx, dy = distance(seal)
+        return dx * dx + dy * dy
+
+    seal = min(seals, key=score)
+    pad_x, pad_y = 0.012, 0.008
+    return (
+        round(max(0.0, seal[0] - pad_x), 4),
+        round(max(0.0, seal[1] - pad_y), 4),
+        round(min(1.0, seal[2] + pad_x), 4),
+        round(min(1.0, seal[3] + pad_y), 4),
+    )
+
+
+def _framed_crop(page, pix, box, kind=None, choice=None):
+    """The crop window, and the seed the region label should follow.
+
+    A notary box that landed on a paragraph is moved onto the seal. A box that
+    already holds a signature line or the seal stays where it is.
+    """
+    if choice is None:
+        choice = _choose_windows(page, [box])[0]
+    window, matched = choice
+    seed = _crop_seed(page, box, window, matched)
+    photo = _photo_window(pix, seed)
+    if kind != "notary" or not _paragraph_only(pix, photo):
+        return seed, photo
+    seal = _nearest_seal(_seal_windows(page, pix), box)
+    if seal is None:
+        return seed, photo
+    return seal, seal
+
+
+def crop_jpeg(doc, page_number, box, kind=None):
     page = doc[page_number - 1]
     pix = _render_page(page, 2000)
-    window, matched = _choose_windows(page, [box])[0]
-    seed = _crop_seed(page, box, window, matched)
-    return _jpeg_region(pix, *_photo_window(pix, seed))
+    _seed, photo = _framed_crop(page, pix, box, kind)
+    return _jpeg_region(pix, *photo)
 
 
 def _scan_doc(doc, name, file_index, firm_id, on_progress=None):
@@ -2378,36 +2732,225 @@ def _verify_doc(doc, items, openai_client, firm_id, on_progress=None):
     return rest + checked
 
 
+def _box_window(box):
+    """A small margin around the model's box. The box itself is not moved."""
+    x, y, w, h = box
+    pad_x, pad_y = 0.012, 0.008
+    return (
+        round(max(0.0, x - pad_x), 4),
+        round(max(0.0, y - pad_y), 4),
+        round(min(1.0, x + w + pad_x), 4),
+        round(min(1.0, y + h + pad_y), 4),
+    )
+
+
+def _same_box(left, right):
+    return all(abs(left[index] - right[index]) < 0.01 for index in range(4))
+
+
+def apply_screenshot_reviews(items, reviews):
+    """Move boxes the model rejected. Return the ids that still need another look.
+
+    An approved shot is finished. A rejected shot with a new box stays open.
+    A rejection that does not move the box is finished, so the loop can stop.
+    A shot the review did not mention stays open.
+    """
+    if not isinstance(reviews, list):
+        return [item["id"] for item in items]
+    by_id = {item["id"]: item for item in items}
+    answered = set()
+    still_open = []
+    for review in reviews:
+        if not isinstance(review, dict):
+            continue
+        item = by_id.get(review.get("id"))
+        if item is None or item["id"] in answered:
+            continue
+        answered.add(item["id"])
+        if review.get("ok") is True:
+            continue
+        box = parse_box(review.get("box"))
+        if box is None or _same_box(box, item["box"]):
+            continue
+        item["box"] = box
+        still_open.append(item["id"])
+    for item in items:
+        if item["id"] not in answered:
+            still_open.append(item["id"])
+    return still_open
+
+
+def _image_part(jpeg):
+    return {
+        "inlineData": {
+            "mimeType": "image/jpeg",
+            "data": base64.b64encode(jpeg).decode("ascii"),
+        }
+    }
+
+
+def _ask_screenshot_review(page_jpeg, shots, firm_id):
+    started = time.time()
+    payload = None
+    listed = [
+        {
+            "id": shot["id"],
+            "type": shot["type"],
+            "label": shot["label"],
+            "box": [round(value, 4) for value in shot["box"]],
+        }
+        for shot in shots
+    ]
+    parts = [{"text": _CROP_PROMPT.replace("{shots}", json.dumps(listed))}, _image_part(page_jpeg)]
+    parts.extend(_image_part(shot["jpeg"]) for shot in shots)
+    body = {
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": {
+            "thinkingConfig": {"thinkingLevel": "low"},
+            "responseMimeType": "application/json",
+            "responseJsonSchema": _CROP_SCHEMA,
+            "maxOutputTokens": 8192,
+        },
+    }
+    try:
+        request = urllib.request.Request(
+            _GEMINI_URL,
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": _gemini_key(),
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=180) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        raw, finish = _gemini_text(payload)
+        prompt_tokens, output, thoughts = _gemini_usage(payload)
+        if finish == "MAX_TOKENS":
+            _log_model(
+                "gemini", GEMINI_MODEL, CROP_TOOL_KEY, "error", firm_id, started,
+                input_tokens=prompt_tokens, output_tokens=output, reasoning_tokens=thoughts,
+                notes="truncated",
+            )
+            raise SignatureError(
+                _CHECK_FAILED, logged=True, alert="Screenshot review truncated", notes="truncated",
+            )
+        try:
+            parsed = _parse_json_object(raw)
+        except ValueError:
+            _log_model(
+                "gemini", GEMINI_MODEL, CROP_TOOL_KEY, "error", firm_id, started,
+                input_tokens=prompt_tokens, output_tokens=output, reasoning_tokens=thoughts,
+                notes="JSON parse failed",
+            )
+            raise SignatureError(
+                _CHECK_FAILED, logged=True, alert="Screenshot review failed", notes="JSON parse failed",
+            ) from None
+        _log_model(
+            "gemini", GEMINI_MODEL, CROP_TOOL_KEY, "success", firm_id, started,
+            input_tokens=prompt_tokens, output_tokens=output, reasoning_tokens=thoughts,
+            notes=f"{len(shots)} shots",
+        )
+        found = parsed.get("shots")
+        return found if isinstance(found, list) else []
+    except SignatureError:
+        raise
+    except Exception as exc:
+        prompt_tokens, output, thoughts = _gemini_usage(payload)
+        log.warning("Screenshot review failed: %s", type(exc).__name__)
+        _log_model(
+            "gemini", GEMINI_MODEL, CROP_TOOL_KEY, "error", firm_id, started,
+            input_tokens=prompt_tokens, output_tokens=output, reasoning_tokens=thoughts,
+            notes=type(exc).__name__,
+        )
+        raise SignatureError(
+            _CHECK_FAILED, logged=True, alert="Screenshot review failed", notes=type(exc).__name__,
+        ) from None
+
+
+def _approve_screenshots(doc, items, firm_id, ask=None):
+    """Show each crop to Gemini and keep moving the box until it approves it.
+
+    A review that fails leaves the current boxes in place. The check is not
+    allowed to discard the scan.
+    """
+    if not items:
+        return
+    ask = ask or _ask_screenshot_review
+    by_page = {}
+    for item in items:
+        by_page.setdefault(item["page"], []).append(item)
+    for page_number, group in by_page.items():
+        try:
+            page_jpeg = render_page_jpeg(doc, page_number)
+            pix = _render_page(doc[page_number - 1], 2000)
+        except Exception:
+            log.warning("Screenshot review skipped on page %s", page_number)
+            continue
+        pending = list(group)
+        for _round in range(_CROP_ROUNDS):
+            if not pending:
+                break
+            next_pending = []
+            for start in range(0, len(pending), 8):
+                chunk = pending[start:start + 8]
+                shots = []
+                for item in chunk:
+                    box = item.get("box")
+                    if not isinstance(box, (list, tuple)) or len(box) != 4:
+                        continue
+                    try:
+                        jpeg = _jpeg_region(pix, *_box_window(box))
+                    except Exception:
+                        log.warning("Screenshot crop failed on page %s", page_number)
+                        jpeg = None
+                    if not jpeg:
+                        continue
+                    shots.append({
+                        "id": item["id"],
+                        "type": item.get("type") or "",
+                        "label": item.get("label") or "",
+                        "box": box,
+                        "jpeg": jpeg,
+                    })
+                if not shots:
+                    continue
+                try:
+                    reviews = ask(page_jpeg, shots, firm_id)
+                    asked = {shot["id"] for shot in shots}
+                    open_ids = set(apply_screenshot_reviews(
+                        [item for item in chunk if item["id"] in asked], reviews,
+                    ))
+                except Exception as exc:
+                    log.warning(
+                        "Screenshot review failed on page %s: %s",
+                        page_number, type(exc).__name__,
+                    )
+                    continue
+                next_pending.extend(item for item in chunk if item["id"] in open_ids)
+            pending = next_pending
+
+
 def _crop_items(doc, items):
+    """Cut each screenshot from the box Gemini approved."""
     crops = {}
     by_page = {}
     for item in items:
         by_page.setdefault(item["page"], []).append(item)
     for page_number, group in by_page.items():
         try:
-            page = doc[page_number - 1]
-            pix = _render_page(page, 2000)
+            pix = _render_page(doc[page_number - 1], 2000)
         except Exception:
             log.warning("Signature crop failed on page %s", page_number)
             continue
-        try:
-            choices = _choose_windows(page, [item["box"] for item in group])
-        except Exception:
-            log.warning("Signature crop failed on page %s", page_number)
-            continue
-        for item, (window, matched) in zip(group, choices):
+        for item in group:
             try:
-                seed = _crop_seed(page, item["box"], window, matched)
-                image = _jpeg_region(pix, *_photo_window(pix, seed))
+                image = _jpeg_region(pix, *_box_window(item["box"]))
             except Exception:
                 log.warning("Signature crop failed on page %s", page_number)
                 image = None
-            if not image:
-                continue
-            x0, y0, x1, y1 = seed
-            item["box"] = (x0, y0, round(x1 - x0, 4), round(y1 - y0, 4))
-            item["region"] = region_label(item["box"])
-            crops[item["id"]] = image
+            if image:
+                crops[item["id"]] = image
     return crops
 
 
@@ -2856,10 +3399,20 @@ def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, n
             documents.append({"index": index, "name": name, "pages": doc.page_count})
             file_items, evidence = _scan_doc(doc, name, index, firm_id, on_progress=report)
             file_items = _verify_doc(doc, file_items, openai_client, firm_id, on_progress=report)
-            report("Preparing screenshots")
+            report("Checking screenshots")
+            try:
+                _approve_screenshots(doc, file_items, firm_id)
+            except Exception as exc:
+                log.warning("Screenshot review skipped: %s", type(exc).__name__)
             for item in file_items:
-                item["region"] = region_label(item["box"])
-            crops.update(_crop_items(doc, file_items))
+                try:
+                    item["region"] = region_label(item["box"])
+                except Exception:
+                    log.warning("Screenshot region skipped")
+            try:
+                crops.update(_crop_items(doc, file_items))
+            except Exception as exc:
+                log.warning("Signature crop failed: %s", type(exc).__name__)
             items.extend(file_items)
             briefs.append(file_brief(index + 1, doc.page_count, file_items, evidence))
             file_evidence.append(evidence)
