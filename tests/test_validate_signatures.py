@@ -370,10 +370,15 @@ class PdfTest(unittest.TestCase):
         # Red ink above a signature line near the bottom of the page.
         page.draw_rect(pymupdf.Rect(80, 640, 200, 695), color=(1, 0, 0), fill=(1, 0, 0), width=0)
         page.draw_line(pymupdf.Point(72, 704), pymupdf.Point(280, 704), width=1.2)
+        # A text line just above the signature, and a paragraph further up.
+        page.draw_rect(pymupdf.Rect(72, 608, 400, 624), color=(0, 0, 1), fill=(0, 0, 1), width=0)
+        page.draw_rect(pymupdf.Rect(72, 520, 400, 560), color=(0, 0, 1), fill=(0, 0, 1), width=0)
         line = (72 / 612, 700 / 792, 208 / 612, 8 / 792)
         image = sig.crop_jpeg(doc, 1, line)
         doc.close()
-        self.assertGreater(_red_pixels(_jpeg_pixmap(image)), 0)
+        pix = _jpeg_pixmap(image)
+        self.assertGreater(_red_pixels(pix), 0)
+        self.assertEqual(_blue_pixels(pix), 0)
 
     def test_crop_is_a_jpeg(self):
         import pymupdf

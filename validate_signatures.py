@@ -2138,12 +2138,200 @@ def _shown_window(page, window, matched):
     return _rescue_empty_window(page, shown)
 
 
+def _rects_overlap(box, window):
+    x, y, w, h = box
+    x0, y0, x1, y1 = window
+    return x < x1 and x + w > x0 and y < y1 and y + h > y0
+
+
+def _union_rect(box, window):
+    """Model box is x, y, width, height. A snapped mark is x0, y0, x1, y1."""
+    x, y, w, h = box
+    x0, y0, x1, y1 = window
+    return (min(x, x0), min(y, y0), max(x + w, x1), max(y + h, y1))
+
+
+def _crop_seed(page, box, window, matched):
+    """The model's box, nudged onto a line only when the box missed the line.
+
+    Overlapping the line keeps the model's box, so a tall signature is not
+    thrown away and replaced by the underline.
+    """
+    if matched and _rects_overlap(box, window):
+        return _union_rect(box, window)
+    if matched:
+        return window
+    spot = _empty_gap_spot(page, window)
+    if spot is not None:
+        return spot
+    x, y, w, h = box
+    return (x, y, x + w, y + h)
+
+
+def _photo_window(pix, seed):
+    """Grow a seed through the ink it touches, then pad a little for context.
+
+    A signature, its line, and the printed name are one mark. A gap stops the
+    walk, so the paragraph above stays out. The last pad is the slight zoom-out.
+    """
+    width, height = pix.width, pix.height
+    if width < 2 or height < 2 or pix.n < 3:
+        return seed
+    x0, y0, x1, y1 = seed
+
+    def at(frac, limit):
+        return max(0, min(limit - 1, int(round(frac * limit))))
+
+    left, top = at(x0, width), at(y0, height)
+    right = max(left + 1, min(width, int(round(x1 * width))))
+    bottom = max(top + 1, min(height, int(round(y1 * height))))
+    samples = pix.samples
+    channels = pix.n
+    join = max(10, int(height * 0.016))
+    name_gap = max(join, int(height * 0.028))
+    stroke_gap = max(join, int(height * 0.025))
+    horiz = max(12, int(width * 0.12))
+    date_gap = max(horiz, int(width * 0.22))
+    reach_up = int(height * 0.2)
+    reach_down = int(height * 0.1)
+    scan_left = max(0, left - int(width * 0.45))
+    scan_right = min(width, right + int(width * 0.45))
+    scan_top = max(0, top - reach_up)
+    scan_bottom = min(height, bottom + reach_down)
+
+    def is_ink(x, y):
+        index = (y * width + x) * channels
+        return min(samples[index], samples[index + 1], samples[index + 2]) < 186
+
+    rows = []
+    for y in range(scan_top, scan_bottom):
+        spans = []
+        run = None
+        last = None
+        for x in range(scan_left, scan_right, 2):
+            if is_ink(x, y):
+                if run is None:
+                    run = x
+                last = x
+            elif run is not None:
+                if last - run >= 2:
+                    spans.append((run, last))
+                run = None
+        if run is not None and last is not None and last - run >= 2:
+            spans.append((run, last))
+        rows.append((y, spans))
+
+    def spans_near(spans, x_start, x_end):
+        hit = None
+        for start, end in spans:
+            if end < x_start - horiz or start > x_end + horiz:
+                continue
+            if hit is None:
+                hit = [start, end]
+            else:
+                hit[0] = min(hit[0], start)
+                hit[1] = max(hit[1], end)
+        return hit
+
+    ink_rows = []
+    for y, spans in rows:
+        hit = spans_near(spans, left, right)
+        if hit is not None:
+            ink_rows.append((y, hit[0], hit[1]))
+
+    def cluster(source):
+        if not source:
+            return []
+        groups = []
+        start = prev = source[0][0]
+        bucket = [source[0]]
+        for y, x_start, x_end in source[1:]:
+            if y - prev <= join:
+                prev = y
+                bucket.append((y, x_start, x_end))
+                continue
+            groups.append((start, prev, bucket))
+            start = prev = y
+            bucket = [(y, x_start, x_end)]
+        groups.append((start, prev, bucket))
+        return groups
+
+    groups = cluster(ink_rows)
+    seed_had_ink = any(group[1] >= top and group[0] <= bottom for group in groups)
+    chosen = [group for group in groups if group[1] >= top and group[0] <= bottom]
+    if not chosen:
+        # A blank box holds no ink. Take the line below it, not the paragraph above.
+        below = [group for group in groups if group[0] > bottom and group[0] - bottom <= int(height * 0.12)]
+        if below:
+            chosen = [below[0]]
+    if not chosen:
+        pad_x = max(6, int(width * 0.02))
+        pad_y = max(6, int(height * 0.016))
+        return (
+            round(max(0.0, (left - pad_x) / width), 4),
+            round(max(0.0, (top - pad_y) / height), 4),
+            round(min(1.0, (right + pad_x) / width), 4),
+            round(min(1.0, (bottom + pad_y) / height), 4),
+        )
+    c0 = min(group[0] for group in chosen)
+    c1 = max(group[1] for group in chosen)
+    ink_left = min(item[1] for group in chosen for item in group[2])
+    ink_right = max(item[2] for group in chosen for item in group[2])
+    if seed_had_ink:
+        # Ink above the line belongs to the signature. A separate text line does not,
+        # and a line further up is not reached by stepping from one line to the next.
+        base = c0
+        touch = max(8, int(height * 0.008))
+        for group in groups:
+            if group[1] >= base:
+                continue
+            gap = base - group[1]
+            span = group[1] - group[0]
+            if span > int(height * 0.14):
+                continue
+            if span >= int(height * 0.035):
+                if gap > stroke_gap:
+                    continue
+            elif gap > touch:
+                continue
+            c0 = min(c0, group[0])
+            ink_left = min(ink_left, min(item[1] for item in group[2]))
+            ink_right = max(ink_right, max(item[2] for item in group[2]))
+    # One short band under the mark: the printed name, and the date beside it.
+    for group in groups:
+        if group[0] <= c1 or group[0] - c1 > name_gap:
+            continue
+        if group[1] - group[0] > int(height * 0.04):
+            continue
+        c1 = group[1]
+        ink_left = min(ink_left, min(item[1] for item in group[2]))
+        ink_right = max(ink_right, max(item[2] for item in group[2]))
+        break
+    bound_left, bound_right = ink_left, ink_right
+    for y, spans in rows:
+        if y < c0 or y > c1:
+            continue
+        for start, end in spans:
+            if end < bound_left - date_gap or start > bound_right + date_gap:
+                continue
+            ink_left = min(ink_left, start)
+            ink_right = max(ink_right, end)
+    pad_x = max(8, int(width * 0.022))
+    pad_y = max(8, int(height * 0.018))
+    return (
+        round(max(0.0, (ink_left - pad_x) / width), 4),
+        round(max(0.0, (c0 - pad_y) / height), 4),
+        round(min(1.0, (ink_right + pad_x + 1) / width), 4),
+        round(min(1.0, (c1 + pad_y + 1) / height), 4),
+    )
+
+
 def crop_jpeg(doc, page_number, box):
     page = doc[page_number - 1]
     pix = _render_page(page, 2000)
     window, matched = _choose_windows(page, [box])[0]
-    shown = _expand_white_crop(page, pix, _shown_window(page, window, matched))
-    return _jpeg_region(pix, *shown)
+    seed = _crop_seed(page, box, window, matched)
+    return _jpeg_region(pix, *_photo_window(pix, seed))
 
 
 def _scan_doc(doc, name, file_index, firm_id, on_progress=None):
@@ -2209,14 +2397,14 @@ def _crop_items(doc, items):
             continue
         for item, (window, matched) in zip(group, choices):
             try:
-                shown = _expand_white_crop(page, pix, _shown_window(page, window, matched))
-                image = _jpeg_region(pix, *shown)
+                seed = _crop_seed(page, item["box"], window, matched)
+                image = _jpeg_region(pix, *_photo_window(pix, seed))
             except Exception:
                 log.warning("Signature crop failed on page %s", page_number)
                 image = None
             if not image:
                 continue
-            x0, y0, x1, y1 = window
+            x0, y0, x1, y1 = seed
             item["box"] = (x0, y0, round(x1 - x0, 4), round(y1 - y0, 4))
             item["region"] = region_label(item["box"])
             crops[item["id"]] = image
