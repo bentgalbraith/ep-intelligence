@@ -314,6 +314,93 @@ class RulesTest(unittest.TestCase):
         self.assertIn("words beside each line", sig._CROP_PROMPT)
         self.assertIn("Do not shrink the block", sig._CROP_PROMPT)
         self.assertIn("choice", sig._SCAN_SCHEMA["properties"]["items"]["items"]["required"])
+        self.assertIn("stamp", sig._SCAN_SCHEMA["properties"]["items"]["items"]["required"])
+        self.assertIn("notary stamp is its own item", scan)
+        self.assertIn("whole notarization section", scan)
+        self.assertIn("When stamp is true and status is blank or ambiguous", sig._CROP_PROMPT)
+        self.assertIn("A stamp is blank when that notarization has no seal", scan)
+        self.assertIn("Do not turn the notary signature into the stamp", sig._VERIFY_PROMPT)
+
+    def test_a_stamp_is_its_own_notary_item(self):
+        found = sig.normalize_chunk([{
+            "type": "notary", "status": "completed", "page": 7,
+            "box": [0.1, 0.75, 0.2, 0.1], "label": "Seal",
+            "date_line": "none", "confidence": "high", "stamp": True, "choice": False,
+        }], 1, 9, "POA.pdf", 0)
+        self.assertTrue(found[0]["stamp"])
+        self.assertEqual(found[0]["label"], "Notary stamp")
+        signature = sig.normalize_chunk([{
+            "type": "signature", "status": "completed", "page": 7,
+            "box": [0.4, 0.78, 0.3, 0.06], "label": "Principal",
+            "date_line": "filled", "confidence": "high", "stamp": True,
+        }], 1, 9, "POA.pdf", 0)
+        self.assertFalse(signature[0]["stamp"])
+        self.assertEqual(signature[0]["label"], "Principal")
+
+    def test_a_stamp_stays_beside_the_notary_signature(self):
+        stamp = item(id="stamp", type="notary", stamp=True, confidence="low", box=(0.1, 0.75, 0.25, 0.12))
+        signature = item(id="sign", type="notary", confidence="high", box=(0.12, 0.76, 0.25, 0.12))
+        kept = sig.dedupe_items([signature, stamp])
+        self.assertEqual({row["id"] for row in kept}, {"stamp", "sign"})
+
+    def test_a_missed_stamp_is_added_without_replacing_the_signature(self):
+        rows = [item(
+            id="sign", type="notary", status="completed", label="Notary signature",
+            box=(0.45, 0.78, 0.3, 0.06),
+        )]
+        merged = sig.apply_verification(rows, [
+            {"id": "sign", "stamp": True, "status": "blank", "box": [0.05, 0.7, 0.7, 0.2]},
+            {
+                "type": "notary", "stamp": True, "status": "blank",
+                "box": [0.05, 0.7, 0.7, 0.2], "label": "Seal",
+            },
+        ])
+        by_id = {row["id"]: row for row in merged}
+        self.assertFalse(by_id["sign"].get("stamp"))
+        self.assertEqual(by_id["sign"]["label"], "Notary signature")
+        self.assertEqual(by_id["sign"]["status"], "completed")
+        added = [row for row in merged if row["id"] != "sign"]
+        self.assertEqual(len(added), 1)
+        self.assertTrue(added[0]["stamp"])
+        self.assertEqual(added[0]["status"], "blank")
+        self.assertEqual(added[0]["label"], "Notary stamp")
+
+    def test_a_missing_stamp_screenshot_is_not_shrunk_to_the_signature(self):
+        row = item(
+            id="stamp", type="notary", stamp=True, status="blank",
+            label="Notary stamp", box=(0.05, 0.7, 0.7, 0.22),
+        )
+        open_ids = sig.apply_screenshot_reviews([row], [{
+            "id": "stamp", "ok": False, "box": [0.45, 0.78, 0.25, 0.05],
+        }])
+        self.assertEqual(open_ids, [])
+        self.assertEqual(row["box"], (0.05, 0.7, 0.7, 0.22))
+        unclear = item(
+            id="unsure", type="notary", stamp=True, status="ambiguous",
+            box=(0.05, 0.7, 0.7, 0.22),
+        )
+        open_ids = sig.apply_screenshot_reviews([unclear], [{
+            "id": "unsure", "ok": False, "box": [0.45, 0.78, 0.25, 0.05],
+        }])
+        self.assertEqual(unclear["box"], (0.05, 0.7, 0.7, 0.22))
+        trimmed = item(
+            id="trim", type="notary", stamp=True, status="blank",
+            box=(0.05, 0.55, 0.7, 0.4),
+        )
+        open_ids = sig.apply_screenshot_reviews([trimmed], [{
+            "id": "trim", "ok": False, "box": [0.05, 0.7, 0.7, 0.22],
+        }])
+        self.assertEqual(open_ids, ["trim"])
+        self.assertEqual(trimmed["box"][1], 0.7)
+        present = item(
+            id="seal", type="notary", stamp=True, status="completed",
+            box=(0.05, 0.7, 0.7, 0.22),
+        )
+        open_ids = sig.apply_screenshot_reviews([present], [{
+            "id": "seal", "ok": False, "box": [0.1, 0.74, 0.18, 0.1],
+        }])
+        self.assertEqual(open_ids, ["seal"])
+        self.assertLess(present["box"][2], 0.3)
 
     def test_a_choice_screenshot_is_not_shrunk_to_one_line(self):
         row = item(id="a", type="initial", choice=True, box=(0.1, 0.2, 0.6, 0.4))

@@ -2,7 +2,8 @@
 
 Gemini reads each PDF in page chunks. A rules pass cleans the list. GPT checks
 only the pages that are still unclear. A block of initial choices is one item.
-Gemini then checks each screenshot and moves the box until it approves the
+A notary stamp is its own item. Gemini then checks each screenshot and
+moves the box until it approves the
 picture. Crops are cut from the original PDF.
 
 File names come from the pages and the firm's naming rules. The uploaded file
@@ -68,6 +69,7 @@ _GENERIC_STEMS = frozenset({
 
 _NOT_CONFIGURED = "Name Files & Validate Signatures is not configured yet. Contact your administrator."
 _CHECK_FAILED = "A document could not be checked. Please try again."
+_STAMP_LABEL = "Notary stamp"
 
 _SCAN_SCHEMA = {
     "type": "object",
@@ -95,9 +97,11 @@ _SCAN_SCHEMA = {
                     "date_line": {"type": "string", "enum": list(_DATE_LINES)},
                     "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                     "choice": {"type": "boolean"},
+                    "stamp": {"type": "boolean"},
                 },
                 "required": [
-                    "type", "status", "page", "box", "label", "date_line", "confidence", "choice",
+                    "type", "status", "page", "box", "label", "date_line", "confidence",
+                    "choice", "stamp",
                 ],
             },
         },
@@ -146,19 +150,20 @@ _SCAN_PROMPT = """You are checking an estate-planning PDF for every place a pers
 
 This file has {count} pages. Number those pages from 1. Page 1 is the first page of this file, not a page number printed in a footer.
 
-Find every signature, required initial, choice block, and notarization, whether it is filled in or blank. Include signature blocks, required initial lines in the margins and footers, witness lines, notary acknowledgments, jurats, and notary seals. A choice block is one item, not one item for each option line.
+Find every signature, required initial, choice block, and notarization, whether it is filled in or blank. Include signature blocks, required initial lines in the margins and footers, witness lines, notary acknowledgments, jurats, and notary seals. A choice block is one item, not one item for each option line. A notary stamp is its own item, separate from the notary signature.
 
 Do not list ordinary sentences, dates on their own, or blank lines that are not for a signature, initial, or notarization.
 
 For each item:
 - type is signature, initial, or notary
-- status is completed when ink, a stamp, or a seal is present; blank when the line or block is empty; ambiguous when you cannot tell. A choice block is completed when any option in it is initialed, even though the other options are blank
+- status is completed when ink, a stamp, or a seal is present; blank when the line or block is empty; ambiguous when you cannot tell. A choice block is completed when any option in it is initialed, even though the other options are blank. A stamp is blank when that notarization has no seal, even though the notary signed
 - page is an integer from 1 through {count}
-- box is [x, y, width, height], fractions of the full page from 0 to 1, origin at the top-left. For a signature, a required initial, or a notarization, box the handwriting or stamp and the line it sits on, plus the printed name under that line. Do not box the paragraph above the line, and do not box a single letter. For a choice block, box every option line and the words beside those lines
+- box is [x, y, width, height], fractions of the full page from 0 to 1, origin at the top-left. For a signature, a required initial, or a notary signature, box the handwriting and the line it sits on, plus the printed name under that line. Do not box the paragraph above the line, and do not box a single letter. For a choice block, box every option line and the words beside those lines. A stamp has its own box, described below
 - label is a few words such as "Grantor", "Witness", or "Notary acknowledgment". Do not quote the document
 - date_line is filled when a date beside this item is written in, blank when that date line is empty, none when there is no date line, unclear when you cannot tell
 - confidence is high, medium, or low
 - choice is true only for a choice block, and false for everything else
+- stamp is true only for a notary stamp, and false for everything else
 
 A choice block is a set of initial lines where the page tells the person to initial the option they want. A blank line in that block is an option they did not pick. Return one item for the whole block, not one item per line. Status is completed when at least one line in the block is initialed. Status is blank when the page requires a selection and every line is empty. When the page allows no selection and every line is empty, omit the block.
 
@@ -166,7 +171,9 @@ A single optional grant is a choice block of one line. When it is initialed, ret
 
 A required initial stays its own item with choice false. That includes a margin or footer initial and any initial the page does not describe as optional. A blank required initial has status blank.
 
-Set choice to false on every signature and notarization. Do not put a signature, a notarization, or a required initial inside a choice box.
+A notary stamp is its own item. Set type to notary and stamp to true. The notary signature is a separate item with stamp false. When the seal is visible, status is completed and the box is the seal only. Do not include the notary signature or the paragraph above the seal. When a notarization has no seal, return one blank stamp item. Its box is the whole notarization section: the venue, the acknowledgment or jurat, the notary signature, and the area where the seal would be. Leave the signer's signature above that section out of the box. A page with no notarization does not get a stamp item.
+
+Set choice to false on every signature and notarization. Do not put a signature, a notarization, or a required initial inside a choice box. Set stamp to false on every item that is not the stamp.
 
 Return every item. An empty list is correct only when this part has nowhere to sign, initial, or notarize.
 
@@ -233,26 +240,33 @@ Another model found the items below on this page. Confirm each status. You may a
 
 An initial can be a choice block: the page tells the person to initial the option they want, and a blank line is an option they did not pick. Return one item for that whole block. On the item you keep, copy one listed id, set choice to true, and set box to every option line and the words beside those lines. Status is completed when any line in the block is initialed, and blank when the page requires a selection and none is initialed. On each other listed initial that is only an unselected line in that block, copy its id and set drop to true. Do not set drop on the item you keep.
 
-Do not drop a signature, a notarization, or a required initial. A required initial keeps choice false. A drop on an initial outside the choice block is ignored.
+Do not drop a signature, a notarization, a notary stamp, or a required initial. A required initial keeps choice false. A drop on an initial outside the choice block is ignored.
+
+A notary stamp is its own item, with stamp true and type notary. The notary signature is a separate item with stamp false. You may add a stamp that was missed. When the seal is visible, the stamp box is the seal only. When the notarization has no seal, the stamp is blank and its box is the whole notarization section, not the signer's signature above it. Do not turn the notary signature into the stamp.
 
 Items:
 {items}
 
 Return JSON with an "items" array. For an item already listed, copy its id. For a new item, omit id. Each item has:
 - type: signature, initial, or notary
-- status: completed when ink, a stamp, or a seal is visible; blank when the line or block is empty; ambiguous when you cannot tell
+- status: completed when ink, a stamp, or a seal is visible; blank when the line or block is empty; ambiguous when you cannot tell. A stamp is blank when no seal is visible, even if the notary signature is in its box
 - box: [x, y, width, height], fractions of this page from 0 to 1, origin at the top-left
 - label: a few words, with no quotation from the document
 - date_line: filled, blank, none, or unclear
 - choice: true only for a choice block
+- stamp: true only for the notary stamp. Copy it on a stamp you are correcting, and set it on a stamp you add
 - drop: true only for an initial that is an unselected option in a choice block
 """
 
-_CROP_PROMPT = """The first image is one page of an estate-planning PDF. Each image after it is a screenshot cut from a box on that page, in the order listed. Each shot says whether choice is true or false.
+_CROP_PROMPT = """The first image is one page of an estate-planning PDF. Each image after it is a screenshot cut from a box on that page, in the order listed. Each shot says whether choice is true or false, and whether stamp is true or false.
 
-When choice is false, approve a screenshot only when it shows that one mark and little else. Keep the handwriting or the seal, the line it sits on, and the printed name under that line when the line has one. A blank mark still needs its line. Reject it when the picture is a paragraph, a binder hole, or empty paper where the mark should be. Reject it when another signature, initial, or seal is in the picture. Reject it when a large area of the page surrounds the mark.
+When choice is false and stamp is false, approve a screenshot only when it shows that one mark and little else. Keep the handwriting, the line it sits on, and the printed name under that line when the line has one. A blank mark still needs its line. Reject it when the picture is a paragraph, a binder hole, or empty paper where the mark should be. Reject it when another signature, initial, or seal is in the picture. Reject it when a large area of the page surrounds the mark.
 
 When choice is true, the box is a whole set of options. Approve it only when every option line is in the picture and the words beside each line are visible, so the choice can be read. More than one initial inside that block is expected. Reject a crop that cuts off an option or shows only the ink. Do not shrink the block to the initialed line.
+
+When stamp is true and status is completed, the box is the seal. Approve it only when the seal is visible and the notary signature is not. Reject the signature beside it and the paragraph above it.
+
+When stamp is true and status is blank or ambiguous, there is no seal to confirm. Approve the picture only when it shows the whole notarization section, including the notary signature, and no seal is there. Do not shrink it to the signature line or to empty paper. Leave the signer's own signature out of the picture. You may trim the box to take that signature out.
 
 Shots:
 {shots}
@@ -521,7 +535,8 @@ def suppress_initials_inside_choices(items):
 def dedupe_items(items):
     """Drop overlapping boxes of the same type on the same page.
 
-    A choice block wins over a single initial. Otherwise keep the surer one.
+    A choice block wins over a single initial. A stamp stays separate from
+    the notary signature. Otherwise keep the surer one.
     """
     kept = []
     for item in items:
@@ -530,6 +545,8 @@ def dedupe_items(items):
             if prev["file_index"] != item["file_index"] or prev["page"] != item["page"]:
                 continue
             if prev["type"] != item["type"]:
+                continue
+            if bool(item.get("stamp")) != bool(prev.get("stamp")):
                 continue
             if _iou(prev["box"], item["box"]) <= 0.5:
                 continue
@@ -578,8 +595,26 @@ def apply_verification(items, updates):
                 continue
             dropping = raw.get("drop") is True and current.get("type") == "initial"
             choosing = _is_choice(raw.get("choice")) and current.get("type") == "initial"
+            fixing_stamp = (
+                current.get("type") == "notary"
+                and current.get("stamp")
+                and _is_choice(raw.get("stamp"))
+            )
             if dropping:
                 drop_requested.add(item_id)
+            if fixing_stamp:
+                box = parse_box(raw.get("box"))
+                if box:
+                    current["box"] = box
+                    current["region"] = region_label(box)
+                current["label"] = _STAMP_LABEL
+                if status:
+                    current["status"] = status
+            refused_stamp = (
+                _is_choice(raw.get("stamp"))
+                and current.get("type") == "notary"
+                and not current.get("stamp")
+            )
             if choosing:
                 box = parse_box(raw.get("box"))
                 if box:
@@ -594,7 +629,7 @@ def apply_verification(items, updates):
                 label = _short_label(raw.get("label"))
                 if label:
                     current["label"] = label
-            if dropping or choosing:
+            if dropping or choosing or fixing_stamp or refused_stamp:
                 continue
             if not status:
                 continue
@@ -622,10 +657,11 @@ def apply_verification(items, updates):
             "type": kind,
             "status": status,
             "box": box,
-            "label": _short_label(raw.get("label")),
+            "label": _STAMP_LABEL if kind == "notary" and _is_choice(raw.get("stamp")) else _short_label(raw.get("label")),
             "date_line": _enum(raw.get("date_line"), _DATE_LINES) or "unclear",
             "region": region_label(box),
             "choice": kind == "initial" and _is_choice(raw.get("choice")),
+            "stamp": kind == "notary" and _is_choice(raw.get("stamp")),
         })
     choices = [
         item for item in list(by_id.values()) + extras
@@ -677,10 +713,11 @@ def normalize_chunk(raw_items, start, end, name, file_index):
             "type": kind,
             "status": status,
             "box": box,
-            "label": _short_label(raw.get("label")),
+            "label": _STAMP_LABEL if kind == "notary" and _is_choice(raw.get("stamp")) else _short_label(raw.get("label")),
             "date_line": _enum(raw.get("date_line"), _DATE_LINES) or "unclear",
             "confidence": confidence,
             "choice": kind == "initial" and _is_choice(raw.get("choice")),
+            "stamp": kind == "notary" and _is_choice(raw.get("stamp")),
         })
     return found
 
@@ -1376,6 +1413,7 @@ def _verify_page(openai_client, image_bytes, page, items, firm_id):
             "label": item["label"],
             "date_line": item["date_line"],
             "choice": bool(item.get("choice")),
+            "stamp": bool(item.get("stamp")),
             "box": [round(value, 4) for value in item["box"]],
         }
         for item in items
@@ -2861,13 +2899,13 @@ def _same_box(left, right):
     return all(abs(left[index] - right[index]) < 0.01 for index in range(4))
 
 
-def _choice_replacement_ok(old, new):
-    """A choice screenshot may grow or be trimmed. It may not collapse to one line."""
+def _choice_replacement_ok(old, new, minimum=0.7):
+    """A wide screenshot may grow or be trimmed. It may not collapse to one line."""
     old_area = max(old[2], 0) * max(old[3], 0)
     new_area = max(new[2], 0) * max(new[3], 0)
     if old_area <= 0:
         return True
-    return new_area >= old_area * 0.7
+    return new_area >= old_area * minimum
 
 
 def apply_screenshot_reviews(items, reviews):
@@ -2896,6 +2934,9 @@ def apply_screenshot_reviews(items, reviews):
             continue
         if item.get("choice") and not _choice_replacement_ok(item["box"], box):
             continue
+        missing_stamp = item.get("stamp") and item.get("status") != "completed"
+        if missing_stamp and not _choice_replacement_ok(item["box"], box, minimum=0.4):
+            continue
         item["box"] = box
         still_open.append(item["id"])
     for item in items:
@@ -2922,6 +2963,8 @@ def _ask_screenshot_review(page_jpeg, shots, firm_id):
             "type": shot["type"],
             "label": shot["label"],
             "choice": bool(shot.get("choice")),
+            "stamp": bool(shot.get("stamp")),
+            "status": shot.get("status") or "",
             "box": [round(value, 4) for value in shot["box"]],
         }
         for shot in shots
@@ -3036,6 +3079,8 @@ def _approve_screenshots(doc, items, firm_id, ask=None):
                         "type": item.get("type") or "",
                         "label": item.get("label") or "",
                         "choice": bool(item.get("choice")),
+                        "stamp": bool(item.get("stamp")),
+                        "status": item.get("status") or "",
                         "box": box,
                         "jpeg": jpeg,
                     })
