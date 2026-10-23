@@ -163,6 +163,10 @@ class RulesTest(unittest.TestCase):
         kept = sig.dedupe_items([low, high, other])
         ids = {row["id"] for row in kept}
         self.assertEqual(ids, {"2", "3"})
+        choice = item(id="group", type="initial", choice=True, confidence="low", box=(0.1, 0.1, 0.4, 0.2))
+        line = item(id="line", type="initial", confidence="high", box=(0.12, 0.12, 0.4, 0.2))
+        kept = sig.dedupe_items([line, choice])
+        self.assertEqual({row["id"] for row in kept}, {"group"})
 
     def test_low_confidence_becomes_unclear(self):
         rows = sig.mark_uncertain([item(status="completed", confidence="low")])
@@ -232,6 +236,98 @@ class RulesTest(unittest.TestCase):
         }] * (sig.MAX_ITEMS_PER_CHUNK + 1)
         with self.assertRaises(sig.SignatureError):
             sig.normalize_chunk(raw, 1, 1, "Will.pdf", 0)
+
+    def test_a_choice_block_is_one_initial(self):
+        found = sig.normalize_chunk([{
+            "type": "initial", "status": "completed", "page": 2,
+            "box": [0.1, 0.2, 0.55, 0.35], "label": "Statutory powers",
+            "date_line": "none", "confidence": "high", "choice": True,
+        }], 1, 3, "POA.pdf", 0)
+        self.assertEqual(len(found), 1)
+        self.assertTrue(found[0]["choice"])
+        self.assertEqual(found[0]["status"], "completed")
+        signature = sig.normalize_chunk([{
+            "type": "signature", "status": "completed", "page": 2,
+            "box": [0.1, 0.8, 0.4, 0.08], "label": "Principal",
+            "date_line": "filled", "confidence": "high", "choice": True,
+        }], 1, 3, "POA.pdf", 0)
+        self.assertFalse(signature[0]["choice"])
+
+    def test_an_initial_inside_a_choice_block_is_dropped(self):
+        rows = [
+            item(id="group", type="initial", status="completed", choice=True, box=(0.1, 0.2, 0.6, 0.3)),
+            item(id="line", type="initial", status="blank", box=(0.12, 0.25, 0.1, 0.02)),
+            item(id="margin", type="initial", status="blank", box=(0.8, 0.02, 0.08, 0.02)),
+            item(id="sig", type="signature", status="blank", box=(0.2, 0.28, 0.2, 0.05)),
+        ]
+        kept = {row["id"] for row in sig.suppress_initials_inside_choices(rows)}
+        self.assertEqual(kept, {"group", "margin", "sig"})
+
+    def test_verification_drops_an_unselected_option_and_keeps_the_block(self):
+        rows = [
+            item(id="a", type="initial", status="blank", label="", box=(0.1, 0.2, 0.08, 0.02)),
+            item(id="b", type="initial", status="blank", box=(0.1, 0.28, 0.08, 0.02)),
+            item(id="sig", type="signature", status="completed", box=(0.1, 0.8, 0.3, 0.08)),
+            item(id="seal", type="notary", status="completed", box=(0.1, 0.7, 0.2, 0.12)),
+            item(id="margin", type="initial", status="blank", box=(0.8, 0.02, 0.08, 0.02)),
+        ]
+        merged = sig.apply_verification(rows, [
+            {
+                "id": "a", "choice": True, "status": "completed",
+                "box": [0.08, 0.18, 0.6, 0.2], "label": "Powers",
+            },
+            {"id": "b", "drop": True},
+            {"id": "sig", "drop": True},
+            {"id": "seal", "drop": True},
+            {"id": "margin", "drop": True},
+        ])
+        by_id = {row["id"]: row for row in merged}
+        self.assertEqual(set(by_id), {"a", "sig", "seal", "margin"})
+        self.assertTrue(by_id["a"]["choice"])
+        self.assertEqual(by_id["a"]["status"], "completed")
+        self.assertEqual(by_id["a"]["label"], "Powers")
+        self.assertGreater(by_id["a"]["box"][2], 0.4)
+        self.assertEqual(by_id["sig"]["status"], "completed")
+        self.assertNotIn("choice", sig.public_item(by_id["a"]))
+
+    def test_a_widened_choice_block_hides_the_line_inside_it(self):
+        rows = [
+            item(id="a", type="initial", status="ambiguous", box=(0.1, 0.2, 0.08, 0.02)),
+            item(id="b", type="initial", status="blank", box=(0.12, 0.25, 0.08, 0.02)),
+        ]
+        merged = sig.apply_verification(rows, [{
+            "id": "a", "choice": True, "status": "completed",
+            "box": [0.08, 0.18, 0.6, 0.25],
+        }])
+        self.assertEqual([row["id"] for row in merged], ["a"])
+        self.assertEqual(merged[0]["status"], "completed")
+
+    def test_choice_instructions_are_in_the_prompts(self):
+        scan = sig._SCAN_PROMPT.format(count=3)
+        self.assertNotIn("{", scan)
+        self.assertIn("omit the block", scan)
+        self.assertIn("words beside", scan)
+        self.assertIn("required initial", scan)
+        self.assertIn("drop", sig._VERIFY_PROMPT)
+        self.assertIn("Do not drop a signature", sig._VERIFY_PROMPT)
+        self.assertIn("When choice is true", sig._CROP_PROMPT)
+        self.assertIn("words beside each line", sig._CROP_PROMPT)
+        self.assertIn("Do not shrink the block", sig._CROP_PROMPT)
+        self.assertIn("choice", sig._SCAN_SCHEMA["properties"]["items"]["items"]["required"])
+
+    def test_a_choice_screenshot_is_not_shrunk_to_one_line(self):
+        row = item(id="a", type="initial", choice=True, box=(0.1, 0.2, 0.6, 0.4))
+        open_ids = sig.apply_screenshot_reviews([row], [{
+            "id": "a", "ok": False, "box": [0.12, 0.5, 0.08, 0.03],
+        }])
+        self.assertEqual(open_ids, [])
+        self.assertEqual(row["box"], (0.1, 0.2, 0.6, 0.4))
+        grown = item(id="b", type="initial", choice=True, box=(0.1, 0.2, 0.2, 0.05))
+        open_ids = sig.apply_screenshot_reviews([grown], [{
+            "id": "b", "ok": False, "box": [0.08, 0.15, 0.6, 0.35],
+        }])
+        self.assertEqual(open_ids, ["b"])
+        self.assertGreater(grown["box"][3], 0.2)
 
 
 class PricingTest(unittest.TestCase):
@@ -515,6 +611,26 @@ class ScreenshotTest(unittest.TestCase):
         doc.close()
         self.assertEqual(len(calls), 2)
         self.assertEqual(row["box"][1], 0.7)
+
+    def test_a_choice_block_is_sent_to_the_screenshot_check(self):
+        import pymupdf
+        doc = pymupdf.open()
+        doc.new_page(width=612, height=792)
+        choice = item(id="block", page=1, type="initial", choice=True, box=(0.1, 0.2, 0.5, 0.3))
+        required = item(id="margin", page=1, type="initial", box=(0.8, 0.05, 0.1, 0.04))
+        seen = {}
+
+        def ask(_page, shots, _firm):
+            seen.update({shot["id"]: shot["choice"] for shot in shots})
+            return [
+                {"id": shot["id"], "ok": True, "box": list(shot["box"])}
+                for shot in shots
+            ]
+
+        sig._approve_screenshots(doc, [choice, required], None, ask=ask)
+        doc.close()
+        self.assertTrue(seen["block"])
+        self.assertFalse(seen["margin"])
 
     def test_a_failed_review_keeps_the_current_box(self):
         import pymupdf

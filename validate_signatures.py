@@ -1,8 +1,9 @@
 """Find signature, initial, and notary lines on uploaded PDFs, and name each file.
 
 Gemini reads each PDF in page chunks. A rules pass cleans the list. GPT checks
-only the pages that are still unclear. Gemini then checks each screenshot and
-moves the box until it approves the picture. Crops are cut from the original PDF.
+only the pages that are still unclear. A block of initial choices is one item.
+Gemini then checks each screenshot and moves the box until it approves the
+picture. Crops are cut from the original PDF.
 
 File names come from the pages and the firm's naming rules. The uploaded file
 name is never sent to a model.
@@ -93,9 +94,10 @@ _SCAN_SCHEMA = {
                     "label": {"type": "string"},
                     "date_line": {"type": "string", "enum": list(_DATE_LINES)},
                     "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                    "choice": {"type": "boolean"},
                 },
                 "required": [
-                    "type", "status", "page", "box", "label", "date_line", "confidence",
+                    "type", "status", "page", "box", "label", "date_line", "confidence", "choice",
                 ],
             },
         },
@@ -144,18 +146,27 @@ _SCAN_PROMPT = """You are checking an estate-planning PDF for every place a pers
 
 This file has {count} pages. Number those pages from 1. Page 1 is the first page of this file, not a page number printed in a footer.
 
-Find every signature line, initial line, and notarization block, whether it is filled in or blank. Include signature blocks, initial lines in the margins and footers, witness lines, notary acknowledgments, jurats, and notary seals.
+Find every signature, required initial, choice block, and notarization, whether it is filled in or blank. Include signature blocks, required initial lines in the margins and footers, witness lines, notary acknowledgments, jurats, and notary seals. A choice block is one item, not one item for each option line.
 
 Do not list ordinary sentences, dates on their own, or blank lines that are not for a signature, initial, or notarization.
 
 For each item:
 - type is signature, initial, or notary
-- status is completed when ink, a stamp, or a seal is present; blank when the line or block is empty; ambiguous when you cannot tell
+- status is completed when ink, a stamp, or a seal is present; blank when the line or block is empty; ambiguous when you cannot tell. A choice block is completed when any option in it is initialed, even though the other options are blank
 - page is an integer from 1 through {count}
-- box is [x, y, width, height], fractions of the full page from 0 to 1, origin at the top-left. Box the handwriting or stamp and the line it sits on, plus the printed name under that line. Do not box the paragraph above the line, and do not box a single letter
+- box is [x, y, width, height], fractions of the full page from 0 to 1, origin at the top-left. For a signature, a required initial, or a notarization, box the handwriting or stamp and the line it sits on, plus the printed name under that line. Do not box the paragraph above the line, and do not box a single letter. For a choice block, box every option line and the words beside those lines
 - label is a few words such as "Grantor", "Witness", or "Notary acknowledgment". Do not quote the document
 - date_line is filled when a date beside this item is written in, blank when that date line is empty, none when there is no date line, unclear when you cannot tell
 - confidence is high, medium, or low
+- choice is true only for a choice block, and false for everything else
+
+A choice block is a set of initial lines where the page tells the person to initial the option they want. A blank line in that block is an option they did not pick. Return one item for the whole block, not one item per line. Status is completed when at least one line in the block is initialed. Status is blank when the page requires a selection and every line is empty. When the page allows no selection and every line is empty, omit the block.
+
+A single optional grant is a choice block of one line. When it is initialed, return that one item, with the box covering the line and the words beside it. When it is left blank and the page allows that, omit it.
+
+A required initial stays its own item with choice false. That includes a margin or footer initial and any initial the page does not describe as optional. A blank required initial has status blank.
+
+Set choice to false on every signature and notarization. Do not put a signature, a notarization, or a required initial inside a choice box.
 
 Return every item. An empty list is correct only when this part has nowhere to sign, initial, or notarize.
 
@@ -218,7 +229,11 @@ Return JSON with filename, confidence (high, medium, or needs_review), and reaso
 
 _VERIFY_PROMPT = """This image is document page {page} of an estate-planning PDF.
 
-Another model found the items below on this page. Confirm each status. You may add a signature, initial, or notarization it missed. Do not remove an item that is really on the page.
+Another model found the items below on this page. Confirm each status. You may add a signature, initial, or notarization it missed. Do not remove a signature, a notarization, or a required initial.
+
+An initial can be a choice block: the page tells the person to initial the option they want, and a blank line is an option they did not pick. Return one item for that whole block. On the item you keep, copy one listed id, set choice to true, and set box to every option line and the words beside those lines. Status is completed when any line in the block is initialed, and blank when the page requires a selection and none is initialed. On each other listed initial that is only an unselected line in that block, copy its id and set drop to true. Do not set drop on the item you keep.
+
+Do not drop a signature, a notarization, or a required initial. A required initial keeps choice false. A drop on an initial outside the choice block is ignored.
 
 Items:
 {items}
@@ -229,13 +244,15 @@ Return JSON with an "items" array. For an item already listed, copy its id. For 
 - box: [x, y, width, height], fractions of this page from 0 to 1, origin at the top-left
 - label: a few words, with no quotation from the document
 - date_line: filled, blank, none, or unclear
+- choice: true only for a choice block
+- drop: true only for an initial that is an unselected option in a choice block
 """
 
-_CROP_PROMPT = """The first image is one page of an estate-planning PDF. Each image after it is a screenshot cut from a box on that page, in the order listed.
+_CROP_PROMPT = """The first image is one page of an estate-planning PDF. Each image after it is a screenshot cut from a box on that page, in the order listed. Each shot says whether choice is true or false.
 
-Approve a screenshot only when it shows that one mark and little else. Keep the handwriting or the seal, the line it sits on, and the printed name under that line when the line has one. A blank mark still needs its line.
+When choice is false, approve a screenshot only when it shows that one mark and little else. Keep the handwriting or the seal, the line it sits on, and the printed name under that line when the line has one. A blank mark still needs its line. Reject it when the picture is a paragraph, a binder hole, or empty paper where the mark should be. Reject it when another signature, initial, or seal is in the picture. Reject it when a large area of the page surrounds the mark.
 
-Reject it when the picture is a paragraph, a binder hole, or empty paper where the mark should be. Reject it when another signature, initial, or seal is in the picture. Reject it when a large area of the page surrounds the mark.
+When choice is true, the box is a whole set of options. Approve it only when every option line is in the picture and the words beside each line are visible, so the choice can be read. More than one initial inside that block is expected. Reject a crop that cuts off an option or shows only the ink. Do not shrink the block to the initialed line.
 
 Shots:
 {shots}
@@ -459,8 +476,53 @@ def _iou(a, b):
     return inter / union
 
 
+def _is_choice(value):
+    return value is True or value == "true"
+
+
+def _box_contains_center(outer, inner):
+    try:
+        ox, oy, ow, oh = outer
+        ix, iy, iw, ih = inner
+    except (TypeError, ValueError):
+        return False
+    cx = ix + iw / 2.0
+    cy = iy + ih / 2.0
+    return ox <= cx <= ox + ow and oy <= cy <= oy + oh
+
+
+def suppress_initials_inside_choices(items):
+    """Drop a lone initial whose center sits inside a choice block on that page.
+
+    A signature or a notarization inside that box stays. A required initial
+    outside the block stays.
+    """
+    choices = [
+        item for item in items
+        if item.get("choice") and item.get("type") == "initial" and item.get("box")
+    ]
+    if not choices:
+        return items
+    kept = []
+    for item in items:
+        if item.get("type") == "initial" and not item.get("choice") and item.get("box"):
+            covered = any(
+                other.get("file_index") == item.get("file_index")
+                and other.get("page") == item.get("page")
+                and _box_contains_center(other["box"], item["box"])
+                for other in choices
+            )
+            if covered:
+                continue
+        kept.append(item)
+    return kept
+
+
 def dedupe_items(items):
-    """Drop overlapping boxes of the same type on the same page. Keep the surer one."""
+    """Drop overlapping boxes of the same type on the same page.
+
+    A choice block wins over a single initial. Otherwise keep the surer one.
+    """
     kept = []
     for item in items:
         replaced = False
@@ -471,6 +533,11 @@ def dedupe_items(items):
                 continue
             if _iou(prev["box"], item["box"]) <= 0.5:
                 continue
+            if bool(item.get("choice")) != bool(prev.get("choice")):
+                if item.get("choice"):
+                    kept[index] = item
+                replaced = True
+                break
             if _CONFIDENCE.get(item.get("confidence"), 0) > _CONFIDENCE.get(prev.get("confidence"), 0):
                 kept[index] = item
             replaced = True
@@ -490,12 +557,15 @@ def mark_uncertain(items):
 
 
 def apply_verification(items, updates):
-    """Keep every existing item. An unclear item can become completed or blank.
+    """Keep every signature, notarization, and required initial.
 
-    A disagreement stays unclear. A new item needs a box. Unknown ids are ignored.
+    An unclear item can become completed or blank. A disagreement stays
+    unclear. A choice block can replace the extra initial lines inside it.
+    A new item needs a box. Unknown ids are ignored.
     """
     by_id = {item["id"]: dict(item) for item in items}
     order = [item["id"] for item in items]
+    drop_requested = set()
     extras = []
     for raw in updates or []:
         if not isinstance(raw, dict):
@@ -504,7 +574,29 @@ def apply_verification(items, updates):
         status = _enum(raw.get("status"), _STATUSES)
         if item_id:
             current = by_id.get(item_id)
-            if current is None or not status:
+            if current is None:
+                continue
+            dropping = raw.get("drop") is True and current.get("type") == "initial"
+            choosing = _is_choice(raw.get("choice")) and current.get("type") == "initial"
+            if dropping:
+                drop_requested.add(item_id)
+            if choosing:
+                box = parse_box(raw.get("box"))
+                if box:
+                    current["box"] = box
+                    current["region"] = region_label(box)
+                current["choice"] = True
+                if status:
+                    current["status"] = status
+                date_line = _enum(raw.get("date_line"), _DATE_LINES)
+                if date_line and current["date_line"] == "unclear" and date_line != "unclear":
+                    current["date_line"] = date_line
+                label = _short_label(raw.get("label"))
+                if label:
+                    current["label"] = label
+            if dropping or choosing:
+                continue
+            if not status:
                 continue
             if current["status"] == "ambiguous" and status in ("completed", "blank"):
                 current["status"] = status
@@ -533,8 +625,26 @@ def apply_verification(items, updates):
             "label": _short_label(raw.get("label")),
             "date_line": _enum(raw.get("date_line"), _DATE_LINES) or "unclear",
             "region": region_label(box),
+            "choice": kind == "initial" and _is_choice(raw.get("choice")),
         })
-    return [by_id[item_id] for item_id in order] + extras
+    choices = [
+        item for item in list(by_id.values()) + extras
+        if item.get("choice") and item.get("type") == "initial"
+    ]
+    dropped = set()
+    for item_id in drop_requested:
+        current = by_id[item_id]
+        covered = any(
+            other.get("id") != item_id
+            and other.get("file_index") == current.get("file_index")
+            and other.get("page") == current.get("page")
+            and _box_contains_center(other.get("box"), current.get("box"))
+            for other in choices
+        )
+        if covered:
+            dropped.add(item_id)
+    kept = [by_id[item_id] for item_id in order if item_id not in dropped]
+    return suppress_initials_inside_choices(kept + extras)
 
 
 def normalize_chunk(raw_items, start, end, name, file_index):
@@ -570,6 +680,7 @@ def normalize_chunk(raw_items, start, end, name, file_index):
             "label": _short_label(raw.get("label")),
             "date_line": _enum(raw.get("date_line"), _DATE_LINES) or "unclear",
             "confidence": confidence,
+            "choice": kind == "initial" and _is_choice(raw.get("choice")),
         })
     return found
 
@@ -1264,6 +1375,8 @@ def _verify_page(openai_client, image_bytes, page, items, firm_id):
             "status": item["status"],
             "label": item["label"],
             "date_line": item["date_line"],
+            "choice": bool(item.get("choice")),
+            "box": [round(value, 4) for value in item["box"]],
         }
         for item in items
     ]
@@ -2705,7 +2818,7 @@ def _scan_doc(doc, name, file_index, firm_id, on_progress=None):
         )
         found.extend(normalize_chunk(raw_items, start + 1, end + 1, name, file_index))
         evidence.extend(normalize_evidence(raw_documents, start + 1, end + 1))
-    return mark_uncertain(dedupe_items(found)), merge_evidence(evidence)
+    return mark_uncertain(suppress_initials_inside_choices(dedupe_items(found))), merge_evidence(evidence)
 
 
 def _verify_doc(doc, items, openai_client, firm_id, on_progress=None):
@@ -2748,6 +2861,15 @@ def _same_box(left, right):
     return all(abs(left[index] - right[index]) < 0.01 for index in range(4))
 
 
+def _choice_replacement_ok(old, new):
+    """A choice screenshot may grow or be trimmed. It may not collapse to one line."""
+    old_area = max(old[2], 0) * max(old[3], 0)
+    new_area = max(new[2], 0) * max(new[3], 0)
+    if old_area <= 0:
+        return True
+    return new_area >= old_area * 0.7
+
+
 def apply_screenshot_reviews(items, reviews):
     """Move boxes the model rejected. Return the ids that still need another look.
 
@@ -2771,6 +2893,8 @@ def apply_screenshot_reviews(items, reviews):
             continue
         box = parse_box(review.get("box"))
         if box is None or _same_box(box, item["box"]):
+            continue
+        if item.get("choice") and not _choice_replacement_ok(item["box"], box):
             continue
         item["box"] = box
         still_open.append(item["id"])
@@ -2797,6 +2921,7 @@ def _ask_screenshot_review(page_jpeg, shots, firm_id):
             "id": shot["id"],
             "type": shot["type"],
             "label": shot["label"],
+            "choice": bool(shot.get("choice")),
             "box": [round(value, 4) for value in shot["box"]],
         }
         for shot in shots
@@ -2910,6 +3035,7 @@ def _approve_screenshots(doc, items, firm_id, ask=None):
                         "id": item["id"],
                         "type": item.get("type") or "",
                         "label": item.get("label") or "",
+                        "choice": bool(item.get("choice")),
                         "box": box,
                         "jpeg": jpeg,
                     })
