@@ -313,6 +313,36 @@ class SignatureError(Exception):
         self.notes = notes or message
 
 
+def _alert_once(on_alert):
+    """Tell the operator about each distinct quiet failure once.
+
+    The user's job still finishes. A second file with the same failure does
+    not send a second email.
+    """
+    sent = set()
+
+    def emit(message):
+        if on_alert is None or not message or message in sent:
+            return
+        sent.add(message)
+        try:
+            on_alert(message)
+        except Exception:
+            log.warning("Operator alert failed")
+
+    return emit
+
+
+def _failure_alert(prefix, exc):
+    """A generic operator line. Exception text can carry a response body."""
+    if isinstance(exc, SignatureError):
+        detail = exc.notes or ""
+        if detail and detail != exc.alert:
+            return f"{exc.alert}: {detail}"
+        return exc.alert
+    return f"{prefix}: {type(exc).__name__}"
+
+
 def safe_name(name):
     base = os.path.basename(str(name or "").replace("\\", "/")).strip()
     if not base or base in (".", ".."):
@@ -1125,7 +1155,7 @@ def ensure_download_names(rows, evidence=None):
     return named
 
 
-def assign_file_names(naming_rules, upload_names, propose, evidence=None):
+def assign_file_names(naming_rules, upload_names, propose, evidence=None, on_alert=None):
     """Name every file. A failed rules load does not guess with the default rules."""
     facts = list(evidence or [])
     total = len(upload_names)
@@ -1133,8 +1163,10 @@ def assign_file_names(naming_rules, upload_names, propose, evidence=None):
         return ensure_download_names(unnamed_files(total, _NAME_FAILED), facts)
     try:
         named = finalize_names(propose(naming_instructions(naming_rules)), upload_names)
-    except SignatureError:
+    except SignatureError as exc:
         log.warning("File naming failed")
+        if on_alert:
+            on_alert(_failure_alert("File naming failed", exc))
         named = unnamed_files(total, _CHECK_NAME)
     return ensure_download_names(named, facts)
 
@@ -1402,7 +1434,7 @@ def _openai_usage(response):
     return usage
 
 
-def _verify_page(openai_client, image_bytes, page, items, firm_id):
+def _verify_page(openai_client, image_bytes, page, items, firm_id, on_alert=None):
     started = time.time()
     response = None
     listed = [
@@ -1476,6 +1508,8 @@ def _verify_page(openai_client, image_bytes, page, items, firm_id):
             "openai", VERIFY_MODEL, VERIFY_TOOL_KEY, "error", firm_id, started,
             notes=type(exc).__name__, **usage,
         )
+        if on_alert:
+            on_alert(_failure_alert("Signature verify failed", exc))
         return items
 
 
@@ -2859,7 +2893,7 @@ def _scan_doc(doc, name, file_index, firm_id, on_progress=None):
     return mark_uncertain(suppress_initials_inside_choices(dedupe_items(found))), merge_evidence(evidence)
 
 
-def _verify_doc(doc, items, openai_client, firm_id, on_progress=None):
+def _verify_doc(doc, items, openai_client, firm_id, on_progress=None, on_alert=None):
     pages = sorted({item["page"] for item in items if item["status"] == "ambiguous"})
     if not pages or openai_client is None:
         return items
@@ -2876,7 +2910,9 @@ def _verify_doc(doc, items, openai_client, firm_id, on_progress=None):
             on_progress(f"Rechecking page {page}")
         try:
             image = render_page_jpeg(doc, page)
-            checked.extend(_verify_page(openai_client, image, page, by_page[page], firm_id))
+            checked.extend(_verify_page(
+                openai_client, image, page, by_page[page], firm_id, on_alert=on_alert,
+            ))
         except Exception:
             log.warning("Signature page render failed on page %s", page)
             checked.extend(by_page[page])
@@ -3036,7 +3072,7 @@ def _ask_screenshot_review(page_jpeg, shots, firm_id):
         ) from None
 
 
-def _approve_screenshots(doc, items, firm_id, ask=None):
+def _approve_screenshots(doc, items, firm_id, ask=None, on_alert=None):
     """Show each crop to Gemini and keep moving the box until it approves it.
 
     A review that fails leaves the current boxes in place. The check is not
@@ -3097,6 +3133,8 @@ def _approve_screenshots(doc, items, firm_id, ask=None):
                         "Screenshot review failed on page %s: %s",
                         page_number, type(exc).__name__,
                     )
+                    if on_alert:
+                        on_alert(_failure_alert("Screenshot review failed", exc))
                     continue
                 next_pending.extend(item for item in chunk if item["id"] in open_ids)
             pending = next_pending
@@ -3218,7 +3256,7 @@ def build_name_review_prompt(rules, proposal, brief):
     )
 
 
-def _review_name(openai_client, images, proposal, brief, firm_id, rules):
+def _review_name(openai_client, images, proposal, brief, firm_id, rules, on_alert=None):
     started = time.time()
     response = None
     prompt = build_name_review_prompt(rules, proposal, brief)
@@ -3267,10 +3305,12 @@ def _review_name(openai_client, images, proposal, brief, firm_id, rules):
             "openai", VERIFY_MODEL, NAME_VERIFY_TOOL_KEY, "error", firm_id, started,
             notes=type(exc).__name__, **usage,
         )
+        if on_alert:
+            on_alert(_failure_alert("Name check failed", exc))
         return None
 
 
-def _second_look_names(uploads, proposals, briefs, openai_client, firm_id, on_progress, rules):
+def _second_look_names(uploads, proposals, briefs, openai_client, firm_id, on_progress, rules, on_alert=None):
     if openai_client is None:
         return proposals
     updated = dict(proposals)
@@ -3296,9 +3336,12 @@ def _second_look_names(uploads, proposals, briefs, openai_client, firm_id, on_pr
             if images:
                 review = _review_name(
                     openai_client, images, current, briefs[index], firm_id, rules,
+                    on_alert=on_alert,
                 )
-        except Exception:
+        except Exception as exc:
             log.warning("Name review skipped")
+            if on_alert:
+                on_alert(_failure_alert("Name check failed", exc))
         finally:
             if doc is not None:
                 doc.close()
@@ -3544,9 +3587,10 @@ def public_funding(plan):
     }
 
 
-def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, naming_rules=""):
+def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, naming_rules="", on_alert=None):
     """Check each PDF. Returns ({pages, files, documents, items}, {item id: jpeg bytes})."""
     uploads = prepare_uploads(uploads)
+    on_alert = _alert_once(on_alert)
     items = []
     crops = {}
     documents = []
@@ -3569,12 +3613,15 @@ def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, n
             total_pages += doc.page_count
             documents.append({"index": index, "name": name, "pages": doc.page_count})
             file_items, evidence = _scan_doc(doc, name, index, firm_id, on_progress=report)
-            file_items = _verify_doc(doc, file_items, openai_client, firm_id, on_progress=report)
+            file_items = _verify_doc(
+                doc, file_items, openai_client, firm_id, on_progress=report, on_alert=on_alert,
+            )
             report("Checking screenshots")
             try:
-                _approve_screenshots(doc, file_items, firm_id)
+                _approve_screenshots(doc, file_items, firm_id, on_alert=on_alert)
             except Exception as exc:
                 log.warning("Screenshot review skipped: %s", type(exc).__name__)
+                on_alert(_failure_alert("Screenshot review failed", exc))
             for item in file_items:
                 try:
                     item["region"] = region_label(item["box"])
@@ -3595,11 +3642,13 @@ def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, n
         proposals = _name_batch(rules, briefs, firm_id)
         return _second_look_names(
             uploads, proposals, briefs, openai_client, firm_id, on_progress, rules,
+            on_alert=on_alert,
         )
 
     named = assign_file_names(
         naming_rules, [name for _name, _data in uploads], propose,
         [brief.get("evidence") for brief in briefs],
+        on_alert=on_alert,
     )
     for doc, row in zip(documents, named):
         doc.update(row)

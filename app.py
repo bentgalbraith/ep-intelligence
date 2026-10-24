@@ -2234,9 +2234,18 @@ def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
                         job["ts"] = time.time()
 
             started = time.time()
+
+            def on_alert(message):
+                _notify_tool_error(
+                    "Name Files & Validate Signatures", message, firm_id=firm_id,
+                    firm_name=firm_name, firm_slug=firm_slug,
+                    employee_id_code=(log_ctx or {}).get("employee_id_code"),
+                )
+
             result, crops, funding_pdfs = validate_documents(
                 uploads, openai_client, firm_id=firm_id, on_progress=on_progress,
                 naming_rules=_signature_naming_rules(firm_id),
+                on_alert=on_alert,
             )
             with _jobs_lock:
                 current = _jobs.get(job_id)

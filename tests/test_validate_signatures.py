@@ -1,5 +1,6 @@
 import unittest
 from datetime import date
+from unittest.mock import patch
 
 import validate_signatures as sig
 from ai_logger import _compute_cost, _gemini_38_flash_pricing
@@ -732,6 +733,21 @@ class ScreenshotTest(unittest.TestCase):
         doc.close()
         self.assertEqual(row["box"], (0.2, 0.3, 0.2, 0.08))
 
+    def test_a_failed_review_alerts_the_operator(self):
+        import pymupdf
+        doc = pymupdf.open()
+        doc.new_page(width=612, height=792)
+        row = item(id="mark", page=1, box=(0.2, 0.3, 0.2, 0.08))
+        alerts = []
+
+        def ask(_page, _shots, _firm):
+            raise RuntimeError("nope")
+
+        sig._approve_screenshots(doc, [row], None, ask=ask, on_alert=alerts.append)
+        doc.close()
+        self.assertEqual(alerts, ["Screenshot review failed: RuntimeError"])
+        self.assertEqual(row["box"], (0.2, 0.3, 0.2, 0.08))
+
     def test_a_missing_review_is_asked_three_times_then_stops(self):
         import pymupdf
         doc = pymupdf.open()
@@ -901,6 +917,20 @@ class NamingTest(unittest.TestCase):
         )
         self.assertEqual(named[0]["proposed_name"], "Wells will.pdf")
         self.assertEqual(named[0]["name_reason"], sig._CHECK_NAME)
+
+    def test_a_naming_failure_alerts_the_operator(self):
+        alerts = []
+
+        def propose(_rules):
+            raise sig.SignatureError(
+                "naming failed", logged=True, alert="Gemini naming failed", notes="TimeoutError",
+            )
+
+        rows = sig.assign_file_names(
+            "Use the surname.", ["scan.pdf"], propose, on_alert=alerts.append,
+        )
+        self.assertEqual(rows[0]["proposed_name"], "Unnamed.pdf")
+        self.assertEqual(alerts, ["Gemini naming failed: TimeoutError"])
 
     def test_unloaded_rules_do_not_guess(self):
         def propose(_rules):
@@ -1167,6 +1197,75 @@ class FundingTest(unittest.TestCase):
             self.assertFalse(out.metadata.get("title"))
         finally:
             out.close()
+
+
+class QuietFailureTest(unittest.TestCase):
+    def test_the_same_alert_is_sent_once(self):
+        alerts = []
+        emit = sig._alert_once(alerts.append)
+        emit("Name check failed: RateLimitError")
+        emit("Name check failed: RateLimitError")
+        emit("Signature verify failed: RateLimitError")
+        self.assertEqual(alerts, [
+            "Name check failed: RateLimitError",
+            "Signature verify failed: RateLimitError",
+        ])
+
+    def test_a_failed_status_check_alerts_and_keeps_the_items(self):
+        class RateLimitError(Exception):
+            pass
+
+        class Client:
+            class chat:
+                class completions:
+                    @staticmethod
+                    def create(**_kwargs):
+                        raise RateLimitError("empty")
+
+        row = item()
+        alerts = []
+        with patch.object(sig, "_log_model"):
+            kept = sig._verify_page(
+                Client(), b"jpeg", 1, [row], None, on_alert=alerts.append,
+            )
+        self.assertEqual(kept, [row])
+        self.assertEqual(alerts, ["Signature verify failed: RateLimitError"])
+
+    def test_two_failed_name_checks_alert_once(self):
+        import pymupdf
+
+        class RateLimitError(Exception):
+            pass
+
+        class Client:
+            class chat:
+                class completions:
+                    @staticmethod
+                    def create(**_kwargs):
+                        raise RateLimitError("empty")
+
+        def pdf():
+            doc = pymupdf.open()
+            doc.new_page()
+            data = doc.tobytes()
+            doc.close()
+            return data
+
+        uploads = [("a.pdf", pdf()), ("b.pdf", pdf())]
+        proposals = {
+            0: {"filename": "", "confidence": "needs_review", "reason": ""},
+            1: {"filename": "", "confidence": "needs_review", "reason": ""},
+        }
+        briefs = [{"evidence": []}, {"evidence": []}]
+        alerts = []
+        with patch.object(sig, "_log_model"):
+            updated = sig._second_look_names(
+                uploads, proposals, briefs, Client(), None, None, "",
+                on_alert=sig._alert_once(alerts.append),
+            )
+        self.assertEqual(alerts, ["Name check failed: RateLimitError"])
+        self.assertEqual(updated[0]["confidence"], "needs_review")
+        self.assertEqual(updated[1]["filename"], "")
 
 
 if __name__ == "__main__":
