@@ -1,4 +1,8 @@
+import io
+import threading
+import time
 import unittest
+import urllib.error
 from datetime import date
 from unittest.mock import patch
 
@@ -1266,6 +1270,296 @@ class QuietFailureTest(unittest.TestCase):
         self.assertEqual(alerts, ["Name check failed: RateLimitError"])
         self.assertEqual(updated[0]["confidence"], "needs_review")
         self.assertEqual(updated[1]["filename"], "")
+
+
+def _http_error(status, body, headers=None):
+    return urllib.error.HTTPError(
+        "https://example", status, "error", headers or {}, io.BytesIO(body),
+    )
+
+
+class ParallelRunTest(unittest.TestCase):
+    def test_retryable_errors_are_the_ones_that_never_got_an_answer(self):
+        self.assertTrue(sig._retryable_error(_http_error(429, b'{"error":{"message":"Resource has been exhausted"}}')))
+        self.assertTrue(sig._retryable_error(_http_error(503, b"")))
+        self.assertTrue(sig._retryable_error(ConnectionError("reset")))
+        self.assertFalse(sig._retryable_error(_http_error(400, b"bad request")))
+        self.assertFalse(sig._retryable_error(_http_error(
+            429, b'{"error":{"message":"You exceeded your current quota, please check your plan"}}',
+        )))
+        self.assertFalse(sig._retryable_error(sig.SignatureError("no")))
+
+        class RateLimitError(Exception):
+            pass
+
+        self.assertFalse(sig._retryable_error(RateLimitError("local")))
+
+        class Quota(Exception):
+            code = "insufficient_quota"
+
+        Quota.__module__ = "openai"
+        self.assertFalse(sig._retryable_error(Quota()))
+
+    def test_a_busy_request_retries_and_a_quota_error_does_not(self):
+        clock = {"t": 0.0}
+        slept = []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            clock["t"] += seconds
+
+        limiter = sig._Limiter(
+            sleep=sleep, now=lambda: clock["t"], jitter=lambda: 0,
+            on_wait=lambda: None, on_resume=lambda: None,
+        )
+        calls = {"n": 0}
+
+        def busy():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _http_error(429, b"{}", {"Retry-After": "2"})
+            return "ok"
+
+        self.assertEqual(limiter.run("gemini", busy), "ok")
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(slept, [2.0])
+
+        def quota():
+            raise _http_error(
+                429, b'{"error":{"message":"You exceeded your current quota, please check your plan"}}',
+            )
+
+        with self.assertRaises(urllib.error.HTTPError):
+            limiter.run("gemini", quota)
+        self.assertEqual(slept, [2.0])
+
+    def test_a_retry_pause_holds_the_next_call(self):
+        limiter = sig._Limiter(gemini=1, jitter=lambda: 0)
+        order = []
+
+        def first():
+            if not any(item[0] == "raised" for item in order):
+                order.append(("raised", time.monotonic()))
+                raise _http_error(429, b"{}", {"Retry-After": "0.35"})
+            order.append(("again", time.monotonic()))
+            return "ok"
+
+        def second():
+            order.append(("second", time.monotonic()))
+            return "ok"
+
+        first_thread = threading.Thread(target=lambda: limiter.run("gemini", first))
+        second_thread = threading.Thread(target=lambda: limiter.run("gemini", second))
+        first_thread.start()
+        time.sleep(0.05)
+        second_thread.start()
+        first_thread.join(2)
+        second_thread.join(2)
+        self.assertFalse(first_thread.is_alive())
+        self.assertFalse(second_thread.is_alive())
+        raised = next(item[1] for item in order if item[0] == "raised")
+        second_at = next(item[1] for item in order if item[0] == "second")
+        self.assertGreaterEqual(second_at - raised, 0.25)
+
+    def test_a_pool_thread_keeps_the_limiter(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        limiter = sig._Limiter()
+        token = sig._LIMITER.set(limiter)
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            seen = {}
+
+            def look():
+                seen["same"] = sig._LIMITER.get() is limiter
+
+            sig._spawn(pool, look).result(timeout=2)
+        finally:
+            sig._LIMITER.reset(token)
+            pool.shutdown(wait=True)
+        self.assertTrue(seen["same"])
+
+    def test_only_five_gemini_calls_run_at_once(self):
+        limiter = sig._Limiter(gemini=5, openai=3)
+        state = {"n": 0, "max": 0}
+        lock = threading.Lock()
+        gate = threading.Barrier(6)
+
+        def fn():
+            with lock:
+                state["n"] += 1
+                state["max"] = max(state["max"], state["n"])
+            time.sleep(0.1)
+            with lock:
+                state["n"] -= 1
+
+        def target():
+            gate.wait(timeout=2)
+            limiter.run("gemini", fn)
+
+        threads = [threading.Thread(target=target) for _ in range(6)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(2)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(state["max"], 5)
+        self.assertEqual(state["n"], 0)
+
+    def test_chunks_merge_in_page_order(self):
+        def raw(label):
+            return {
+                "type": "signature", "status": "completed", "page": 1,
+                "box": [0.1, 0.1, 0.2, 0.05], "label": label,
+                "date_line": "none", "confidence": "high", "choice": False, "stamp": False,
+            }
+
+        items, _evidence = sig._merge_scan_parts([
+            (1, 1, [raw("second")], []),
+            (0, 0, [raw("first")], []),
+        ], "a.pdf", 0)
+        self.assertEqual([item["page"] for item in items], [1, 2])
+        self.assertEqual([item["label"] for item in items], ["first", "second"])
+
+    def test_progress_counts_pages_and_shows_a_wait(self):
+        messages = []
+        progress = sig._BatchProgress(messages.append)
+        progress.start(3, (0, 2))
+        progress.add_pages(3)
+        self.assertEqual(messages, [sig._reading_label(0, 2)])
+        many = []
+        counted = sig._BatchProgress(many.append)
+        counted.start(10, None)
+        counted.begin_wait()
+        counted.add_pages(5)
+        counted.end_wait()
+        self.assertEqual(many, [
+            "Reading 0 of 10 pages",
+            "Waiting for a free request",
+            "Reading 5 of 10 pages",
+        ])
+
+    def test_files_are_read_together(self):
+        import pymupdf
+
+        doc = pymupdf.open()
+        doc.new_page()
+        data = doc.tobytes()
+        doc.close()
+        state = {"n": 0, "max": 0}
+        lock = threading.Lock()
+
+        def fake_scan(_data, _start, _end, _firm):
+            with lock:
+                state["n"] += 1
+                state["max"] = max(state["max"], state["n"])
+            time.sleep(0.15)
+            with lock:
+                state["n"] -= 1
+            return ([{
+                "type": "signature", "status": "completed", "page": 1,
+                "box": [0.1, 0.8, 0.3, 0.05], "label": "Signer",
+                "date_line": "none", "confidence": "high", "choice": False, "stamp": False,
+            }], [])
+
+        def fake_ask(_page, shots, _firm):
+            return [{"id": shot["id"], "ok": True, "box": list(shot["box"])} for shot in shots]
+
+        def fake_name(_rules, briefs, _firm):
+            return {
+                index: {"filename": f"File {index + 1}.pdf", "confidence": "high", "reason": ""}
+                for index in range(len(briefs))
+            }
+
+        messages = []
+        with patch.object(sig, "_scan_chunk", fake_scan), \
+                patch.object(sig, "_ask_screenshot_review", fake_ask), \
+                patch.object(sig, "_name_batch", fake_name):
+            result, _crops, _funding = sig.validate_documents(
+                [(f"{index}.pdf", data) for index in range(6)],
+                object(), firm_id=None, on_progress=messages.append, naming_rules="",
+            )
+        self.assertGreaterEqual(state["max"], 2)
+        self.assertLessEqual(state["max"], 5)
+        self.assertEqual(result["files"], 6)
+        self.assertEqual(len(result["items"]), 6)
+        self.assertTrue(any(message.startswith("Reading ") for message in messages))
+        self.assertIn("Naming the files", messages)
+
+    def test_an_unclear_page_is_rechecked_and_a_screenshot_can_move(self):
+        import pymupdf
+
+        doc = pymupdf.open()
+        doc.new_page()
+        data = doc.tobytes()
+        doc.close()
+        seen = {}
+
+        def fake_scan(_data, _start, _end, _firm):
+            return ([{
+                "type": "signature", "status": "ambiguous", "page": 1,
+                "box": [0.1, 0.8, 0.3, 0.05], "label": "Signer",
+                "date_line": "none", "confidence": "medium", "choice": False, "stamp": False,
+            }], [])
+
+        def fake_verify(_client, _image, page, items, _firm, on_alert=None):
+            seen["page"] = page
+            for item in items:
+                item["status"] = "completed"
+            return items
+
+        calls = {"n": 0}
+
+        def fake_ask(_page, shots, _firm):
+            calls["n"] += 1
+            box = [0.2, 0.7, 0.4, 0.08]
+            if calls["n"] == 1:
+                return [{"id": shot["id"], "ok": False, "box": box} for shot in shots]
+            return [{"id": shot["id"], "ok": True, "box": box} for shot in shots]
+
+        cropped = []
+
+        def fake_crop(_doc, items):
+            cropped.extend(item["box"] for item in items)
+            return {}
+
+        def fake_name(_rules, briefs, _firm):
+            return {
+                index: {"filename": "Example Will.pdf", "confidence": "high", "reason": ""}
+                for index in range(len(briefs))
+            }
+
+        with patch.object(sig, "_scan_chunk", fake_scan), \
+                patch.object(sig, "_verify_page", fake_verify), \
+                patch.object(sig, "_ask_screenshot_review", fake_ask), \
+                patch.object(sig, "_crop_items", fake_crop), \
+                patch.object(sig, "_name_batch", fake_name):
+            result, _crops, _funding = sig.validate_documents(
+                [("a.pdf", data)], object(), naming_rules="",
+            )
+        self.assertEqual(seen["page"], 1)
+        self.assertEqual(result["items"][0]["status"], "completed")
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(cropped, [(0.2, 0.7, 0.4, 0.08)])
+
+    def test_a_failed_scan_still_raises(self):
+        import pymupdf
+
+        doc = pymupdf.open()
+        doc.new_page()
+        data = doc.tobytes()
+        doc.close()
+
+        def fake_scan(_data, _start, _end, _firm):
+            raise sig.SignatureError(
+                "stopped", logged=True, notify=True, alert="Gemini scan failed", notes="HTTPError",
+            )
+
+        with patch.object(sig, "_scan_chunk", fake_scan):
+            with self.assertRaises(sig.SignatureError) as caught:
+                sig.validate_documents([("a.pdf", data)], object(), naming_rules="")
+        self.assertEqual(caught.exception.alert, "Gemini scan failed")
+        self.assertTrue(caught.exception.notify)
 
 
 if __name__ == "__main__":

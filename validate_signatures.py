@@ -11,14 +11,22 @@ name is never sent to a model.
 """
 
 import base64
+import contextvars
+import http.client
+import io
 import json
 import logging
 import os
+import random
 import re
+import socket
+import threading
 import time
 import unicodedata
-import urllib.request
+import urllib.error
 import uuid
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from urllib.parse import urlparse
 
 log = logging.getLogger("validate_signatures")
 
@@ -42,6 +50,10 @@ CHUNK_PAGES = 15
 CHUNK_BYTES = 12 * 1024 * 1024
 MAX_ITEMS_PER_CHUNK = 400
 _CROP_ROUNDS = 3
+_GEMINI_AT_ONCE = 5
+_OPENAI_AT_ONCE = 3
+_RETRY_WAITS = (1, 2, 4)
+_RETRY_CAP = 30.0
 MAX_NAMING_RULES = 12000
 MAX_EVIDENCE = 40
 _TYPES = ("signature", "initial", "notary")
@@ -320,11 +332,15 @@ def _alert_once(on_alert):
     not send a second email.
     """
     sent = set()
+    lock = threading.Lock()
 
     def emit(message):
-        if on_alert is None or not message or message in sent:
+        if on_alert is None or not message:
             return
-        sent.add(message)
+        with lock:
+            if message in sent:
+                return
+            sent.add(message)
         try:
             on_alert(message)
         except Exception:
@@ -1332,6 +1348,257 @@ def _gemini_key():
     return key
 
 
+_LIMITER = contextvars.ContextVar("sig_limiter", default=None)
+_POOL = contextvars.ContextVar("sig_pool", default=None)
+_gemini_tls = threading.local()
+_GEMINI_HOST = urlparse(_GEMINI_URL).netloc
+_GEMINI_PATH = urlparse(_GEMINI_URL).path
+
+
+def _http_body(exc):
+    cached = getattr(exc, "_sig_body", None)
+    if cached is not None:
+        return cached
+    text = ""
+    if isinstance(exc, urllib.error.HTTPError):
+        try:
+            raw = exc.read()
+        except Exception:
+            raw = b""
+        if isinstance(raw, str):
+            text = raw[:800]
+        elif raw:
+            text = raw.decode("utf-8", "replace")[:800]
+    exc._sig_body = text
+    return text
+
+
+def _out_of_credit(exc):
+    """An empty balance is reported as a rate limit. Retrying it cannot help."""
+    code = str(getattr(exc, "code", "") or "")
+    if code == "insufficient_quota":
+        return True
+    parts = [code, _http_body(exc)]
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error") if isinstance(body.get("error"), dict) else body
+        parts.append(str(err.get("code") or ""))
+        parts.append(str(err.get("message") or ""))
+    elif isinstance(body, str):
+        parts.append(body[:800])
+    text = " ".join(parts).lower()
+    return (
+        "insufficient_quota" in text
+        or "exceeded your current quota" in text
+        or "check your plan" in text
+        or "billing" in text
+    )
+
+
+def _retryable_error(exc):
+    """A call that never got an answer. A bad answer is not tried again."""
+    if isinstance(exc, SignatureError) or _out_of_credit(exc):
+        return False
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in (408, 409, 429, 500, 502, 503, 504)
+    if isinstance(exc, (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError)):
+        return True
+    if isinstance(exc, http.client.HTTPException):
+        return True
+    if (type(exc).__module__ or "").split(".")[0] != "openai":
+        return False
+    status = getattr(exc, "status_code", None)
+    if type(exc).__name__ in ("APITimeoutError", "APIConnectionError", "InternalServerError"):
+        return True
+    if status in (408, 409, 429, 500, 502, 503, 504):
+        return True
+    return type(exc).__name__ == "RateLimitError"
+
+
+def _retry_after_seconds(exc, fallback):
+    headers = None
+    response = getattr(exc, "response", None)
+    if response is not None:
+        headers = getattr(response, "headers", None)
+    if headers is None:
+        headers = getattr(exc, "headers", None)
+    raw = None
+    if headers is not None:
+        try:
+            raw = headers.get("Retry-After")
+            if raw is None:
+                raw = headers.get("retry-after")
+        except Exception:
+            raw = None
+    if raw is not None:
+        try:
+            return min(_RETRY_CAP, max(0.0, float(raw)))
+        except (TypeError, ValueError):
+            pass
+    return float(fallback)
+
+
+class _Limiter:
+    """Caps model calls for one signature job and pauses after a rate limit."""
+
+    def __init__(self, gemini=_GEMINI_AT_ONCE, openai=_OPENAI_AT_ONCE, sleep=None,
+                 now=None, jitter=None, on_wait=None, on_resume=None):
+        self.sems = {
+            "gemini": threading.Semaphore(gemini),
+            "openai": threading.Semaphore(openai),
+        }
+        self.until = {"gemini": 0.0, "openai": 0.0}
+        self.waiting = False
+        self._lock = threading.Lock()
+        self._sleep = sleep or time.sleep
+        self._now = now or time.monotonic
+        self._jitter = jitter or (lambda: random.uniform(0, 0.5))
+        self.on_wait = on_wait
+        self.on_resume = on_resume
+
+    def run(self, kind, fn):
+        for attempt in range(4):
+            self._acquire(kind)
+            try:
+                return fn()
+            except Exception as exc:
+                if attempt >= 3 or not _retryable_error(exc):
+                    raise
+                delay = min(
+                    _RETRY_CAP,
+                    _retry_after_seconds(exc, _RETRY_WAITS[attempt]) + self._jitter(),
+                )
+                self._pause(kind, delay)
+                log.warning("Model request will be retried: %s", type(exc).__name__)
+            finally:
+                self._release(kind)
+            self._sleep(delay)
+            self._resume_if_clear()
+
+    def _pause_delay(self, kind):
+        with self._lock:
+            return self.until[kind] - self._now()
+
+    def _acquire(self, kind):
+        sem = self.sems[kind]
+        while True:
+            delay = self._pause_delay(kind)
+            if delay > 0:
+                self._mark_waiting()
+                self._sleep(min(delay, 0.25))
+                continue
+            if not sem.acquire(timeout=0.25):
+                continue
+            if self._pause_delay(kind) <= 0:
+                return
+            sem.release()
+
+    def _release(self, kind):
+        self.sems[kind].release()
+
+    def _pause(self, kind, delay):
+        with self._lock:
+            self.until[kind] = max(self.until[kind], self._now() + delay)
+            self.waiting = True
+        if self.on_wait:
+            self.on_wait()
+
+    def _mark_waiting(self):
+        with self._lock:
+            if self.waiting:
+                return
+            self.waiting = True
+        if self.on_wait:
+            self.on_wait()
+
+    def _resume_if_clear(self):
+        with self._lock:
+            now = self._now()
+            if now < self.until["gemini"] or now < self.until["openai"] or not self.waiting:
+                return
+            self.waiting = False
+        if self.on_resume:
+            self.on_resume()
+
+
+def _drop_gemini_conn():
+    conn = getattr(_gemini_tls, "conn", None)
+    _gemini_tls.conn = None
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _gemini_conn(timeout):
+    conn = getattr(_gemini_tls, "conn", None)
+    if conn is None:
+        conn = http.client.HTTPSConnection(_GEMINI_HOST, timeout=timeout)
+        _gemini_tls.conn = conn
+    conn.timeout = timeout
+    sock = getattr(conn, "sock", None)
+    if sock is not None:
+        try:
+            sock.settimeout(timeout)
+        except Exception:
+            _drop_gemini_conn()
+            conn = http.client.HTTPSConnection(_GEMINI_HOST, timeout=timeout)
+            _gemini_tls.conn = conn
+    return conn
+
+
+def _gemini_post_once(body, timeout):
+    payload = json.dumps(body).encode("utf-8")
+    conn = _gemini_conn(timeout)
+    try:
+        conn.request(
+            "POST",
+            _GEMINI_PATH,
+            body=payload,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": _gemini_key(),
+                "Connection": "keep-alive",
+            },
+        )
+        resp = conn.getresponse()
+        data = resp.read()
+    except Exception:
+        _drop_gemini_conn()
+        raise
+    if resp.status >= 400:
+        _drop_gemini_conn()
+        raise urllib.error.HTTPError(
+            _GEMINI_URL, resp.status, resp.reason, resp.headers, io.BytesIO(data),
+        )
+    return json.loads(data.decode("utf-8"))
+
+
+def _gemini_post(body, timeout):
+    limiter = _LIMITER.get()
+    if limiter is None:
+        return _gemini_post_once(body, timeout)
+    return limiter.run("gemini", lambda: _gemini_post_once(body, timeout))
+
+
+def _openai_create(fn):
+    limiter = _LIMITER.get()
+    if limiter is None:
+        return fn()
+    return limiter.run("openai", fn)
+
+
+def _spawn(pool, fn, *args):
+    """Run fn on a pool thread with this thread's context.
+
+    The limiter and the usage-log attribution live in context variables.
+    Python 3.9 does not copy those onto pool threads by itself.
+    """
+    ctx = contextvars.copy_context()
+    return pool.submit(ctx.run, fn, *args)
+
+
 def _post_gemini(pdf_bytes, start, end):
     body = {
         "contents": [{
@@ -1353,17 +1620,7 @@ def _post_gemini(pdf_bytes, start, end):
             "maxOutputTokens": 32768,
         },
     }
-    request = urllib.request.Request(
-        _GEMINI_URL,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "x-goog-api-key": _gemini_key(),
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=300) as response:
-        return json.loads(response.read().decode("utf-8"))
+    return _gemini_post(body, 300)
 
 
 def _scan_chunk(pdf_bytes, start, end, firm_id):
@@ -1457,7 +1714,7 @@ def _verify_page(openai_client, image_bytes, page, items, firm_id, on_alert=None
     )
     encoded = base64.b64encode(image_bytes).decode("ascii")
     try:
-        response = openai_client.chat.completions.create(
+        response = _openai_create(lambda: openai_client.chat.completions.create(
             model=VERIFY_MODEL,
             messages=[{
                 "role": "user",
@@ -1471,7 +1728,7 @@ def _verify_page(openai_client, image_bytes, page, items, firm_id, on_alert=None
             }],
             response_format={"type": "json_object"},
             max_completion_tokens=4000,
-        )
+        ))
         choice = response.choices[0]
         usage = _openai_usage(response)
         if getattr(choice, "finish_reason", None) == "length":
@@ -2873,24 +3130,36 @@ def crop_jpeg(doc, page_number, box, kind=None):
     return _jpeg_region(pix, *photo)
 
 
+def _merge_scan_parts(parts, name, file_index):
+    """Combine chunk answers in page order. The same merge the scan has always used."""
+    found = []
+    evidence = []
+    for start, end, raw_items, raw_documents in sorted(parts, key=lambda part: part[0]):
+        found.extend(normalize_chunk(raw_items, start + 1, end + 1, name, file_index))
+        evidence.extend(normalize_evidence(raw_documents, start + 1, end + 1))
+    items = mark_uncertain(suppress_initials_inside_choices(dedupe_items(found)))
+    return items, merge_evidence(evidence)
+
+
+def _reading_label(start, end):
+    if start == end:
+        return f"Reading page {start + 1}"
+    return f"Reading pages {start + 1}–{end + 1}"
+
+
 def _scan_doc(doc, name, file_index, firm_id, on_progress=None):
     def too_big(start, end):
         return len(slice_pdf(doc, start, end)) > CHUNK_BYTES
 
-    found = []
-    evidence = []
+    parts = []
     for start, end in chunk_spans(doc.page_count, too_big):
         if on_progress:
-            if start == end:
-                on_progress(f"Reading page {start + 1}")
-            else:
-                on_progress(f"Reading pages {start + 1}–{end + 1}")
+            on_progress(_reading_label(start, end))
         raw_items, raw_documents = _scan_chunk(
             slice_pdf(doc, start, end), start + 1, end + 1, firm_id,
         )
-        found.extend(normalize_chunk(raw_items, start + 1, end + 1, name, file_index))
-        evidence.extend(normalize_evidence(raw_documents, start + 1, end + 1))
-    return mark_uncertain(suppress_initials_inside_choices(dedupe_items(found))), merge_evidence(evidence)
+        parts.append((start, end, raw_items, raw_documents))
+    return _merge_scan_parts(parts, name, file_index)
 
 
 def _verify_doc(doc, items, openai_client, firm_id, on_progress=None, on_alert=None):
@@ -3017,17 +3286,7 @@ def _ask_screenshot_review(page_jpeg, shots, firm_id):
         },
     }
     try:
-        request = urllib.request.Request(
-            _GEMINI_URL,
-            data=json.dumps(body).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": _gemini_key(),
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=180) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        payload = _gemini_post(body, 180)
         raw, finish = _gemini_text(payload)
         prompt_tokens, output, thoughts = _gemini_usage(payload)
         if finish == "MAX_TOKENS":
@@ -3072,6 +3331,40 @@ def _ask_screenshot_review(page_jpeg, shots, firm_id):
         ) from None
 
 
+def _shots_for(pix, chunk, page_number):
+    shots = []
+    for item in chunk:
+        box = item.get("box")
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            continue
+        try:
+            jpeg = _jpeg_region(pix, *_box_window(box))
+        except Exception:
+            log.warning("Screenshot crop failed on page %s", page_number)
+            jpeg = None
+        if not jpeg:
+            continue
+        shots.append({
+            "id": item["id"],
+            "type": item.get("type") or "",
+            "label": item.get("label") or "",
+            "choice": bool(item.get("choice")),
+            "stamp": bool(item.get("stamp")),
+            "status": item.get("status") or "",
+            "box": box,
+            "jpeg": jpeg,
+        })
+    return shots
+
+
+def _review_batch(ask, page_jpeg, shots, firm_id, chunk):
+    reviews = ask(page_jpeg, shots, firm_id)
+    asked = {shot["id"] for shot in shots}
+    return set(apply_screenshot_reviews(
+        [item for item in chunk if item["id"] in asked], reviews,
+    ))
+
+
 def _approve_screenshots(doc, items, firm_id, ask=None, on_alert=None):
     """Show each crop to Gemini and keep moving the box until it approves it.
 
@@ -3098,36 +3391,11 @@ def _approve_screenshots(doc, items, firm_id, ask=None, on_alert=None):
             next_pending = []
             for start in range(0, len(pending), 8):
                 chunk = pending[start:start + 8]
-                shots = []
-                for item in chunk:
-                    box = item.get("box")
-                    if not isinstance(box, (list, tuple)) or len(box) != 4:
-                        continue
-                    try:
-                        jpeg = _jpeg_region(pix, *_box_window(box))
-                    except Exception:
-                        log.warning("Screenshot crop failed on page %s", page_number)
-                        jpeg = None
-                    if not jpeg:
-                        continue
-                    shots.append({
-                        "id": item["id"],
-                        "type": item.get("type") or "",
-                        "label": item.get("label") or "",
-                        "choice": bool(item.get("choice")),
-                        "stamp": bool(item.get("stamp")),
-                        "status": item.get("status") or "",
-                        "box": box,
-                        "jpeg": jpeg,
-                    })
+                shots = _shots_for(pix, chunk, page_number)
                 if not shots:
                     continue
                 try:
-                    reviews = ask(page_jpeg, shots, firm_id)
-                    asked = {shot["id"] for shot in shots}
-                    open_ids = set(apply_screenshot_reviews(
-                        [item for item in chunk if item["id"] in asked], reviews,
-                    ))
+                    open_ids = _review_batch(ask, page_jpeg, shots, firm_id, chunk)
                 except Exception as exc:
                     log.warning(
                         "Screenshot review failed on page %s: %s",
@@ -3173,17 +3441,7 @@ def _post_gemini_text(prompt, schema):
             "maxOutputTokens": 8192,
         },
     }
-    request = urllib.request.Request(
-        _GEMINI_URL,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "x-goog-api-key": _gemini_key(),
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=120) as response:
-        return json.loads(response.read().decode("utf-8"))
+    return _gemini_post(body, 120)
 
 
 def _name_batch(rules, briefs, firm_id):
@@ -3270,12 +3528,12 @@ def _review_name(openai_client, images, proposal, brief, firm_id, rules, on_aler
             },
         })
     try:
-        response = openai_client.chat.completions.create(
+        response = _openai_create(lambda: openai_client.chat.completions.create(
             model=VERIFY_MODEL,
             messages=[{"role": "user", "content": content}],
             response_format={"type": "json_object"},
             max_completion_tokens=1500,
-        )
+        ))
         choice = response.choices[0]
         usage = _openai_usage(response)
         if getattr(choice, "finish_reason", None) == "length":
@@ -3310,10 +3568,25 @@ def _review_name(openai_client, images, proposal, brief, firm_id, rules, on_aler
         return None
 
 
+def _name_review_images(data, brief):
+    doc = open_pdf(data)
+    try:
+        images = []
+        for page in name_review_pages(doc.page_count, (brief or {}).get("evidence")):
+            try:
+                images.append(render_page_jpeg(doc, page))
+            except Exception:
+                log.warning("Name review render failed on page %s", page)
+        return images
+    finally:
+        doc.close()
+
+
 def _second_look_names(uploads, proposals, briefs, openai_client, firm_id, on_progress, rules, on_alert=None):
     if openai_client is None:
         return proposals
     updated = dict(proposals)
+    work = []
     for index, (_name, data) in enumerate(uploads):
         current = updated.get(index) or {
             "filename": "", "confidence": "needs_review", "reason": "",
@@ -3321,32 +3594,37 @@ def _second_look_names(uploads, proposals, briefs, openai_client, firm_id, on_pr
         filename = current.get("filename") or ""
         if current.get("confidence") in ("high", "medium") and filename and not _is_generic_name(filename):
             continue
-        if on_progress:
-            on_progress("Rechecking an unclear name")
-        doc = None
-        review = None
         try:
-            doc = open_pdf(data)
-            images = []
-            for page in name_review_pages(doc.page_count, briefs[index].get("evidence")):
-                try:
-                    images.append(render_page_jpeg(doc, page))
-                except Exception:
-                    log.warning("Name review render failed on page %s", page)
-            if images:
-                review = _review_name(
-                    openai_client, images, current, briefs[index], firm_id, rules,
-                    on_alert=on_alert,
-                )
+            images = _name_review_images(data, briefs[index])
         except Exception as exc:
             log.warning("Name review skipped")
             if on_alert:
                 on_alert(_failure_alert("Name check failed", exc))
-        finally:
-            if doc is not None:
-                doc.close()
-        if review:
-            updated[index] = apply_name_review(current, review)
+            continue
+        if images:
+            work.append((index, current, images, briefs[index]))
+    if not work:
+        return updated
+    if on_progress:
+        if len(work) == 1:
+            on_progress("Rechecking an unclear name")
+        else:
+            on_progress(f"Rechecking {len(work)} unclear names")
+    pool = _POOL.get()
+
+    def review(index, current, images, brief):
+        return index, current, _review_name(
+            openai_client, images, current, brief, firm_id, rules, on_alert=on_alert,
+        )
+
+    if pool is None or len(work) == 1:
+        results = [review(*job) for job in work]
+    else:
+        futures = [_spawn(pool, review, *job) for job in work]
+        results = [fut.result() for fut in futures]
+    for index, current, reviewed in results:
+        if reviewed:
+            updated[index] = apply_name_review(current, reviewed)
     return updated
 
 
@@ -3587,79 +3865,444 @@ def public_funding(plan):
     }
 
 
-def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, naming_rules="", on_alert=None):
-    """Check each PDF. Returns ({pages, files, documents, items}, {item id: jpeg bytes})."""
-    uploads = prepare_uploads(uploads)
-    on_alert = _alert_once(on_alert)
-    items = []
-    crops = {}
-    documents = []
-    briefs = []
-    file_evidence = []
-    total_pages = 0
-    total = len(uploads)
-    for index, (name, data) in enumerate(uploads):
-        def report(message, doc_index=index):
-            if not on_progress:
-                return
-            if total > 1:
-                on_progress(f"Document {doc_index + 1} of {total}: {message}")
-            else:
-                on_progress(message)
+class _BatchProgress:
+    """One line for the button. Reading stays up until every page has been read."""
 
-        report("Opening the document")
-        doc = open_pdf(data, name)
-        try:
+    def __init__(self, on_progress):
+        self.on_progress = on_progress
+        self.lock = threading.Lock()
+        self.waiting = False
+        self.held = None
+        self.total_pages = 0
+        self.read = 0
+        self.one_chunk = None
+        self.reading = True
+        self.shot_done = 0
+        self.shot_total = 0
+
+    def start(self, total_pages, one_chunk):
+        with self.lock:
+            self.total_pages = total_pages
+            self.one_chunk = one_chunk
+            if one_chunk:
+                self._set(_reading_label(one_chunk[0], one_chunk[1]))
+            else:
+                self._set(f"Reading 0 of {total_pages} pages")
+
+    def add_pages(self, count):
+        with self.lock:
+            self.read += count
+            if self.reading and not self.one_chunk:
+                self._set(f"Reading {self.read} of {self.total_pages} pages")
+
+    def finish_reading(self):
+        with self.lock:
+            self.reading = False
+            if self.shot_total:
+                self._set(f"Checking {self.shot_done} of {self.shot_total} screenshots")
+
+    def add_shots(self, count):
+        with self.lock:
+            self.shot_total += count
+            if not self.reading and self.shot_total:
+                self._set(f"Checking {self.shot_done} of {self.shot_total} screenshots")
+
+    def done_shots(self, count):
+        with self.lock:
+            self.shot_done += count
+            if not self.reading and self.shot_total:
+                self._set(f"Checking {self.shot_done} of {self.shot_total} screenshots")
+
+    def phase(self, message):
+        with self.lock:
+            self.reading = False
+            self._set(message)
+
+    def begin_wait(self):
+        with self.lock:
+            self.waiting = True
+            self._emit("Waiting for a free request")
+
+    def end_wait(self):
+        with self.lock:
+            self.waiting = False
+            if self.held:
+                self._emit(self.held)
+
+    def _set(self, message):
+        self.held = message
+        if not self.waiting:
+            self._emit(message)
+
+    def _emit(self, message):
+        if self.on_progress and message:
+            self.on_progress(message)
+
+
+def _verify_groups(items):
+    pages = sorted({item["page"] for item in items if item["status"] == "ambiguous"})
+    by_page = {}
+    rest = []
+    for item in items:
+        if item["page"] in pages:
+            by_page.setdefault(item["page"], []).append(item)
+        else:
+            rest.append(item)
+    return rest, by_page
+
+
+def _check_uploads(uploads, openai_client, firm_id, progress, on_alert):
+    """Read every chunk together, then recheck and screenshot each finished file."""
+    files = []
+    scan_q = []
+    total_pages = 0
+    try:
+        for index, (name, data) in enumerate(uploads):
+            doc = open_pdf(data, name)
+            file = {
+                "index": index,
+                "name": name,
+                "doc": doc,
+                "pages": doc.page_count,
+                "left": 0,
+                "parts": [],
+                "items": [],
+                "evidence": [],
+                "rest": [],
+                "verified": {},
+                "verify_left": 0,
+                "pages_open": 0,
+                "crops": {},
+                "closed": False,
+                "finished": False,
+            }
+            files.append(file)
+
+            def too_big(start, end, doc=doc):
+                return len(slice_pdf(doc, start, end)) > CHUNK_BYTES
+
+            spans = chunk_spans(doc.page_count, too_big)
+            file["left"] = len(spans)
+            for start, end in spans:
+                scan_q.append((index, start, end))
             total_pages += doc.page_count
-            documents.append({"index": index, "name": name, "pages": doc.page_count})
-            file_items, evidence = _scan_doc(doc, name, index, firm_id, on_progress=report)
-            file_items = _verify_doc(
-                doc, file_items, openai_client, firm_id, on_progress=report, on_alert=on_alert,
-            )
-            report("Checking screenshots")
-            try:
-                _approve_screenshots(doc, file_items, firm_id, on_alert=on_alert)
-            except Exception as exc:
-                log.warning("Screenshot review skipped: %s", type(exc).__name__)
-                on_alert(_failure_alert("Screenshot review failed", exc))
-            for item in file_items:
+        one_chunk = (scan_q[0][1], scan_q[0][2]) if len(scan_q) == 1 else None
+        progress.start(total_pages, one_chunk)
+
+        pool = _POOL.get()
+        inflight = {}
+        scans_out = 0
+        verifies_out = 0
+        shots_out = 0
+        verify_q = []
+        page_q = []
+        shot_q = []
+        active_pages = 0
+        failed = None
+        scans_remaining = len(scan_q)
+
+        def submit(kind, fn, meta):
+            inflight[_spawn(pool, fn)] = (kind, meta)
+
+        def finish_file(file):
+            if file["finished"]:
+                return
+            file["finished"] = True
+            for item in file["items"]:
                 try:
                     item["region"] = region_label(item["box"])
                 except Exception:
                     log.warning("Screenshot region skipped")
             try:
-                crops.update(_crop_items(doc, file_items))
+                file["crops"] = _crop_items(file["doc"], file["items"])
             except Exception as exc:
                 log.warning("Signature crop failed: %s", type(exc).__name__)
-            items.extend(file_items)
-            briefs.append(file_brief(index + 1, doc.page_count, file_items, evidence))
-            file_evidence.append(evidence)
-        finally:
-            doc.close()
-    def propose(rules):
-        if on_progress:
-            on_progress("Naming the files")
-        proposals = _name_batch(rules, briefs, firm_id)
-        return _second_look_names(
-            uploads, proposals, briefs, openai_client, firm_id, on_progress, rules,
-            on_alert=on_alert,
+                file["crops"] = {}
+            file["doc"].close()
+            file["closed"] = True
+
+        def finish_page(state):
+            nonlocal active_pages
+            active_pages -= 1
+            state["pix"] = None
+            state["jpeg"] = None
+            progress.done_shots(state["count"])
+            file = files[state["file"]]
+            file["pages_open"] -= 1
+            if file["pages_open"] == 0:
+                finish_file(file)
+
+        def queue_round(state):
+            if state["round"] >= _CROP_ROUNDS or not state["pending"]:
+                finish_page(state)
+                return
+            built = []
+            for start in range(0, len(state["pending"]), 8):
+                chunk = state["pending"][start:start + 8]
+                shots = _shots_for(state["pix"], chunk, state["page"])
+                if shots:
+                    built.append((chunk, shots))
+            if not built:
+                finish_page(state)
+                return
+            state["round"] += 1
+            state["next"] = []
+            state["batches"] = len(built)
+            for chunk, shots in built:
+                shot_q.append((state, chunk, shots))
+
+        def start_screenshots(file):
+            groups = {}
+            for item in file["items"]:
+                groups.setdefault(item["page"], []).append(item)
+            progress.add_shots(len(file["items"]))
+            file["pages_open"] = len(groups)
+            if not groups:
+                finish_file(file)
+                return
+            for page_number in sorted(groups):
+                page_q.append((file["index"], page_number, groups[page_number]))
+
+        def assemble_verified(file):
+            checked = []
+            for page in sorted(file["verified"]):
+                checked.extend(file["verified"][page])
+            file["items"] = file["rest"] + checked
+
+        def note_verified(index, page, page_items, result):
+            file = files[index]
+            file["verified"][page] = result if isinstance(result, list) else page_items
+            file["verify_left"] -= 1
+            if file["verify_left"] == 0:
+                assemble_verified(file)
+                start_screenshots(file)
+
+        def start_verify(file):
+            rest, by_page = _verify_groups(file["items"])
+            file["rest"] = rest
+            file["verified"] = {}
+            if openai_client is None or not by_page:
+                start_screenshots(file)
+                return
+            file["verify_left"] = len(by_page)
+            for page, page_items in by_page.items():
+                verify_q.append((file["index"], page, page_items))
+
+        def note_scan(index, start, end, result):
+            nonlocal scans_remaining
+            raw_items, raw_documents = result
+            file = files[index]
+            file["parts"].append((start, end, raw_items, raw_documents))
+            file["left"] -= 1
+            progress.add_pages(end - start + 1)
+            scans_remaining -= 1
+            if file["left"] == 0:
+                file["items"], file["evidence"] = _merge_scan_parts(
+                    file["parts"], file["name"], file["index"],
+                )
+                start_verify(file)
+            if scans_remaining == 0:
+                progress.finish_reading()
+
+        def note_shot(state, chunk, open_ids):
+            state["next"].extend(item for item in chunk if item["id"] in open_ids)
+            state["batches"] -= 1
+            if state["batches"] == 0:
+                state["pending"] = state["next"]
+                queue_round(state)
+
+        def pump():
+            nonlocal scans_out, verifies_out, shots_out, active_pages
+            while scan_q and scans_out < _GEMINI_AT_ONCE and failed is None:
+                index, start, end = scan_q.pop(0)
+                data = slice_pdf(files[index]["doc"], start, end)
+
+                def run_scan(data=data, start=start, end=end):
+                    return _scan_chunk(data, start + 1, end + 1, firm_id)
+
+                submit("scan", run_scan, (index, start, end))
+                scans_out += 1
+            while verify_q and verifies_out < _OPENAI_AT_ONCE and failed is None:
+                index, page, page_items = verify_q.pop(0)
+                try:
+                    image = render_page_jpeg(files[index]["doc"], page)
+                except Exception:
+                    log.warning("Signature page render failed on page %s", page)
+                    note_verified(index, page, page_items, page_items)
+                    continue
+
+                def run_verify(image=image, page=page, page_items=page_items):
+                    return _verify_page(
+                        openai_client, image, page, page_items, firm_id, on_alert=on_alert,
+                    )
+
+                submit("verify", run_verify, (index, page, page_items))
+                verifies_out += 1
+            while page_q and active_pages < _GEMINI_AT_ONCE and failed is None:
+                index, page_number, group = page_q.pop(0)
+                try:
+                    page_jpeg = render_page_jpeg(files[index]["doc"], page_number)
+                    pix = _render_page(files[index]["doc"][page_number - 1], 2000)
+                except Exception:
+                    log.warning("Screenshot review skipped on page %s", page_number)
+                    progress.done_shots(len(group))
+                    files[index]["pages_open"] -= 1
+                    if files[index]["pages_open"] == 0:
+                        finish_file(files[index])
+                    continue
+                state = {
+                    "file": index,
+                    "page": page_number,
+                    "jpeg": page_jpeg,
+                    "pix": pix,
+                    "pending": list(group),
+                    "round": 0,
+                    "count": len(group),
+                    "next": [],
+                    "batches": 0,
+                }
+                active_pages += 1
+                queue_round(state)
+            while shot_q and shots_out < _GEMINI_AT_ONCE and failed is None:
+                state, chunk, shots = shot_q.pop(0)
+
+                def run_shot(state=state, chunk=chunk, shots=shots):
+                    return _review_batch(
+                        _ask_screenshot_review, state["jpeg"], shots, firm_id, chunk,
+                    )
+
+                submit("shot", run_shot, (state, chunk))
+                shots_out += 1
+
+        pump()
+        while inflight:
+            done, _pending = wait(set(inflight), return_when=FIRST_COMPLETED)
+            for fut in done:
+                kind, meta = inflight.pop(fut)
+                if kind == "scan":
+                    scans_out -= 1
+                elif kind == "verify":
+                    verifies_out -= 1
+                else:
+                    shots_out -= 1
+                try:
+                    result = fut.result()
+                except Exception as exc:
+                    if kind == "scan" and failed is None:
+                        failed = exc if isinstance(exc, SignatureError) else SignatureError(
+                            _CHECK_FAILED, notify=True, alert="Gemini scan failed",
+                            notes=type(exc).__name__,
+                        )
+                    elif kind == "verify":
+                        index, page, page_items = meta
+                        if on_alert:
+                            on_alert(_failure_alert("Signature verify failed", exc))
+                        if failed is None:
+                            note_verified(index, page, page_items, page_items)
+                    else:
+                        state, chunk = meta
+                        log.warning(
+                            "Screenshot review failed on page %s: %s",
+                            state["page"], type(exc).__name__,
+                        )
+                        if on_alert:
+                            on_alert(_failure_alert("Screenshot review failed", exc))
+                        if failed is None:
+                            note_shot(state, chunk, set())
+                else:
+                    if failed is not None:
+                        continue
+                    if kind == "scan":
+                        index, start, end = meta
+                        note_scan(index, start, end, result)
+                    elif kind == "verify":
+                        index, page, page_items = meta
+                        note_verified(index, page, page_items, result)
+                    else:
+                        state, chunk = meta
+                        note_shot(state, chunk, result)
+            if failed is not None:
+                break
+            pump()
+        if failed is not None:
+            while inflight:
+                done, _pending = wait(set(inflight), return_when=FIRST_COMPLETED)
+                for fut in done:
+                    inflight.pop(fut)
+                    try:
+                        fut.result()
+                    except Exception:
+                        pass
+            raise failed
+    finally:
+        for file in files:
+            if not file.get("closed") and file.get("doc") is not None:
+                try:
+                    file["doc"].close()
+                except Exception:
+                    pass
+
+    documents = []
+    items = []
+    crops = {}
+    briefs = []
+    evidence = []
+    for file in files:
+        documents.append({
+            "index": file["index"], "name": file["name"], "pages": file["pages"],
+        })
+        items.extend(file.get("items") or [])
+        crops.update(file.get("crops") or {})
+        briefs.append(file_brief(
+            file["index"] + 1, file["pages"], file.get("items") or [], file.get("evidence") or [],
+        ))
+        evidence.append(file.get("evidence") or [])
+    return documents, items, crops, briefs, evidence, total_pages
+
+
+def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, naming_rules="", on_alert=None):
+    """Check each PDF. Returns ({pages, files, documents, items}, {item id: jpeg bytes})."""
+    uploads = prepare_uploads(uploads)
+    on_alert = _alert_once(on_alert)
+    progress = _BatchProgress(on_progress)
+    limiter = _Limiter(on_wait=progress.begin_wait, on_resume=progress.end_wait)
+    pool = ThreadPoolExecutor(
+        max_workers=_GEMINI_AT_ONCE + _OPENAI_AT_ONCE, thread_name_prefix="sig",
+    )
+    limit_token = _LIMITER.set(limiter)
+    pool_token = _POOL.set(pool)
+    try:
+        documents, items, crops, briefs, file_evidence, total_pages = _check_uploads(
+            uploads, openai_client, firm_id, progress, on_alert,
         )
 
-    named = assign_file_names(
-        naming_rules, [name for _name, _data in uploads], propose,
-        [brief.get("evidence") for brief in briefs],
-        on_alert=on_alert,
-    )
-    for doc, row in zip(documents, named):
-        doc.update(row)
+        def propose(rules):
+            progress.phase("Naming the files")
+            proposals = _name_batch(rules, briefs, firm_id)
+            return _second_look_names(
+                uploads, proposals, briefs, openai_client, firm_id, progress.phase, rules,
+                on_alert=on_alert,
+            )
+
+        named = assign_file_names(
+            naming_rules, [filename for filename, _data in uploads], propose,
+            [brief.get("evidence") for brief in briefs],
+            on_alert=on_alert,
+        )
+        for doc, row in zip(documents, named):
+            doc.update(row)
+    finally:
+        _POOL.reset(pool_token)
+        _LIMITER.reset(limit_token)
+        pool.shutdown(wait=True, cancel_futures=True)
+
     plan = plan_funding(
         [{"pages": doc["pages"], "evidence": evidence} for doc, evidence in zip(documents, file_evidence)],
         items,
     )
     funding_pdfs = []
     if plan["created"]:
-        if on_progress:
-            on_progress("Building the funding packet")
+        progress.phase("Building the funding packet")
         try:
             funding_pdfs = render_funding_packets(uploads, plan)
         except Exception:
@@ -3675,7 +4318,7 @@ def validate_documents(uploads, openai_client, firm_id=None, on_progress=None, n
     items = _sort_items(items)
     return {
         "pages": total_pages,
-        "files": total,
+        "files": len(documents),
         "documents": documents,
         "items": [public_item(item) for item in items],
         "funding": public_funding(plan),
