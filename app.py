@@ -47,6 +47,7 @@ import usage_tools
 app = Flask(__name__)
 app.secret_key = os.environ["SECRET_KEY"]
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
+_UPLOAD_TOO_LARGE = "This upload is over 100 MB. Upload 100 MB or less at a time."
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
@@ -4177,6 +4178,16 @@ def _validate_config(config):
     if tools.get("actionstep_schedule"):
         errors.extend(validate_schedule_config(config.get("actionstep_schedule") or {}))
     return errors
+
+
+@app.errorhandler(413)
+def upload_too_large(_e):
+    if request.path.startswith("/api/"):
+        return jsonify({"error": _UPLOAD_TOO_LARGE}), 413
+    return render_template("error.html",
+                           error_code=413,
+                           error_title="Upload too large",
+                           error_detail=_UPLOAD_TOO_LARGE), 413
 
 
 @app.errorhandler(404)

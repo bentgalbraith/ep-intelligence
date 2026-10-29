@@ -1709,6 +1709,15 @@ a.doc-list-item--link:hover {
     transition: color 0.15s, background 0.15s;
 }
 
+.file-list-limit {
+    padding: 0.55rem 0.85rem;
+    background: rgba(220, 38, 38, 0.06);
+    border-top: 1px solid rgba(0, 0, 0, 0.04);
+    color: #dc2626;
+    font-size: 0.8rem;
+    line-height: 1.35;
+}
+
 .file-list-remove:hover {
     color: #dc2626;
     background: rgba(220, 38, 38, 0.08);
