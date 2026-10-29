@@ -762,8 +762,77 @@ class ScreenshotTest(unittest.TestCase):
 
         sig._approve_screenshots(doc, [row], None, ask=ask, on_alert=alerts.append)
         doc.close()
-        self.assertEqual(alerts, ["Screenshot review failed: RuntimeError"])
+        self.assertEqual(
+            alerts, ["Screenshot framing check failed (signature results unaffected): RuntimeError"],
+        )
         self.assertEqual(row["box"], (0.2, 0.3, 0.2, 0.08))
+
+    def test_a_rejected_batch_is_reviewed_one_shot_at_a_time(self):
+        rows = [item(id=f"m{n}", page=1, box=(0.1 * n, 0.3, 0.1, 0.05)) for n in range(1, 4)]
+        shots = [{"id": row["id"], "jpeg": b"x"} for row in rows]
+        calls, alerts = [], []
+
+        def ask(_page, asked, _firm):
+            calls.append([shot["id"] for shot in asked])
+            if len(asked) > 1 or asked[0]["id"] == "m2":
+                raise sig.SignatureError(
+                    sig._CHECK_FAILED, alert=sig._SHOT_ALERT,
+                    notes="HTTPError 400 INVALID_ARGUMENT", status=400,
+                )
+            if asked[0]["id"] == "m1":
+                return [{"id": "m1", "ok": True}]
+            return [{"id": "m3", "ok": False, "box": [0.5, 0.5, 0.2, 0.1]}]
+
+        open_ids = sig._review_batch(ask, b"page", shots, None, rows, on_alert=alerts.append)
+        self.assertEqual(calls, [["m1", "m2", "m3"], ["m1"], ["m2"], ["m3"]])
+        self.assertEqual(open_ids, {"m3"})
+        self.assertEqual(rows[1]["box"], (0.2, 0.3, 0.1, 0.05))
+        self.assertEqual(rows[2]["box"], (0.5, 0.5, 0.2, 0.1))
+        self.assertEqual(alerts, [
+            "Screenshot framing check failed (signature results unaffected): HTTPError 400 INVALID_ARGUMENT",
+        ])
+
+    def test_a_batch_is_not_split_unless_gemini_rejected_the_request(self):
+        rows = [item(id=f"m{n}", page=1, box=(0.1 * n, 0.3, 0.1, 0.05)) for n in range(1, 3)]
+        shots = [{"id": row["id"], "jpeg": b"x"} for row in rows]
+        for status in (None, 403, 429, 503):
+            calls = []
+
+            def ask(_page, asked, _firm, status=status):
+                calls.append(len(asked))
+                raise sig.SignatureError(sig._CHECK_FAILED, notes="x", status=status)
+
+            with self.assertRaises(sig.SignatureError):
+                sig._review_batch(ask, b"page", shots, None, rows)
+            self.assertEqual(calls, [2])
+
+    def test_a_rejected_batch_raises_when_every_shot_fails_alone(self):
+        rows = [item(id=f"m{n}", page=1, box=(0.1 * n, 0.3, 0.1, 0.05)) for n in range(1, 3)]
+        shots = [{"id": row["id"], "jpeg": b"x"} for row in rows]
+        alerts = []
+
+        def ask(_page, _asked, _firm):
+            raise sig.SignatureError(sig._CHECK_FAILED, notes="HTTPError 400", status=400)
+
+        with self.assertRaises(sig.SignatureError):
+            sig._review_batch(ask, b"page", shots, None, rows, on_alert=alerts.append)
+        self.assertEqual(alerts, [])
+
+    def test_a_rejected_screenshot_review_records_status_not_message(self):
+        error = _http_error(400, json.dumps({"error": {
+            "code": 400, "status": "INVALID_ARGUMENT", "message": "private request text",
+        }}).encode())
+        error.gemini_status = sig._gemini_error_status(error.fp.getvalue())
+        logged = []
+        shot = {"id": "m1", "type": "signature", "label": "", "box": (0.1, 0.1, 0.2, 0.1), "jpeg": b"x"}
+        with patch.object(sig, "_gemini_post", side_effect=error), \
+                patch.object(sig, "_log_model", side_effect=lambda *a, **k: logged.append(k)):
+            with self.assertRaises(sig.SignatureError) as caught:
+                sig._ask_screenshot_review(b"page", [shot], None)
+        self.assertEqual(caught.exception.status, 400)
+        self.assertEqual(caught.exception.notes, "HTTPError 400 INVALID_ARGUMENT")
+        self.assertEqual(logged[0]["notes"], "HTTPError 400 INVALID_ARGUMENT")
+        self.assertNotIn("private", sig._failure_alert(sig._SHOT_ALERT, caught.exception))
 
     def test_a_missing_review_is_asked_three_times_then_stops(self):
         import pymupdf
@@ -1591,6 +1660,52 @@ def _http_error(status, body, headers=None):
     return urllib.error.HTTPError(
         "https://example", status, "error", headers or {}, io.BytesIO(body),
     )
+
+
+class ErrorNoteTest(unittest.TestCase):
+    def test_gemini_status_is_read_without_the_message(self):
+        body = json.dumps({"error": {"status": "INVALID_ARGUMENT", "message": "private"}}).encode()
+        self.assertEqual(sig._gemini_error_status(body), "INVALID_ARGUMENT")
+        self.assertEqual(sig._gemini_error_status(b"not json"), "")
+        self.assertEqual(sig._gemini_error_status(b'{"error": {"status": "private text"}}'), "")
+        self.assertEqual(sig._gemini_error_status(b'{"error": "private"}'), "")
+        self.assertEqual(sig._gemini_error_status(b"[]"), "")
+
+    def test_error_note_has_type_status_and_status_word(self):
+        error = _http_error(400, b'{"error":{"status":"INVALID_ARGUMENT","message":"private"}}')
+        self.assertEqual(sig._error_note(error), "HTTPError 400")
+        error.gemini_status = "INVALID_ARGUMENT"
+        self.assertEqual(sig._error_note(error), "HTTPError 400 INVALID_ARGUMENT")
+
+        class RateLimitError(Exception):
+            status_code = 429
+
+        self.assertEqual(sig._error_note(RateLimitError("private")), "RateLimitError 429")
+        self.assertEqual(sig._error_note(TimeoutError("private")), "TimeoutError")
+        self.assertEqual(sig._failure_alert("Thing failed", TimeoutError("private")), "Thing failed: TimeoutError")
+
+    def test_gemini_post_attaches_the_status_word(self):
+        class Response:
+            status = 400
+            reason = "Bad Request"
+            headers = {}
+
+            def read(self):
+                return b'{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"private"}}'
+
+        class Conn:
+            def request(self, *args, **kwargs):
+                pass
+
+            def getresponse(self):
+                return Response()
+
+        with patch.object(sig, "_gemini_conn", return_value=Conn()), \
+                patch.object(sig, "_gemini_key", return_value="test"), \
+                patch.object(sig, "_drop_gemini_conn"):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                sig._gemini_post_once({}, 5)
+        self.assertEqual(sig._error_note(caught.exception), "HTTPError 400 INVALID_ARGUMENT")
 
 
 class ParallelRunTest(unittest.TestCase):

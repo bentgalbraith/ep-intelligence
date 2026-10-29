@@ -51,6 +51,8 @@ CHUNK_PAGES = 15
 CHUNK_BYTES = 12 * 1024 * 1024
 MAX_ITEMS_PER_CHUNK = 400
 _CROP_ROUNDS = 3
+_SHOT_ALERT = "Screenshot framing check failed (signature results unaffected)"
+_SPLIT_ON_STATUS = (400, 413)
 _GEMINI_AT_ONCE = 5
 _OPENAI_AT_ONCE = 3
 _RETRY_WAITS = (1, 2, 4)
@@ -372,12 +374,13 @@ _CROP_SCHEMA = {
 
 
 class SignatureError(Exception):
-    def __init__(self, message, *, logged=False, notify=False, alert=None, notes=None):
+    def __init__(self, message, *, logged=False, notify=False, alert=None, notes=None, status=None):
         super().__init__(message)
         self.logged = logged
         self.notify = notify
         self.alert = alert or message
         self.notes = notes or message
+        self.status = status
 
 
 def _alert_once(on_alert):
@@ -411,7 +414,43 @@ def _failure_alert(prefix, exc):
         if detail and detail != exc.alert:
             return f"{exc.alert}: {detail}"
         return exc.alert
-    return f"{prefix}: {type(exc).__name__}"
+    return f"{prefix}: {_error_note(exc)}"
+
+
+_GEMINI_STATUS = re.compile(r"[A-Z][A-Z_]{0,39}")
+
+
+def _gemini_error_status(data):
+    """Gemini's short status word, such as INVALID_ARGUMENT. Never the message."""
+    try:
+        status = json.loads(data.decode("utf-8")).get("error", {}).get("status")
+    except Exception:
+        return ""
+    if isinstance(status, str) and _GEMINI_STATUS.fullmatch(status):
+        return status
+    return ""
+
+
+def _http_status(exc):
+    if isinstance(exc, urllib.error.HTTPError):
+        code = exc.code
+    else:
+        code = getattr(exc, "status_code", None)
+    return code if isinstance(code, int) else None
+
+
+def _error_note(exc):
+    """The error type, HTTP status, and Gemini status word. No response text."""
+    if isinstance(exc, SignatureError):
+        return exc.notes or type(exc).__name__
+    parts = [type(exc).__name__]
+    status = _http_status(exc)
+    if status is not None:
+        parts.append(str(status))
+    word = getattr(exc, "gemini_status", "")
+    if word:
+        parts.append(word)
+    return " ".join(parts)
 
 
 def safe_name(name):
@@ -1628,7 +1667,7 @@ class _Limiter:
                     _retry_after_seconds(exc, _RETRY_WAITS[attempt]) + self._jitter(),
                 )
                 self._pause(kind, delay)
-                log.warning("Model request will be retried: %s", type(exc).__name__)
+                log.warning("Model request will be retried: %s", _error_note(exc))
             finally:
                 self._release(kind)
             self._sleep(delay)
@@ -1728,9 +1767,11 @@ def _gemini_post_once(body, timeout):
         raise
     if resp.status >= 400:
         _drop_gemini_conn()
-        raise urllib.error.HTTPError(
+        error = urllib.error.HTTPError(
             _GEMINI_URL, resp.status, resp.reason, resp.headers, io.BytesIO(data),
         )
+        error.gemini_status = _gemini_error_status(data)
+        raise error
     return json.loads(data.decode("utf-8"))
 
 
@@ -1827,15 +1868,16 @@ def _scan_chunk(pdf_bytes, start, end, firm_id):
         raise
     except Exception as exc:
         prompt, output, thoughts = _gemini_usage(payload)
-        status_code = getattr(exc, "code", None)
-        log.warning("Signature scan failed: %s status=%s", type(exc).__name__, status_code)
+        note = _error_note(exc)
+        log.warning("Signature scan failed: %s", note)
         _log_model(
             "gemini", GEMINI_MODEL, SCAN_TOOL_KEY, "error", firm_id, started,
             input_tokens=prompt, output_tokens=output, reasoning_tokens=thoughts,
-            pages=pages, notes=type(exc).__name__,
+            pages=pages, notes=note,
         )
         raise SignatureError(
-            _CHECK_FAILED, logged=True, notify=True, alert="Gemini scan failed", notes=type(exc).__name__,
+            _CHECK_FAILED, logged=True, notify=True, alert="Gemini scan failed", notes=note,
+            status=_http_status(exc),
         ) from None
 
 
@@ -1919,10 +1961,10 @@ def _verify_page(openai_client, image_bytes, page, items, firm_id, on_alert=None
         return apply_verification(items, updates)
     except Exception as exc:
         usage = _openai_usage(response) if response is not None else {}
-        log.warning("Signature verify failed: %s", type(exc).__name__)
+        log.warning("Signature verify failed: %s", _error_note(exc))
         _log_model(
             "openai", VERIFY_MODEL, VERIFY_TOOL_KEY, "error", firm_id, started,
-            notes=type(exc).__name__, **usage,
+            notes=_error_note(exc), **usage,
         )
         if on_alert:
             on_alert(_failure_alert("Signature verify failed", exc))
@@ -3455,7 +3497,7 @@ def _ask_screenshot_review(page_jpeg, shots, firm_id):
                 notes="truncated",
             )
             raise SignatureError(
-                _CHECK_FAILED, logged=True, alert="Screenshot review truncated", notes="truncated",
+                _CHECK_FAILED, logged=True, alert=_SHOT_ALERT, notes="truncated",
             )
         try:
             parsed = _parse_json_object(raw)
@@ -3466,7 +3508,7 @@ def _ask_screenshot_review(page_jpeg, shots, firm_id):
                 notes="JSON parse failed",
             )
             raise SignatureError(
-                _CHECK_FAILED, logged=True, alert="Screenshot review failed", notes="JSON parse failed",
+                _CHECK_FAILED, logged=True, alert=_SHOT_ALERT, notes="JSON parse failed",
             ) from None
         _log_model(
             "gemini", GEMINI_MODEL, CROP_TOOL_KEY, "success", firm_id, started,
@@ -3479,14 +3521,15 @@ def _ask_screenshot_review(page_jpeg, shots, firm_id):
         raise
     except Exception as exc:
         prompt_tokens, output, thoughts = _gemini_usage(payload)
-        log.warning("Screenshot review failed: %s", type(exc).__name__)
+        note = _error_note(exc)
+        log.warning("Screenshot review failed: %s", note)
         _log_model(
             "gemini", GEMINI_MODEL, CROP_TOOL_KEY, "error", firm_id, started,
             input_tokens=prompt_tokens, output_tokens=output, reasoning_tokens=thoughts,
-            notes=type(exc).__name__,
+            notes=note,
         )
         raise SignatureError(
-            _CHECK_FAILED, logged=True, alert="Screenshot review failed", notes=type(exc).__name__,
+            _CHECK_FAILED, logged=True, alert=_SHOT_ALERT, notes=note, status=_http_status(exc),
         ) from None
 
 
@@ -3516,9 +3559,31 @@ def _shots_for(pix, chunk, page_number):
     return shots
 
 
-def _review_batch(ask, page_jpeg, shots, firm_id, chunk):
-    reviews = ask(page_jpeg, shots, firm_id)
-    asked = {shot["id"] for shot in shots}
+def _review_batch(ask, page_jpeg, shots, firm_id, chunk, on_alert=None):
+    """Review a batch. If Gemini rejects the request, ask about each shot alone.
+
+    A shot whose review fails keeps its current box.
+    """
+    try:
+        reviews = ask(page_jpeg, shots, firm_id)
+        asked = {shot["id"] for shot in shots}
+    except SignatureError as exc:
+        if len(shots) < 2 or exc.status not in _SPLIT_ON_STATUS:
+            raise
+        log.warning("Screenshot batch rejected; reviewing %s shots one at a time", len(shots))
+        reviews, asked, failed = [], set(), None
+        for shot in shots:
+            try:
+                found = ask(page_jpeg, [shot], firm_id)
+            except SignatureError as single:
+                failed = failed or single
+                continue
+            reviews.extend(found if isinstance(found, list) else [])
+            asked.add(shot["id"])
+        if not asked:
+            raise failed from None
+        if failed is not None and on_alert:
+            on_alert(_failure_alert(_SHOT_ALERT, failed))
     return set(apply_screenshot_reviews(
         [item for item in chunk if item["id"] in asked], reviews,
     ))
@@ -3554,14 +3619,16 @@ def _approve_screenshots(doc, items, firm_id, ask=None, on_alert=None):
                 if not shots:
                     continue
                 try:
-                    open_ids = _review_batch(ask, page_jpeg, shots, firm_id, chunk)
+                    open_ids = _review_batch(
+                        ask, page_jpeg, shots, firm_id, chunk, on_alert=on_alert,
+                    )
                 except Exception as exc:
                     log.warning(
                         "Screenshot review failed on page %s: %s",
-                        page_number, type(exc).__name__,
+                        page_number, _error_note(exc),
                     )
                     if on_alert:
-                        on_alert(_failure_alert("Screenshot review failed", exc))
+                        on_alert(_failure_alert(_SHOT_ALERT, exc))
                     continue
                 next_pending.extend(item for item in chunk if item["id"] in open_ids)
             pending = next_pending
@@ -3644,14 +3711,16 @@ def _name_batch(rules, briefs, firm_id):
         raise
     except Exception as exc:
         prompt_tokens, output, thoughts = _gemini_usage(payload)
-        log.warning("File naming failed: %s", type(exc).__name__)
+        note = _error_note(exc)
+        log.warning("File naming failed: %s", note)
         _log_model(
             "gemini", GEMINI_MODEL, NAME_TOOL_KEY, "error", firm_id, started,
             input_tokens=prompt_tokens, output_tokens=output, reasoning_tokens=thoughts,
-            notes=type(exc).__name__,
+            notes=note,
         )
         raise SignatureError(
-            _NAME_FAILED, logged=True, alert="Gemini naming failed", notes=type(exc).__name__,
+            _NAME_FAILED, logged=True, alert="Gemini naming failed", notes=note,
+            status=_http_status(exc),
         ) from None
 
 
@@ -3692,7 +3761,7 @@ def _name_in_groups(rules, briefs, firm_id, on_alert=None):
         if isinstance(first, SignatureError):
             raise first
         raise SignatureError(
-            _NAME_FAILED, alert="Gemini naming failed", notes=type(first).__name__,
+            _NAME_FAILED, alert="Gemini naming failed", notes=_error_note(first),
         ) from None
     proposals = {}
     for start, found, exc in outcomes:
@@ -3781,10 +3850,10 @@ def _review_name(openai_client, images, proposal, brief, firm_id, rules, on_aler
         return review
     except Exception as exc:
         usage = _openai_usage(response) if response is not None else {}
-        log.warning("Name review failed: %s", type(exc).__name__)
+        log.warning("Name review failed: %s", _error_note(exc))
         _log_model(
             "openai", VERIFY_MODEL, NAME_VERIFY_TOOL_KEY, "error", firm_id, started,
-            notes=type(exc).__name__, **usage,
+            notes=_error_note(exc), **usage,
         )
         if on_alert:
             on_alert(_failure_alert("Name check failed", exc))
@@ -3901,11 +3970,11 @@ def _check_names_together(rules, proposals, briefs, firm_id, on_progress=None, o
         return apply_name_changes(proposals, parse_name_changes(parsed, len(briefs)), briefs)
     except Exception as exc:
         prompt_tokens, output, thoughts = _gemini_usage(payload)
-        log.warning("Name check across the upload failed: %s", type(exc).__name__)
+        log.warning("Name check across the upload failed: %s", _error_note(exc))
         _log_model(
             "gemini", GEMINI_MODEL, NAME_TOOL_KEY, "error", firm_id, started,
             input_tokens=prompt_tokens, output_tokens=output, reasoning_tokens=thoughts,
-            notes=f"{notes}, {type(exc).__name__}",
+            notes=f"{notes}, {_error_note(exc)}",
         )
         if on_alert:
             on_alert(_failure_alert("Name check across the upload failed", exc))
@@ -4479,6 +4548,7 @@ def _check_uploads(uploads, openai_client, firm_id, progress, on_alert):
                 def run_shot(state=state, chunk=chunk, shots=shots):
                     return _review_batch(
                         _ask_screenshot_review, state["jpeg"], shots, firm_id, chunk,
+                        on_alert=on_alert,
                     )
 
                 submit("shot", run_shot, (state, chunk))
@@ -4501,7 +4571,7 @@ def _check_uploads(uploads, openai_client, firm_id, progress, on_alert):
                     if kind == "scan" and failed is None:
                         failed = exc if isinstance(exc, SignatureError) else SignatureError(
                             _CHECK_FAILED, notify=True, alert="Gemini scan failed",
-                            notes=type(exc).__name__,
+                            notes=_error_note(exc),
                         )
                     elif kind == "verify":
                         index, page, page_items = meta
@@ -4513,10 +4583,10 @@ def _check_uploads(uploads, openai_client, firm_id, progress, on_alert):
                         state, chunk = meta
                         log.warning(
                             "Screenshot review failed on page %s: %s",
-                            state["page"], type(exc).__name__,
+                            state["page"], _error_note(exc),
                         )
                         if on_alert:
-                            on_alert(_failure_alert("Screenshot review failed", exc))
+                            on_alert(_failure_alert(_SHOT_ALERT, exc))
                         if failed is None:
                             note_shot(state, chunk, set())
                 else:
