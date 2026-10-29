@@ -1,8 +1,19 @@
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const UPLOAD_TOO_LARGE = 'This upload is over 100 MB. Upload 100 MB or less at a time.';
+
 function initValidateSignatures(options) {
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('pdf-input');
     const fileList = document.getElementById('file-list');
     let selectedFiles = [];
+
+    function uploadBytes() {
+        return selectedFiles.reduce((sum, file) => sum + file.size, 0);
+    }
+
+    function blockProcess() {
+        return !selectedFiles.length || uploadBytes() > MAX_UPLOAD_BYTES;
+    }
 
     function isPdf(file) {
         if (!file) return false;
@@ -41,7 +52,8 @@ function initValidateSignatures(options) {
     }
 
     function renderFileList() {
-        tool.btn.disabled = !selectedFiles.length;
+        const overLimit = uploadBytes() > MAX_UPLOAD_BYTES;
+        tool.btn.disabled = blockProcess();
         if (!selectedFiles.length) {
             fileList.replaceChildren();
             return;
@@ -58,6 +70,7 @@ function initValidateSignatures(options) {
             row.appendChild(remove);
             fileList.appendChild(row);
         });
+        if (overLimit) fileList.appendChild(el('div', 'file-list-limit', UPLOAD_TOO_LARGE));
     }
 
     fileList.addEventListener('click', (e) => {
@@ -74,6 +87,10 @@ function initValidateSignatures(options) {
         btnId: 'btn-validate',
         async onSubmit({ setLoading, showResult, showError, hasRun }) {
             if (!selectedFiles.length) return;
+            if (uploadBytes() > MAX_UPLOAD_BYTES) {
+                showError(UPLOAD_TOO_LARGE);
+                return;
+            }
             setLoading(true);
             const elapsedEl = document.getElementById('elapsed-time');
             function showProgress(message) {
@@ -84,8 +101,12 @@ function initValidateSignatures(options) {
                 const body = new FormData();
                 for (const file of selectedFiles) body.append('pdfs', file);
                 const uploadRes = await fetchWithTimeout(options.submitUrl, { method: 'POST', body });
-                const uploadData = await uploadRes.json();
-                if (!uploadRes.ok) throw new Error(uploadData.error || 'Something went wrong');
+                const uploadData = await uploadRes.json().catch(() => ({}));
+                if (!uploadRes.ok) {
+                    throw new Error(uploadData.error || (uploadRes.status === 413
+                        ? UPLOAD_TOO_LARGE
+                        : 'Something went wrong'));
+                }
                 const result = await pollJob(uploadData.job_id, showProgress);
                 showResult('<div class="sig-report" id="sig-report"></div>');
                 renderSignatureReport(document.getElementById('sig-report'), result, {
@@ -101,7 +122,7 @@ function initValidateSignatures(options) {
                 showError(err.message);
             } finally {
                 setLoading(false);
-                tool.btn.disabled = !selectedFiles.length;
+                tool.btn.disabled = blockProcess();
                 tool.btnLabel.textContent = hasRun() ? 'Re-Process' : 'Process';
             }
         },
@@ -174,7 +195,9 @@ function summaryCard(pages, items, documents, names, urls, issues, funding) {
     });
     top.appendChild(counts);
     card.appendChild(top);
-    if (funding && (funding.created || funding.detail)) card.appendChild(fundingBlock(funding, urls));
+    if (funding && (funding.created || funding.detail || (funding.uploaded || []).length)) {
+        card.appendChild(fundingBlock(funding, urls, names));
+    }
 
     const foot = el('div', 'sig-summary-foot');
     const status = el('div', 'sig-summary-status');
@@ -219,17 +242,50 @@ function issueLog(entries, names) {
     return log;
 }
 
-function fundingBlock(funding, urls) {
+function uploadedPacketDetail(uploaded, names) {
+    const detail = el('p', 'sig-funding-detail');
+    const named = uploaded.filter((index) => names && names[index]);
+    if (!named.length) {
+        detail.textContent = 'A funding packet is already in this upload, so a duplicate was not built.';
+        return detail;
+    }
+    detail.appendChild(document.createTextNode('Already in this upload: '));
+    named.forEach((index, position) => {
+        if (position) detail.appendChild(document.createTextNode(', '));
+        const name = el('span', null, names[index]);
+        name.dataset.nameFor = String(index);
+        detail.appendChild(name);
+    });
+    detail.appendChild(document.createTextNode(', so a duplicate was not built.'));
+    return detail;
+}
+
+function fundingRow(icon, label, detail) {
+    const row = el('div', 'sig-funding-status');
+    row.appendChild(icon);
+    const copy = el('div', 'sig-funding-copy');
+    copy.appendChild(el('p', 'sig-funding-label', label));
+    if (detail) copy.appendChild(detail);
+    row.appendChild(copy);
+    return row;
+}
+
+function fundingBlock(funding, urls, names) {
     const box = el('div', 'sig-funding');
-    const packets = funding.created ? (funding.packets || []) : [null];
-    packets.forEach((packet, index) => {
-        const row = el('div', 'sig-funding-status');
-        row.appendChild(funding.created ? checkIcon() : xIcon());
-        const copy = el('div', 'sig-funding-copy');
-        copy.appendChild(el('p', 'sig-funding-label', funding.created ? 'Funding Packet Created' : 'No Funding Packet Created'));
-        if (!funding.created && funding.detail) copy.appendChild(el('p', 'sig-funding-detail', funding.detail));
-        row.appendChild(copy);
-        if (packet && urls.fundingUrl && urls.jobId) {
+    const uploaded = funding.uploaded || [];
+    if (uploaded.length) {
+        box.appendChild(fundingRow(checkIcon(), 'Funding Packet Already Uploaded', uploadedPacketDetail(uploaded, names)));
+    }
+    if (!funding.created) {
+        if (funding.detail || !uploaded.length) {
+            const detail = funding.detail ? el('p', 'sig-funding-detail', funding.detail) : null;
+            box.appendChild(fundingRow(xIcon(), 'No Funding Packet Created', detail));
+        }
+        return box;
+    }
+    (funding.packets || []).forEach((packet, index) => {
+        const row = fundingRow(checkIcon(), 'Funding Packet Created', null);
+        if (urls.fundingUrl && urls.jobId) {
             const button = el('button', 'sig-download');
             button.type = 'button';
             button.title = packet.name || 'Download funding packet';
