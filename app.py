@@ -2277,6 +2277,7 @@ def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
             if not e.logged:
                 log_tool_use(
                     tool="validate_signatures", status="error", firm_id=firm_id, notes=e.notes,
+                    execution_ms=int((time.time() - started) * 1000),
                 )
             if e.notify:
                 _notify_tool_error(
@@ -2290,6 +2291,7 @@ def _run_validate_signatures(job_id, uploads, firm_id, log_ctx=None):
             log_tool_use(
                 tool="validate_signatures", status="error", firm_id=firm_id,
                 notes=type(e).__name__,
+                execution_ms=int((time.time() - started) * 1000),
             )
             _notify_tool_error(
                 "Name Files & Validate Signatures", type(e).__name__, firm_id=firm_id,
@@ -3752,6 +3754,42 @@ def admin_usage_csv():
         f"attachment; filename=Usage_{time.strftime('%m-%d-%Y_%H%M%S')}.csv"
     )
     return resp
+
+
+@app.route("/admin/feed")
+@admin_required
+def admin_feed():
+    days, days_key, firm_id, _employee = _usage_filters_from_request()
+    firms = tracker_db.list_firms() if tracker_db.DATABASE_URL else []
+    limit = 4000
+    rows = tracker_db.usage_feed_rows(
+        days=days, firm_id=firm_id, limit=limit,
+    ) if tracker_db.DATABASE_URL else []
+    capped = len(rows) >= limit
+    items = usage_tools.feed_items(rows)
+    show_limit = 300
+    hidden = len(items) > show_limit
+    if hidden:
+        items = items[:show_limit]
+
+    scope_firm_name = None
+    if firm_id:
+        for firm in firms:
+            if str(firm["id"]) == str(firm_id):
+                scope_firm_name = firm["name"]
+                break
+        if not scope_firm_name:
+            scope_firm_name = "Unknown firm"
+
+    return render_template(
+        "admin_feed.html",
+        items=items,
+        firms=firms,
+        days_key=days_key,
+        selected_firm=firm_id or "",
+        scope_firm_name=scope_firm_name,
+        truncated=capped or hidden,
+    )
 
 
 @app.route("/admin/firms/new", methods=["GET", "POST"])

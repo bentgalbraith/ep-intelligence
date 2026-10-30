@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Feed — Admin — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <div class="navbar-left">
+        <span class="navbar-brand">Admin</span>
+        <span class="navbar-sep">/</span>
+        <a href="{{ url_for('admin_firms') }}" class="navbar-page" style="text-decoration:none;color:inherit">Firms</a>
+        <span class="navbar-sep">/</span>
+        <span class="navbar-page">Feed</span>
+    </div>
+    <a href="{{ url_for('admin_logout') }}" class="btn-pill btn-sm">Log Out</a>
+</nav>
+
+<main class="admin-main">
+    <div class="admin-header">
+        <h2 class="admin-heading">Feed</h2>
+        <div style="display:flex;gap:.5rem">
+            <a href="{{ url_for('admin_usage') }}" class="btn-pill btn-sm">Usage</a>
+            <a href="{{ url_for('admin_login_log') }}" class="btn-pill btn-sm">Login Log</a>
+        </div>
+    </div>
+
+    <p class="usage-scope">Each row is one time someone used a tool. Separate model calls from that use are combined.</p>
+
+    <form method="get" class="login-log-filters">
+        <select name="days" class="admin-input login-log-select" onchange="this.form.submit()">
+            <option value="1" {{ 'selected' if days_key == '1' }}>Last 24 hours</option>
+            <option value="7" {{ 'selected' if days_key == '7' }}>Last 7 days</option>
+            <option value="30" {{ 'selected' if days_key == '30' }}>Last 30 days</option>
+            <option value="90" {{ 'selected' if days_key == '90' }}>Last 90 days</option>
+            <option value="all" {{ 'selected' if days_key == 'all' }}>All time</option>
+        </select>
+        <select name="firm" class="admin-input login-log-select" onchange="this.form.submit()">
+            <option value="">All firms</option>
+            {% for f in firms %}
+            <option value="{{ f.id }}" {{ 'selected' if selected_firm == f.id|string }}>{{ f.name }}</option>
+            {% endfor %}
+        </select>
+    </form>
+
+    {% if truncated %}
+    <p class="usage-scope">Showing the most recent uses{% if scope_firm_name %} for {{ scope_firm_name }}{% endif %}.</p>
+    {% elif scope_firm_name %}
+    <p class="usage-scope">{{ scope_firm_name }}</p>
+    {% endif %}
+
+    {% if items %}
+    <div class="tracker-table-wrap">
+        <table class="tracker-table">
+            <thead>
+                <tr>
+                    <th>Time (ET)</th>
+                    <th>Firm</th>
+                    <th>Employee</th>
+                    <th>Tool</th>
+                    <th>Duration</th>
+                    <th>Result</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td style="white-space:nowrap">{{ item.timestamp|et_time }}</td>
+                    <td>{{ item.firm_name or '—' }}</td>
+                    <td>{% if item.employee_name or item.employee_id_code %}{% if item.employee_name %}{{ item.employee_name }}{% endif %}{% if item.employee_id_code %} <code>{{ item.employee_id_code }}</code>{% endif %}{% else %}—{% endif %}</td>
+                    <td>{{ item.tool }}</td>
+                    <td style="white-space:nowrap">{{ item.duration or '—' }}</td>
+                    <td>
+                        {% if item.status == 'success' %}
+                        <span style="color:#16a34a;font-weight:600">Success</span>
+                        {% else %}
+                        <span style="color:#dc2626;font-weight:600">Failed</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="admin-empty">No tool uses in this range.</p>
+    {% endif %}
+</main>
+{% endblock %}

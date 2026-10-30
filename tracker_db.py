@@ -1464,6 +1464,31 @@ def usage_log_rows(days=None, firm_id=None, employee_code=None, limit=10000):
             return cur.fetchall()
 
 
+def usage_feed_rows(days=None, firm_id=None, limit=4000):
+    """Recent log rows for the admin feed.
+
+    Successful per-page hops are not included. See usage_tools.feed_row_sql.
+    """
+    where, params = _usage_filters(days, firm_id, None)
+    visible = usage_tools.feed_row_sql()
+    where = f"{where} AND {visible}" if where else f"WHERE {visible}"
+    params = list(params) + [int(limit)]
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT l.timestamp, l.firm_id, f.name AS firm_name,
+                           l.employee_id_code, l.employee_name,
+                           l.tool, l.status, l.execution_ms
+                    FROM ai_usage_log l
+                    LEFT JOIN firms f ON f.id = l.firm_id
+                    {where}
+                    ORDER BY l.timestamp DESC
+                    LIMIT %s""",
+                params,
+            )
+            return cur.fetchall()
+
+
 # ---------------------------------------------------------------------------
 # Specimen documents
 # ---------------------------------------------------------------------------
