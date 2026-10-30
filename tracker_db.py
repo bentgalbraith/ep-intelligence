@@ -1478,12 +1478,39 @@ def usage_feed_rows(days=None, firm_id=None, limit=4000):
             cur.execute(
                 f"""SELECT l.timestamp, l.firm_id, f.name AS firm_name,
                            l.employee_id_code, l.employee_name,
-                           l.tool, l.status, l.execution_ms
+                           l.tool, l.status, l.execution_ms, l.cost_usd
                     FROM ai_usage_log l
                     LEFT JOIN firms f ON f.id = l.firm_id
                     {where}
                     ORDER BY l.timestamp DESC
                     LIMIT %s""",
+                params,
+            )
+            return cur.fetchall()
+
+
+def usage_feed_step_costs(days=None, firm_id=None, since=None, until=None):
+    """Costs of successful internal hops in a window.
+
+    These rows are not uses. The feed adds the cost onto the use they belong to.
+    """
+    where, params = _usage_filters(days, firm_id, None)
+    visible = usage_tools.feed_step_cost_sql()
+    where = f"{where} AND {visible}" if where else f"WHERE {visible}"
+    if since is not None:
+        where += " AND l.timestamp >= %s"
+        params.append(since)
+    if until is not None:
+        where += " AND l.timestamp <= %s"
+        params.append(until)
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"""SELECT l.timestamp, l.firm_id, l.employee_id_code,
+                           l.tool, l.cost_usd
+                    FROM ai_usage_log l
+                    {where}
+                    ORDER BY l.timestamp""",
                 params,
             )
             return cur.fetchall()

@@ -58,6 +58,7 @@
                     <th>Employee</th>
                     <th>Tool</th>
                     <th>Duration</th>
+                    <th>Cost</th>
                     <th>Result</th>
                 </tr>
             </thead>
@@ -69,6 +70,7 @@
                     <td>{% if item.employee_name or item.employee_id_code %}{% if item.employee_name %}{{ item.employee_name }}{% endif %}{% if item.employee_id_code %} <code>{{ item.employee_id_code }}</code>{% endif %}{% else %}—{% endif %}</td>
                     <td>{{ item.tool }}</td>
                     <td style="white-space:nowrap">{{ item.duration or '—' }}</td>
+                    <td style="white-space:nowrap">{{ item.cost or '—' }}</td>
                     <td>
                         {% if item.status == 'success' %}
                         <span style="color:#16a34a;font-weight:600">Success</span>

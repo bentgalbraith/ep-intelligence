@@ -3765,8 +3765,25 @@ def admin_feed():
     rows = tracker_db.usage_feed_rows(
         days=days, firm_id=firm_id, limit=limit,
     ) if tracker_db.DATABASE_URL else []
+    steps = []
+    if rows:
+        oldest = min(row["timestamp"] for row in rows)
+        newest = max(row["timestamp"] for row in rows)
+        pad_ms = 0
+        for row in rows:
+            if not usage_tools.feed_anchor(row.get("tool")):
+                continue
+            try:
+                pad_ms = max(pad_ms, int(row.get("execution_ms") or 0))
+            except (TypeError, ValueError):
+                pass
+        pad_ms = min(pad_ms, 6 * 60 * 60 * 1000)
+        since = oldest - timedelta(milliseconds=pad_ms, minutes=15)
+        steps = tracker_db.usage_feed_step_costs(
+            days=days, firm_id=firm_id, since=since, until=newest,
+        )
     capped = len(rows) >= limit
-    items = usage_tools.feed_items(rows)
+    items = usage_tools.feed_items(rows, extra_costs=steps)
     show_limit = 300
     hidden = len(items) > show_limit
     if hidden:

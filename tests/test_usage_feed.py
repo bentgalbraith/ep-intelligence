@@ -10,7 +10,7 @@ T0 = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
 
 
 def at(minutes, tool, status="success", firm="firm-a", employee="E1", name="Ada",
-       execution_ms=None):
+       execution_ms=None, cost_usd=None):
     return {
         "timestamp": T0 + timedelta(minutes=minutes),
         "firm_id": firm,
@@ -20,6 +20,7 @@ def at(minutes, tool, status="success", firm="firm-a", employee="E1", name="Ada"
         "tool": tool,
         "status": status,
         "execution_ms": execution_ms,
+        "cost_usd": cost_usd,
     }
 
 
@@ -181,8 +182,62 @@ class FeedItemTest(unittest.TestCase):
 
         self.assertEqual(usage_tools.format_feed_duration(None), "")
         self.assertEqual(usage_tools.format_feed_duration(0), "0 sec")
-        self.assertEqual(usage_tools.format_feed_duration(90), "1 min")
+        self.assertEqual(usage_tools.format_feed_duration(90), "1 min 30 sec")
+        self.assertEqual(usage_tools.format_feed_duration(4 * 60 + 12), "4 min 12 sec")
         self.assertEqual(usage_tools.format_feed_duration(90 * 60), "1 hr 30 min")
+        self.assertEqual(usage_tools.format_feed_duration(90 * 60 + 5), "1 hr 30 min 5 sec")
+
+    def test_cost_includes_page_calls_without_adding_rows(self):
+        rows = [at(30, "validate_signatures", execution_ms=30 * 60 * 1000, cost_usd="0.10")]
+        steps = [
+            at(i, "validate_signatures_verify", cost_usd="0.02")
+            for i in range(30)
+        ]
+        items = usage_tools.feed_items(rows, extra_costs=steps)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["cost"], "$0.70")
+        self.assertEqual(items[0]["tool"], "Name Files & Validate Signatures")
+
+    def test_earlier_calls_in_the_same_stretch_count(self):
+        rows = [at(6, "client_doc_summary", execution_ms=60 * 1000)]
+        steps = [
+            at(0, "client_doc_summary_part", cost_usd="1.00"),
+            at(3, "client_doc_summary_part", cost_usd="1.00"),
+        ]
+        items = usage_tools.feed_items(rows, extra_costs=steps)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["cost"], "$2.00")
+
+    def test_a_failed_runs_pages_stay_with_the_failure(self):
+        rows = [
+            at(2, "validate_signatures_scan", status="error", cost_usd="0.05"),
+            at(12, "validate_signatures", execution_ms=60 * 1000, cost_usd="1.00"),
+        ]
+        steps = [at(i, "validate_signatures_verify", cost_usd="0.10") for i in range(2)]
+        items = usage_tools.feed_items(rows, extra_costs=steps)
+        self.assertEqual([item["cost"] for item in items], ["$1.00", "$0.25"])
+        self.assertEqual([item["status"] for item in items], ["success", "error"])
+
+    def test_a_page_call_outside_the_run_is_not_its_own_row(self):
+        rows = [at(10, "validate_signatures", execution_ms=60 * 1000, cost_usd="1.00")]
+        steps = [at(0, "validate_signatures_verify", cost_usd="9.00")]
+        items = usage_tools.feed_items(rows, extra_costs=steps)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["cost"], "$1.00")
+
+    def test_a_failed_run_keeps_the_cost_of_the_pages_that_finished(self):
+        rows = [at(2, "validate_signatures_scan", status="error", cost_usd="0.05")]
+        steps = [at(i, "validate_signatures_verify", cost_usd="0.10") for i in range(2)]
+        items = usage_tools.feed_items(rows, extra_costs=steps)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["cost"], "$0.25")
+        self.assertEqual(items[0]["status"], "error")
+
+    def test_cost_formats(self):
+        self.assertEqual(usage_tools.format_feed_cost(None), "")
+        self.assertEqual(usage_tools.format_feed_cost(0), "$0.00")
+        self.assertEqual(usage_tools.format_feed_cost("0.004"), "< $0.01")
+        self.assertEqual(usage_tools.format_feed_cost("12.5"), "$12.50")
 
     def test_hidden_sql_keeps_failed_hops_and_qprt(self):
         sql = usage_tools.feed_row_sql()

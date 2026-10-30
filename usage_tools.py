@@ -17,6 +17,7 @@ SQL. Admin usage stays uncollapsed (every log row, including steps).
 """
 
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 
 TOOL_LABELS = {
     "ep_extract": "Drafting Notes",
@@ -136,6 +137,15 @@ def feed_row_sql(column="l.tool", status_column="l.status"):
     return f"({column} NOT IN ({joined}) OR {status_column} = 'error')"
 
 
+def feed_step_cost_sql(column="l.tool", status_column="l.status"):
+    """Successful internal hops. Their cost belongs to a use, but they are not one."""
+    hidden = sorted(set(STEP_OF) - set(FEED_OWN_USE))
+    if not hidden:
+        return "FALSE"
+    joined = ", ".join(_sql_literal(k) for k in hidden)
+    return f"({column} IN ({joined}) AND {status_column} = 'success')"
+
+
 def format_feed_duration(seconds):
     """A recorded runtime. ``None`` means the row did not store one."""
     if seconds is None:
@@ -143,15 +153,49 @@ def format_feed_duration(seconds):
     seconds = int(round(seconds))
     if seconds < 0:
         return ""
-    if seconds < 60:
-        return f"{seconds} sec"
-    minutes = seconds // 60
-    if minutes < 60:
-        return f"{minutes} min"
-    hours, minutes = divmod(minutes, 60)
-    if minutes == 0:
-        return f"{hours} hr"
-    return f"{hours} hr {minutes} min"
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours} hr")
+    if minutes:
+        parts.append(f"{minutes} min")
+    if secs or not parts:
+        parts.append(f"{secs} sec")
+    return " ".join(parts)
+
+
+def format_feed_cost(amount):
+    """A dollar amount for one use. ``None`` means nothing was recorded."""
+    if amount is None:
+        return ""
+    amount = Decimal(amount)
+    if amount == 0:
+        return "$0.00"
+    cents = amount.quantize(Decimal("0.01"))
+    if cents == 0:
+        return "< $0.01"
+    return f"${cents:,.2f}"
+
+
+def _row_cost(row):
+    value = row.get("cost_usd")
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _feed_cost(rows):
+    total = None
+    for row in rows:
+        amount = _row_cost(row)
+        if amount is None:
+            continue
+        total = amount if total is None else total + amount
+    return format_feed_cost(total)
 
 
 def _feed_label(rows):
@@ -183,6 +227,7 @@ def _feed_item(rows):
         "timestamp": ended,
         "started": started,
         "duration": format_feed_duration(ran),
+        "cost": _feed_cost(rows),
         "firm_name": person.get("firm_name") or "",
         "employee_name": person.get("employee_name") or "",
         "employee_id_code": person.get("employee_id_code") or "",
@@ -267,31 +312,55 @@ def _hop_in_run(step, anchor, gap):
     return delta <= gap.total_seconds()
 
 
-def _chain_items(chain, gap):
-    anchor_at = [index for index, row in enumerate(chain) if feed_anchor(row.get("tool"))]
-    if not anchor_at:
-        return [_feed_item(chain)]
+def _cost_indexes(preceding, anchor, gap):
+    """Hops that belong to this run, plus page calls that lead up to them.
+
+    A recorded duration is only the last model call for some tools. Earlier
+    calls in that same stretch still belong to it. A call from a different
+    run, with a real hop in between that is not part of this one, does not.
+    """
+    owned = {i for i, row in enumerate(preceding) if _hop_in_run(row, anchor, gap)}
+    changed = True
+    while changed:
+        changed = False
+        for i, row in enumerate(preceding):
+            if i in owned or not row.get("cost_only"):
+                continue
+            if (i > 0 and (i - 1) in owned) or (i + 1 < len(preceding) and (i + 1) in owned):
+                owned.add(i)
+                changed = True
+    return owned
+
+
+def _loose_items(rows, gap):
     items = []
-    cursor = 0
-    for index in anchor_at:
-        anchor = chain[index]
-        owned, loose = [], []
-        for row in chain[cursor:index]:
-            if _hop_in_run(row, anchor, gap):
-                owned.append(row)
-            else:
-                loose.append(row)
-        for stretch in _gap_chains(loose, gap) if loose else []:
-            items.append(_feed_item(stretch))
-        items.append(_feed_item([*owned, anchor]))
-        cursor = index + 1
-    if cursor < len(chain):
-        for stretch in _gap_chains(chain[cursor:], gap):
+    for stretch in _gap_chains(rows, gap) if rows else []:
+        if any(not row.get("cost_only") for row in stretch):
             items.append(_feed_item(stretch))
     return items
 
 
-def feed_items(rows, gap=FEED_GAP):
+def _chain_items(chain, gap):
+    anchor_at = [index for index, row in enumerate(chain) if feed_anchor(row.get("tool"))]
+    if not anchor_at:
+        return _loose_items(chain, gap)
+    items = []
+    cursor = 0
+    for index in anchor_at:
+        anchor = chain[index]
+        preceding = chain[cursor:index]
+        owned_idx = _cost_indexes(preceding, anchor, gap)
+        owned = [row for i, row in enumerate(preceding) if i in owned_idx]
+        loose = [row for i, row in enumerate(preceding) if i not in owned_idx]
+        items.extend(_loose_items(loose, gap))
+        items.append(_feed_item([*owned, anchor]))
+        cursor = index + 1
+    if cursor < len(chain):
+        items.extend(_loose_items(chain[cursor:], gap))
+    return items
+
+
+def feed_items(rows, extra_costs=None, gap=FEED_GAP):
     """One item per time someone used a tool.
 
     A parent row, a redo, or a follow-up click is one use. Hops for the same
@@ -299,6 +368,11 @@ def feed_items(rows, gap=FEED_GAP):
     starts another use. Hops with no finishing row are one item per stretch.
     """
     grouped = {}
+    rows = list(rows)
+    for row in extra_costs or []:
+        tagged = dict(row)
+        tagged["cost_only"] = True
+        rows.append(tagged)
     for row in rows:
         if not row.get("timestamp"):
             continue
