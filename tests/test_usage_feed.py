@@ -166,11 +166,21 @@ class FeedItemTest(unittest.TestCase):
         self.assertEqual(items[0]["status"], "error")
         self.assertEqual(items[1]["tool"], "Client Progress Tracker")
 
-    def test_duration_is_the_span_of_the_use(self):
-        rows = [at(0, "validate_signatures_verify", status="error"), at(12, "validate_signatures")]
-        items = usage_tools.feed_items(rows)
-        self.assertEqual(items[0]["duration"], "12 min")
-        self.assertEqual(usage_tools.format_feed_duration(0), "")
+    def test_duration_is_the_recorded_runtime_only(self):
+        spanned = [at(0, "validate_signatures_verify", status="error"), at(12, "validate_signatures")]
+        self.assertEqual(usage_tools.feed_items(spanned)[0]["duration"], "")
+
+        recorded = [
+            at(0, "validate_signatures_verify", status="error"),
+            at(1, "validate_signatures", execution_ms=20 * 60 * 1000),
+        ]
+        self.assertEqual(usage_tools.feed_items(recorded)[0]["duration"], "20 min")
+
+        hops = [at(i, "validate_signatures_scan", status="error") for i in range(4)]
+        self.assertEqual(usage_tools.feed_items(hops)[0]["duration"], "")
+
+        self.assertEqual(usage_tools.format_feed_duration(None), "")
+        self.assertEqual(usage_tools.format_feed_duration(0), "0 sec")
         self.assertEqual(usage_tools.format_feed_duration(90), "1 min")
         self.assertEqual(usage_tools.format_feed_duration(90 * 60), "1 hr 30 min")
 

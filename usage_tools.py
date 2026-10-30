@@ -137,8 +137,11 @@ def feed_row_sql(column="l.tool", status_column="l.status"):
 
 
 def format_feed_duration(seconds):
-    seconds = int(round(seconds or 0))
-    if seconds < 2:
+    """A recorded runtime. ``None`` means the row did not store one."""
+    if seconds is None:
+        return ""
+    seconds = int(round(seconds))
+    if seconds < 0:
         return ""
     if seconds < 60:
         return f"{seconds} sec"
@@ -175,10 +178,11 @@ def _feed_item(rows):
     latest = rows[-1]
     person = next((row for row in reversed(rows) if feed_anchor(row.get("tool"))), latest)
     started, ended = rows[0]["timestamp"], latest["timestamp"]
+    ran = _execution_seconds(person) if feed_anchor(person.get("tool")) else None
     return {
         "timestamp": ended,
         "started": started,
-        "duration": format_feed_duration((ended - started).total_seconds()),
+        "duration": format_feed_duration(ran),
         "firm_name": person.get("firm_name") or "",
         "employee_name": person.get("employee_name") or "",
         "employee_id_code": person.get("employee_id_code") or "",
