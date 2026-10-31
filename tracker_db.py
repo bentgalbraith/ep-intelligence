@@ -1478,7 +1478,7 @@ def usage_feed_rows(days=None, firm_id=None, limit=4000):
             cur.execute(
                 f"""SELECT l.timestamp, l.firm_id, f.name AS firm_name,
                            l.employee_id_code, l.employee_name,
-                           l.tool, l.status, l.execution_ms, l.cost_usd
+                           l.tool, l.status, l.execution_ms, l.cost_usd, l.notes
                     FROM ai_usage_log l
                     LEFT JOIN firms f ON f.id = l.firm_id
                     {where}

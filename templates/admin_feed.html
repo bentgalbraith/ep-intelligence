@@ -68,7 +68,15 @@
                 {% if item.status == 'success' %}
                 <span class="feed-result feed-result-success">Success</span>
                 {% else %}
-                <span class="feed-result feed-result-failed">Failed</span>
+                <span class="feed-result-wrap">
+                    <span class="feed-result feed-result-failed"{% if item.error %} tabindex="0"{% endif %}>Failed</span>
+                    {% if item.error %}
+                    <span class="feed-error">
+                        <span class="feed-error-text">{{ item.error }}</span>
+                        <button type="button" class="feed-error-copy">Copy</button>
+                    </span>
+                    {% endif %}
+                </span>
                 {% endif %}
             </div>
         </article>
@@ -78,4 +86,33 @@
     <p class="admin-empty">No tool uses in this range.</p>
     {% endif %}
 </main>
+<script>
+document.querySelectorAll(".feed-error-copy").forEach(function (button) {
+    button.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        var error = button.parentElement.querySelector(".feed-error-text");
+        var text = error ? error.textContent : "";
+        var done = function () {
+            button.textContent = "Copied";
+            setTimeout(function () { button.textContent = "Copy"; }, 1200);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done).catch(function () {
+                selectError(error);
+            });
+            return;
+        }
+        selectError(error);
+    });
+});
+
+function selectError(error) {
+    var range = document.createRange();
+    range.selectNodeContents(error);
+    var selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+}
+</script>
 {% endblock %}

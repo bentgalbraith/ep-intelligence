@@ -217,6 +217,34 @@ def _feed_status(rows):
     return "success"
 
 
+def _note_text(row):
+    text = row.get("notes")
+    if text is None:
+        return ""
+    text = str(text).strip()
+    if len(text) > 4000:
+        return text[:4000].rstrip() + "…"
+    return text
+
+
+def _feed_error(rows):
+    """The failure recorded for this use. Empty unless the use itself failed."""
+    if _feed_status(rows) != "error":
+        return ""
+    anchor = next((row for row in reversed(rows) if feed_anchor(row.get("tool"))), None)
+    if anchor is not None and anchor.get("status") == "error":
+        text = _note_text(anchor)
+        if text:
+            return text
+    for row in reversed(rows):
+        if row.get("cost_only") or row.get("status") != "error":
+            continue
+        text = _note_text(row)
+        if text:
+            return text
+    return ""
+
+
 def _feed_item(rows):
     rows = sorted(rows, key=lambda row: row["timestamp"])
     latest = rows[-1]
@@ -233,6 +261,7 @@ def _feed_item(rows):
         "employee_id_code": person.get("employee_id_code") or "",
         "tool": _feed_label(rows),
         "status": _feed_status(rows),
+        "error": _feed_error(rows),
     }
 
 

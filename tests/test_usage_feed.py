@@ -10,7 +10,7 @@ T0 = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
 
 
 def at(minutes, tool, status="success", firm="firm-a", employee="E1", name="Ada",
-       execution_ms=None, cost_usd=None):
+       execution_ms=None, cost_usd=None, notes=None):
     return {
         "timestamp": T0 + timedelta(minutes=minutes),
         "firm_id": firm,
@@ -21,6 +21,7 @@ def at(minutes, tool, status="success", firm="firm-a", employee="E1", name="Ada"
         "status": status,
         "execution_ms": execution_ms,
         "cost_usd": cost_usd,
+        "notes": notes,
     }
 
 
@@ -232,6 +233,25 @@ class FeedItemTest(unittest.TestCase):
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["cost"], "$0.25")
         self.assertEqual(items[0]["status"], "error")
+
+    def test_a_failed_use_keeps_its_error_for_the_hover(self):
+        rows = [at(0, "validate_signatures", status="error", notes="HTTPError 400 INVALID_ARGUMENT")]
+        items = usage_tools.feed_items(rows)
+        self.assertEqual(items[0]["error"], "HTTPError 400 INVALID_ARGUMENT")
+
+    def test_a_successful_use_does_not_surface_a_step_error(self):
+        rows = [
+            at(0, "validate_signatures_crop", status="error", notes="HTTPError 400 INVALID_ARGUMENT"),
+            at(1, "validate_signatures", notes="3 files"),
+        ]
+        items = usage_tools.feed_items(rows)
+        self.assertEqual(items[0]["status"], "success")
+        self.assertEqual(items[0]["error"], "")
+
+    def test_a_failed_run_without_a_finishing_row_uses_the_step_error(self):
+        rows = [at(0, "validate_signatures_scan", status="error", notes="truncated")]
+        items = usage_tools.feed_items(rows)
+        self.assertEqual(items[0]["error"], "truncated")
 
     def test_cost_formats(self):
         self.assertEqual(usage_tools.format_feed_cost(None), "")
