@@ -24,7 +24,7 @@
         </div>
     </div>
 
-    <p class="usage-scope">Each row is one time someone used a tool. Separate model calls from that use are combined.</p>
+    <p class="usage-scope">Each item is one time someone used a tool. Separate model calls from that use are combined.</p>
 
     <form method="get" class="login-log-filters">
         <select name="days" class="admin-input login-log-select" onchange="this.form.submit()">
@@ -49,39 +49,30 @@
     {% endif %}
 
     {% if items %}
-    <div class="tracker-table-wrap">
-        <table class="tracker-table">
-            <thead>
-                <tr>
-                    <th>Time (ET)</th>
-                    <th>Firm</th>
-                    <th>Employee</th>
-                    <th>Tool</th>
-                    <th>Duration</th>
-                    <th>Cost</th>
-                    <th>Result</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in items %}
-                <tr>
-                    <td style="white-space:nowrap">{{ item.timestamp|et_time }}</td>
-                    <td>{{ item.firm_name or '—' }}</td>
-                    <td>{% if item.employee_name or item.employee_id_code %}{% if item.employee_name %}{{ item.employee_name }}{% endif %}{% if item.employee_id_code %} <code>{{ item.employee_id_code }}</code>{% endif %}{% else %}—{% endif %}</td>
-                    <td>{{ item.tool }}</td>
-                    <td style="white-space:nowrap">{{ item.duration or '—' }}</td>
-                    <td style="white-space:nowrap">{{ item.cost or '—' }}</td>
-                    <td>
-                        {% if item.status == 'success' %}
-                        <span style="color:#16a34a;font-weight:600">Success</span>
-                        {% else %}
-                        <span style="color:#dc2626;font-weight:600">Failed</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div class="feed-list">
+        {% for item in items %}
+        <article class="feed-item">
+            <div class="feed-item-main">
+                <h3 class="feed-item-tool">{{ item.tool }}</h3>
+                <p class="feed-item-meta">
+                    <span>{{ item.firm_name or '—' }}</span>
+                    {% if item.employee_name or item.employee_id_code %}
+                    <span>{% if item.employee_name %}{{ item.employee_name }}{% endif %}{% if item.employee_id_code %} <code>{{ item.employee_id_code }}</code>{% endif %}</span>
+                    {% endif %}
+                    {% if item.duration %}<span>{{ item.duration }}</span>{% endif %}
+                    {% if item.cost %}<span>{{ item.cost }}</span>{% endif %}
+                </p>
+            </div>
+            <div class="feed-item-side">
+                <time class="feed-item-time">{{ item.timestamp|et_time }}</time>
+                {% if item.status == 'success' %}
+                <span class="feed-result feed-result-success">Success</span>
+                {% else %}
+                <span class="feed-result feed-result-failed">Failed</span>
+                {% endif %}
+            </div>
+        </article>
+        {% endfor %}
     </div>
     {% else %}
     <p class="admin-empty">No tool uses in this range.</p>
