@@ -10,7 +10,7 @@
     <input type="date" name="from" value="{{ date_from }}" max="{{ date_max }}" class="admin-input login-log-select usage-date" aria-label="Start date"{% if days_key != 'custom' %} disabled{% endif %}>
     <span class="usage-date-sep" aria-hidden="true">–</span>
     <input type="date" name="to" value="{{ date_to }}" max="{{ date_max }}" class="admin-input login-log-select usage-date" aria-label="End date"{% if days_key != 'custom' %} disabled{% endif %}>
-    <button type="submit" class="usage-range-btn"{% if days_key != 'custom' %} disabled{% endif %}>Update Custom Range</button>
+    <button type="submit" class="usage-range-btn" data-applied-from="{{ date_from }}" data-applied-to="{{ date_to }}" disabled>Update Custom Range</button>
 </span>
 <p class="usage-range-note"{% if days_key != 'custom' or not custom_range_label %} hidden{% endif %}>Filtered to {{ custom_range_label }}</p>
 <script>
@@ -27,7 +27,6 @@ function usagePeriodChanged(select) {
         wrap.hidden = false;
         from.disabled = false;
         to.disabled = false;
-        button.disabled = false;
         if (!from.value || !to.value) {
             var today = to.max || from.max;
             if (today) {
@@ -35,6 +34,7 @@ function usagePeriodChanged(select) {
                 if (!from.value) from.value = usageMonthStart(today);
             }
         }
+        usageSyncRangeButton(form);
         return;
     }
     from.disabled = true;
@@ -42,15 +42,30 @@ function usagePeriodChanged(select) {
     button.disabled = true;
     form.submit();
 }
+function usageSyncRangeButton(form) {
+    var from = form.querySelector('[name="from"]');
+    var to = form.querySelector('[name="to"]');
+    var button = form.querySelector(".usage-range-btn");
+    if (!from || !to || !button) return;
+    var appliedFrom = button.getAttribute("data-applied-from") || "";
+    var appliedTo = button.getAttribute("data-applied-to") || "";
+    button.disabled = !(from.value && to.value && (from.value !== appliedFrom || to.value !== appliedTo));
+}
 (function () {
     var form = document.currentScript && document.currentScript.closest("form");
     if (!form || form.dataset.usageRangeBound) return;
     form.dataset.usageRangeBound = "1";
+    ["from", "to"].forEach(function (name) {
+        var input = form.querySelector('[name="' + name + '"]');
+        input.addEventListener("input", function () { usageSyncRangeButton(form); });
+        input.addEventListener("change", function () { usageSyncRangeButton(form); });
+    });
     form.addEventListener("submit", function (event) {
         var select = form.querySelector('[name="days"]');
         if (!select || select.value !== "custom") return;
         var from = form.querySelector('[name="from"]');
         var to = form.querySelector('[name="to"]');
+        var button = form.querySelector(".usage-range-btn");
         if (!from.value || !to.value) {
             event.preventDefault();
             (from.value ? to : from).focus();
@@ -60,6 +75,11 @@ function usagePeriodChanged(select) {
             var swap = from.value;
             from.value = to.value;
             to.value = swap;
+        }
+        if (from.value === (button.getAttribute("data-applied-from") || "") &&
+            to.value === (button.getAttribute("data-applied-to") || "")) {
+            event.preventDefault();
+            button.disabled = true;
         }
     });
 })();

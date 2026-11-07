@@ -2998,8 +2998,12 @@ a.doc-list-item--link:hover {
     border-color: #c2410c;
 }
 
-.usage-range-btn:disabled {
-    display: none;
+.usage-range-btn:disabled,
+.usage-range-btn:disabled:hover {
+    color: rgba(0, 0, 0, 0.35);
+    background: #f3f3f1;
+    border-color: rgba(0, 0, 0, 0.1);
+    cursor: default;
 }
 
 .usage-range-note {
