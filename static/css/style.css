@@ -2979,11 +2979,23 @@ a.doc-list-item--link:hover {
 
 .usage-range-btn {
     height: 2.15rem;
-    padding: 0 0.95rem;
-    font-size: 0.68rem;
-    letter-spacing: 0.05em;
+    padding: 0 0.8rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 500;
     line-height: 1;
     white-space: nowrap;
+    color: #fff;
+    background: #ea580c;
+    border: 1px solid #ea580c;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.usage-range-btn:hover {
+    background: #c2410c;
+    border-color: #c2410c;
 }
 
 .usage-range-btn:disabled {

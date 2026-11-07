@@ -10,17 +10,12 @@
     <input type="date" name="from" value="{{ date_from }}" max="{{ date_max }}" class="admin-input login-log-select usage-date" aria-label="Start date"{% if days_key != 'custom' %} disabled{% endif %}>
     <span class="usage-date-sep" aria-hidden="true">–</span>
     <input type="date" name="to" value="{{ date_to }}" max="{{ date_max }}" class="admin-input login-log-select usage-date" aria-label="End date"{% if days_key != 'custom' %} disabled{% endif %}>
-    <button type="submit" class="btn-pill btn-sm usage-range-btn"{% if days_key != 'custom' %} disabled{% endif %}>Update Custom Range</button>
+    <button type="submit" class="usage-range-btn"{% if days_key != 'custom' %} disabled{% endif %}>Update Custom Range</button>
 </span>
 <p class="usage-range-note"{% if days_key != 'custom' or not custom_range_label %} hidden{% endif %}>Filtered to {{ custom_range_label }}</p>
 <script>
-function usageIsoShift(iso, daysBack) {
-    var parts = iso.split("-");
-    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-    d.setDate(d.getDate() - daysBack);
-    var month = String(d.getMonth() + 1).padStart(2, "0");
-    var day = String(d.getDate()).padStart(2, "0");
-    return d.getFullYear() + "-" + month + "-" + day;
+function usageMonthStart(iso) {
+    return iso.slice(0, 8) + "01";
 }
 function usagePeriodChanged(select) {
     var form = select.form;
@@ -37,7 +32,7 @@ function usagePeriodChanged(select) {
             var today = to.max || from.max;
             if (today) {
                 if (!to.value) to.value = today;
-                if (!from.value) from.value = usageIsoShift(today, 29);
+                if (!from.value) from.value = usageMonthStart(today);
             }
         }
         return;
