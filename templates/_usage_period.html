@@ -34,6 +34,12 @@ function usagePeriodChanged(select) {
                 if (!from.value) from.value = usageMonthStart(today);
             }
         }
+        var appliedFrom = button.getAttribute("data-applied-from") || "";
+        var appliedTo = button.getAttribute("data-applied-to") || "";
+        if (!appliedFrom || !appliedTo) {
+            form.submit();
+            return;
+        }
         usageSyncRangeButton(form);
         return;
     }
