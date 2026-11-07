@@ -313,8 +313,7 @@ document.querySelectorAll('.usage-error-copy').forEach((btn) => {
     }
 
     function formatAxisMoney(value, maxValue) {
-        if (maxValue < 1) return '$' + value.toFixed(2);
-        if (maxValue < 10) return '$' + value.toFixed(1);
+        if (maxValue < 10) return '$' + value.toFixed(2);
         return '$' + Math.round(value);
     }
 
