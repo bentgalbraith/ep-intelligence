@@ -4,7 +4,9 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import psycopg2
 import psycopg2.extras
@@ -15,6 +17,7 @@ import usage_tools
 psycopg2.extras.register_uuid()
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
+_EASTERN = ZoneInfo("America/New_York")
 
 DEFAULT_STEPS = [
     {"name": "Intro Meeting", "description": "Initial consultation to discuss goals and gather information.", "sort_order": 0},
@@ -1098,9 +1101,30 @@ def list_doc_separator_redo_log(firm_id, limit=500, offset=0):
 # AI usage (admin)
 # ---------------------------------------------------------------------------
 
-def _usage_filters(days=None, firm_id=None, employee_code=None):
+def _range_bounds(start, end):
+    """Inclusive Eastern calendar dates as a half-open timestamp window."""
+    start_ts = datetime.combine(start, datetime.min.time(), tzinfo=_EASTERN)
+    end_ts = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=_EASTERN)
+    return start_ts, end_ts
+
+
+def _custom_prior_start(start, end):
+    """Midnight starting the equal-length run of calendar days before ``start``."""
+    length_days = (end - start).days + 1
+    return datetime.combine(
+        start - timedelta(days=length_days),
+        datetime.min.time(),
+        tzinfo=_EASTERN,
+    )
+
+
+def _usage_filters(days=None, firm_id=None, employee_code=None, start=None, end=None):
     clauses, params = [], []
-    if days:
+    if start and end:
+        start_ts, end_ts = _range_bounds(start, end)
+        clauses.append("l.timestamp >= %s AND l.timestamp < %s")
+        params.extend([start_ts, end_ts])
+    elif days:
         clauses.append("l.timestamp >= NOW() - (%s * INTERVAL '1 day')")
         params.append(int(days))
     if firm_id:
@@ -1113,7 +1137,7 @@ def _usage_filters(days=None, firm_id=None, employee_code=None):
     return where, params
 
 
-def usage_overview(days=None, firm_id=None, employee_code=None):
+def usage_overview(days=None, firm_id=None, employee_code=None, start=None, end=None):
     extra, extra_params = [], []
     if firm_id:
         extra.append("l.firm_id = %s")
@@ -1125,7 +1149,45 @@ def usage_overview(days=None, firm_id=None, employee_code=None):
 
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            if days:
+            if start and end:
+                start_ts, end_ts = _range_bounds(start, end)
+                prior_start = _custom_prior_start(start, end)
+                cur.execute(
+                    f"""SELECT
+                            COUNT(*) FILTER (WHERE l.timestamp >= b.start_ts
+                                             AND l.timestamp < b.end_ts) AS calls,
+                            COUNT(*) FILTER (WHERE l.timestamp >= b.start_ts
+                                             AND l.timestamp < b.end_ts
+                                             AND l.status = 'error') AS errors,
+                            COALESCE(SUM(l.cost_usd) FILTER (
+                                WHERE l.timestamp >= b.start_ts
+                                  AND l.timestamp < b.end_ts), 0) AS cost,
+                            COALESCE(SUM(l.pages_processed) FILTER (
+                                WHERE l.timestamp >= b.start_ts
+                                  AND l.timestamp < b.end_ts), 0) AS pages,
+                            COALESCE(SUM(l.cost_usd) FILTER (
+                                WHERE l.timestamp >= b.start_ts AND l.timestamp < b.end_ts
+                                  AND l.provider = 'openai'), 0) AS cost_openai,
+                            COALESCE(SUM(l.cost_usd) FILTER (
+                                WHERE l.timestamp >= b.start_ts AND l.timestamp < b.end_ts
+                                  AND l.provider = 'gemini'), 0) AS cost_gemini,
+                            COALESCE(SUM(l.cost_usd) FILTER (
+                                WHERE l.timestamp >= b.start_ts AND l.timestamp < b.end_ts
+                                  AND l.provider = 'google_documentai'), 0) AS cost_ocr,
+                            COALESCE(SUM(l.cost_usd) FILTER (
+                                WHERE l.timestamp >= b.prior_start
+                                  AND l.timestamp < b.start_ts), 0) AS cost_prior
+                        FROM ai_usage_log l
+                        CROSS JOIN (
+                            SELECT %s::timestamptz AS start_ts,
+                                   %s::timestamptz AS end_ts,
+                                   %s::timestamptz AS prior_start
+                        ) b
+                        WHERE l.timestamp >= b.prior_start AND l.timestamp < b.end_ts
+                        {extra_sql}""",
+                    [start_ts, end_ts, prior_start, *extra_params],
+                )
+            elif days:
                 days = int(days)
                 cur.execute(
                     f"""SELECT
@@ -1175,8 +1237,8 @@ def usage_overview(days=None, firm_id=None, employee_code=None):
             return cur.fetchone()
 
 
-def usage_cost_by_day(days=None, firm_id=None, employee_code=None):
-    where, params = _usage_filters(days, firm_id, employee_code)
+def usage_cost_by_day(days=None, firm_id=None, employee_code=None, start=None, end=None):
+    where, params = _usage_filters(days, firm_id, employee_code, start=start, end=end)
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -1191,8 +1253,8 @@ def usage_cost_by_day(days=None, firm_id=None, employee_code=None):
             return cur.fetchall()
 
 
-def usage_cost_by_hour(days=None, firm_id=None, employee_code=None):
-    where, params = _usage_filters(days, firm_id, employee_code)
+def usage_cost_by_hour(days=None, firm_id=None, employee_code=None, start=None, end=None):
+    where, params = _usage_filters(days, firm_id, employee_code, start=start, end=end)
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -1207,8 +1269,8 @@ def usage_cost_by_hour(days=None, firm_id=None, employee_code=None):
             return cur.fetchall()
 
 
-def usage_by_tool(days=None, firm_id=None, employee_code=None):
-    where, params = _usage_filters(days, firm_id, employee_code)
+def usage_by_tool(days=None, firm_id=None, employee_code=None, start=None, end=None):
+    where, params = _usage_filters(days, firm_id, employee_code, start=start, end=end)
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -1226,8 +1288,8 @@ def usage_by_tool(days=None, firm_id=None, employee_code=None):
             return cur.fetchall()
 
 
-def usage_by_firm(days=None, firm_id=None, employee_code=None):
-    where, params = _usage_filters(days, firm_id, employee_code)
+def usage_by_firm(days=None, firm_id=None, employee_code=None, start=None, end=None):
+    where, params = _usage_filters(days, firm_id, employee_code, start=start, end=end)
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -1246,8 +1308,8 @@ def usage_by_firm(days=None, firm_id=None, employee_code=None):
             return cur.fetchall()
 
 
-def usage_by_employee(days=None, firm_id=None, employee_code=None):
-    where, params = _usage_filters(days, firm_id, employee_code)
+def usage_by_employee(days=None, firm_id=None, employee_code=None, start=None, end=None):
+    where, params = _usage_filters(days, firm_id, employee_code, start=start, end=end)
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -1273,16 +1335,16 @@ def _require_firm_id(firm_id):
     return firm_id
 
 
-def _firm_usage_where(days, firm_id):
-    where, params = _usage_filters(days, firm_id, None)
+def _firm_usage_where(days, firm_id, start=None, end=None):
+    where, params = _usage_filters(days, firm_id, None, start=start, end=end)
     use_row = usage_tools.firm_use_row_sql()
     where = f"{where} AND {use_row}" if where else f"WHERE {use_row}"
     return where, params
 
 
-def firm_usage_overview(firm_id, days=None):
+def firm_usage_overview(firm_id, days=None, start=None, end=None):
     firm_id = _require_firm_id(firm_id)
-    where, params = _usage_filters(days, firm_id, None)
+    where, params = _usage_filters(days, firm_id, None, start=start, end=end)
     use_row = usage_tools.firm_use_row_sql()
     tool_expr = usage_tools.firm_product_tool_sql()
     with get_conn() as conn:
@@ -1303,9 +1365,9 @@ def firm_usage_overview(firm_id, days=None):
             return cur.fetchone()
 
 
-def firm_usage_by_employee(firm_id, days=None):
+def firm_usage_by_employee(firm_id, days=None, start=None, end=None):
     firm_id = _require_firm_id(firm_id)
-    where, params = _firm_usage_where(days, firm_id)
+    where, params = _firm_usage_where(days, firm_id, start, end)
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -1321,9 +1383,9 @@ def firm_usage_by_employee(firm_id, days=None):
             return cur.fetchall()
 
 
-def firm_usage_tools_by_employee(firm_id, days=None):
+def firm_usage_tools_by_employee(firm_id, days=None, start=None, end=None):
     firm_id = _require_firm_id(firm_id)
-    where, params = _firm_usage_where(days, firm_id)
+    where, params = _firm_usage_where(days, firm_id, start, end)
     tool_expr = usage_tools.firm_product_tool_sql()
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -1340,9 +1402,9 @@ def firm_usage_tools_by_employee(firm_id, days=None):
             return cur.fetchall()
 
 
-def firm_usage_by_tool(firm_id, days=None):
+def firm_usage_by_tool(firm_id, days=None, start=None, end=None):
     firm_id = _require_firm_id(firm_id)
-    where, params = _firm_usage_where(days, firm_id)
+    where, params = _firm_usage_where(days, firm_id, start, end)
     tool_expr = usage_tools.firm_product_tool_sql()
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -1359,9 +1421,9 @@ def firm_usage_by_tool(firm_id, days=None):
             return cur.fetchall()
 
 
-def firm_usage_by_day_tool(firm_id, days=None):
+def firm_usage_by_day_tool(firm_id, days=None, start=None, end=None):
     firm_id = _require_firm_id(firm_id)
-    where, params = _firm_usage_where(days, firm_id)
+    where, params = _firm_usage_where(days, firm_id, start, end)
     tool_expr = usage_tools.firm_product_tool_sql()
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -1378,9 +1440,9 @@ def firm_usage_by_day_tool(firm_id, days=None):
             return cur.fetchall()
 
 
-def firm_usage_by_hour_tool(firm_id, days=None):
+def firm_usage_by_hour_tool(firm_id, days=None, start=None, end=None):
     firm_id = _require_firm_id(firm_id)
-    where, params = _firm_usage_where(days, firm_id)
+    where, params = _firm_usage_where(days, firm_id, start, end)
     tool_expr = usage_tools.firm_product_tool_sql()
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -1397,9 +1459,9 @@ def firm_usage_by_hour_tool(firm_id, days=None):
             return cur.fetchall()
 
 
-def firm_usage_recent_events(firm_id, days=None, per_tool=100):
+def firm_usage_recent_events(firm_id, days=None, per_tool=100, start=None, end=None):
     firm_id = _require_firm_id(firm_id)
-    where, params = _firm_usage_where(days, firm_id)
+    where, params = _firm_usage_where(days, firm_id, start, end)
     tool_expr = usage_tools.firm_product_tool_sql()
     params = list(params) + [int(per_tool)]
     with get_conn() as conn:
@@ -1422,8 +1484,8 @@ def firm_usage_recent_events(firm_id, days=None, per_tool=100):
             return cur.fetchall()
 
 
-def usage_recent_errors(days=None, firm_id=None, employee_code=None, limit=50):
-    where, params = _usage_filters(days, firm_id, employee_code)
+def usage_recent_errors(days=None, firm_id=None, employee_code=None, limit=50, start=None, end=None):
+    where, params = _usage_filters(days, firm_id, employee_code, start=start, end=end)
     extra = "l.status = 'error'"
     where = f"{where} AND {extra}" if where else f"WHERE {extra}"
     params = list(params) + [int(limit)]
@@ -1443,8 +1505,8 @@ def usage_recent_errors(days=None, firm_id=None, employee_code=None, limit=50):
             return cur.fetchall()
 
 
-def usage_log_rows(days=None, firm_id=None, employee_code=None, limit=10000):
-    where, params = _usage_filters(days, firm_id, employee_code)
+def usage_log_rows(days=None, firm_id=None, employee_code=None, limit=10000, start=None, end=None):
+    where, params = _usage_filters(days, firm_id, employee_code, start=start, end=end)
     params = list(params) + [int(limit)]
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -1464,12 +1526,12 @@ def usage_log_rows(days=None, firm_id=None, employee_code=None, limit=10000):
             return cur.fetchall()
 
 
-def usage_feed_rows(days=None, firm_id=None, limit=4000):
+def usage_feed_rows(days=None, firm_id=None, limit=4000, start=None, end=None):
     """Recent log rows for the admin feed.
 
     Successful per-page hops are not included. See usage_tools.feed_row_sql.
     """
-    where, params = _usage_filters(days, firm_id, None)
+    where, params = _usage_filters(days, firm_id, None, start=start, end=end)
     visible = usage_tools.feed_row_sql()
     where = f"{where} AND {visible}" if where else f"WHERE {visible}"
     params = list(params) + [int(limit)]
@@ -1489,12 +1551,12 @@ def usage_feed_rows(days=None, firm_id=None, limit=4000):
             return cur.fetchall()
 
 
-def usage_feed_step_costs(days=None, firm_id=None, since=None, until=None):
+def usage_feed_step_costs(days=None, firm_id=None, since=None, until=None, start=None, end=None):
     """Costs of successful internal hops in a window.
 
     These rows are not uses. The feed adds the cost onto the use they belong to.
     """
-    where, params = _usage_filters(days, firm_id, None)
+    where, params = _usage_filters(days, firm_id, None, start=start, end=end)
     visible = usage_tools.feed_step_cost_sql()
     where = f"{where} AND {visible}" if where else f"WHERE {visible}"
     if since is not None:

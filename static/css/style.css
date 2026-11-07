@@ -2946,6 +2946,37 @@ a.doc-list-item--link:hover {
     font-size: 0.82rem;
 }
 
+.login-log-filters > script {
+    display: none;
+}
+
+.usage-filters .login-log-select {
+    height: 2.15rem;
+}
+
+.usage-custom-dates {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.usage-custom-dates[hidden] {
+    display: none;
+}
+
+.usage-date {
+    width: auto;
+    height: 2.15rem;
+    padding: 0.3rem 0.55rem;
+    color-scheme: light;
+}
+
+.usage-date-sep {
+    color: rgba(0, 0, 0, 0.35);
+    font-size: 0.82rem;
+    line-height: 1;
+}
+
 /* ── Admin feed ── */
 
 .feed-list {

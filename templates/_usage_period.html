@@ -1,0 +1,62 @@
+<select name="days" class="admin-input login-log-select" aria-label="Date range" onchange="usagePeriodChanged(this)">
+    <option value="1" {{ 'selected' if days_key == '1' }}>Last 24 hours</option>
+    <option value="7" {{ 'selected' if days_key == '7' }}>Last 7 days</option>
+    <option value="30" {{ 'selected' if days_key == '30' }}>Last 30 days</option>
+    <option value="90" {{ 'selected' if days_key == '90' }}>Last 90 days</option>
+    <option value="all" {{ 'selected' if days_key == 'all' }}>All time</option>
+    <option value="custom" {{ 'selected' if days_key == 'custom' }}>Custom range</option>
+</select>
+<span class="usage-custom-dates"{% if days_key != 'custom' %} hidden{% endif %}>
+    <input type="date" name="from" value="{{ date_from }}" max="{{ date_max }}" class="admin-input login-log-select usage-date" aria-label="Start date" onchange="usageCustomChanged(this)"{% if days_key != 'custom' %} disabled{% endif %}>
+    <span class="usage-date-sep" aria-hidden="true">–</span>
+    <input type="date" name="to" value="{{ date_to }}" max="{{ date_max }}" class="admin-input login-log-select usage-date" aria-label="End date" onchange="usageCustomChanged(this)"{% if days_key != 'custom' %} disabled{% endif %}>
+</span>
+<script>
+function usageIsoShift(iso, daysBack) {
+    var parts = iso.split("-");
+    var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    d.setDate(d.getDate() - daysBack);
+    var month = String(d.getMonth() + 1).padStart(2, "0");
+    var day = String(d.getDate()).padStart(2, "0");
+    return d.getFullYear() + "-" + month + "-" + day;
+}
+function usagePeriodChanged(select) {
+    var form = select.form;
+    var wrap = form.querySelector(".usage-custom-dates");
+    var from = form.querySelector('[name="from"]');
+    var to = form.querySelector('[name="to"]');
+    if (select.value === "custom") {
+        wrap.hidden = false;
+        from.disabled = false;
+        to.disabled = false;
+        if (!from.value || !to.value) {
+            var today = to.max || from.max;
+            if (today) {
+                if (!to.value) to.value = today;
+                if (!from.value) from.value = usageIsoShift(today, 29);
+            }
+        }
+        if (from.value && to.value) {
+            if (from.value > to.value) to.value = from.value;
+            form.submit();
+        } else {
+            (from.value ? to : from).focus();
+        }
+        return;
+    }
+    from.disabled = true;
+    to.disabled = true;
+    form.submit();
+}
+function usageCustomChanged(input) {
+    var form = input.form;
+    var from = form.querySelector('[name="from"]');
+    var to = form.querySelector('[name="to"]');
+    if (!from.value || !to.value) return;
+    if (from.value > to.value) {
+        if (input === from) to.value = from.value;
+        else from.value = to.value;
+    }
+    form.submit();
+}
+</script>

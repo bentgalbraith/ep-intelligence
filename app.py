@@ -875,13 +875,71 @@ def login_employee():
     return redirect(url_for("dashboard"))
 
 
-def _firm_usage_days_from_request():
-    days_raw = (request.args.get("days") or "30").strip()
+# Long enough for any real reporting window. All time covers anything older.
+_MAX_CUSTOM_DAYS = 366 * 20
+
+
+def _parse_iso_date(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value).strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _parse_usage_period(days_raw, from_raw, to_raw):
+    """Return (days, days_key, start, end).
+
+    start and end are inclusive Eastern dates for a custom range. An unusable
+    custom range falls back to the last 30 days. An end date past today is
+    clamped to today. A range longer than 20 years keeps the latest 20 years.
+    """
+    days_raw = (days_raw or "30").strip()
+    if days_raw == "custom":
+        start = _parse_iso_date(from_raw)
+        end = _parse_iso_date(to_raw)
+        today = datetime.now(_EASTERN).date()
+        if start and end and start <= end and start <= today:
+            if end > today:
+                end = today
+            # A multi-decade axis would build tens of thousands of chart points.
+            if (end - start).days > _MAX_CUSTOM_DAYS:
+                start = end - timedelta(days=_MAX_CUSTOM_DAYS)
+            return None, "custom", start, end
+        return 30, "30", None, None
     if days_raw == "all":
-        return None, "all"
+        return None, "all", None, None
     if days_raw in ("1", "7", "30", "90"):
-        return int(days_raw), days_raw
-    return 30, "30"
+        return int(days_raw), days_raw, None, None
+    return 30, "30", None, None
+
+
+def _request_usage_period():
+    return _parse_usage_period(
+        request.args.get("days"),
+        request.args.get("from"),
+        request.args.get("to"),
+    )
+
+
+def _period_template(days_key, start, end):
+    today = datetime.now(_EASTERN).date()
+    query = {"days": days_key}
+    if days_key == "custom" and start and end:
+        query["from"] = start.isoformat()
+        query["to"] = end.isoformat()
+    return {
+        "days_key": days_key,
+        "date_from": start.isoformat() if start else "",
+        "date_to": end.isoformat() if end else "",
+        "date_max": today.isoformat(),
+        "period_query": query,
+    }
+
+
+def _firm_usage_days_from_request():
+    return _request_usage_period()
 
 
 def _firm_usage_person_key(row):
@@ -897,7 +955,8 @@ def _render_firm_usage_dashboard():
     if not firm_id:
         _clear_usage_dash_session()
         return redirect(url_for("firm_usage"))
-    days, days_key = _firm_usage_days_from_request()
+    days, days_key, start, end = _firm_usage_days_from_request()
+    window = dict(days=days, start=start, end=end)
     overview = {
         "calls": 0, "last_seen": None, "people": 0, "tools": 0,
         "cost": 0, "cost_openai": 0, "cost_ocr": 0,
@@ -906,7 +965,7 @@ def _render_firm_usage_dashboard():
     tools = []
 
     if tracker_db.DATABASE_URL:
-        row = tracker_db.firm_usage_overview(firm_id, days=days)
+        row = tracker_db.firm_usage_overview(firm_id, **window)
         if row:
             overview["calls"] = int(row.get("calls") or 0)
             overview["last_seen"] = row.get("last_seen")
@@ -919,10 +978,10 @@ def _render_firm_usage_dashboard():
             overview["cost_ocr"] = float(row.get("cost_ocr") or 0)
 
         events_by_tool = {}
-        for event in tracker_db.firm_usage_recent_events(firm_id, days=days):
+        for event in tracker_db.firm_usage_recent_events(firm_id, **window):
             events_by_tool.setdefault(event.get("tool"), []).append(dict(event))
 
-        for raw in tracker_db.firm_usage_by_tool(firm_id, days=days):
+        for raw in tracker_db.firm_usage_by_tool(firm_id, **window):
             tool_key = raw.get("tool")
             events = events_by_tool.get(tool_key, [])
             tools.append({
@@ -935,7 +994,7 @@ def _render_firm_usage_dashboard():
             })
 
         tools_by_person = {}
-        for t in tracker_db.firm_usage_tools_by_employee(firm_id, days=days):
+        for t in tracker_db.firm_usage_tools_by_employee(firm_id, **window):
             key = _firm_usage_person_key(t)
             tools_by_person.setdefault(key, []).append({
                 "label": _usage_label_tool(t.get("tool")),
@@ -943,7 +1002,7 @@ def _render_firm_usage_dashboard():
             })
 
         seen = set()
-        for raw in tracker_db.firm_usage_by_employee(firm_id, days=days):
+        for raw in tracker_db.firm_usage_by_employee(firm_id, **window):
             item = dict(raw)
             key = _firm_usage_person_key(item)
             seen.add(item.get("employee_id_code") or "")
@@ -967,9 +1026,9 @@ def _render_firm_usage_dashboard():
         people.sort(key=lambda p: (-int(p.get("calls") or 0), (p.get("employee_name") or "").lower()))
         overview["people"] = sum(1 for p in people if int(p.get("calls") or 0) > 0)
 
-    chart = _firm_usage_chart_series(firm_id, days)
+    chart = _firm_usage_chart_series(firm_id, days, start, end)
     show_costs = bool(tracker_db.firm_usage_dashboard_show_costs(firm_id))
-    cost_series = _usage_cost_series(days, firm_id, None) if show_costs else []
+    cost_series = _usage_cost_series(days, firm_id, None, start, end) if show_costs else []
 
     return render_template(
         "firm_usage.html",
@@ -980,7 +1039,7 @@ def _render_firm_usage_dashboard():
         chart=chart,
         show_costs=show_costs,
         cost_series=cost_series,
-        days_key=days_key,
+        **_period_template(days_key, start, end),
     )
 
 
@@ -3357,13 +3416,7 @@ _USAGE_PROVIDER_LABELS = {
 
 
 def _usage_filters_from_request():
-    days_raw = (request.args.get("days") or "30").strip()
-    if days_raw == "all":
-        days, days_key = None, "all"
-    elif days_raw in ("1", "7", "30", "90"):
-        days, days_key = int(days_raw), days_raw
-    else:
-        days, days_key = 30, "30"
+    days, days_key, start, end = _request_usage_period()
 
     firm_id = (request.args.get("firm") or "").strip() or None
     if firm_id:
@@ -3373,7 +3426,7 @@ def _usage_filters_from_request():
             firm_id = None
 
     employee_code = (request.args.get("employee") or "").strip() or None
-    return days, days_key, firm_id, employee_code
+    return days, days_key, start, end, firm_id, employee_code
 
 
 def _usage_error_summary(notes):
@@ -3424,40 +3477,63 @@ def _clock_parts(dt):
     return hour, ampm
 
 
-def _usage_cost_series(days, firm_id, employee_code):
+def _hour_cost_series(by_hour, first, last):
+    series = []
+    cursor = first
+    while cursor <= last:
+        hour, ampm = _clock_parts(cursor)
+        series.append({
+            "date": cursor.isoformat(),
+            "label": hour + " " + ampm,
+            "tip": (
+                cursor.strftime("%b ") + str(cursor.day) + ", " + str(cursor.year)
+                + ", " + hour + cursor.strftime(":%M ") + ampm + " ET"
+            ),
+            "cost": round(by_hour.get(cursor, 0.0), 4),
+        })
+        cursor += timedelta(hours=1)
+    running = 0.0
+    for item in series:
+        running += item["cost"]
+        item["cost"] = round(running, 4)
+    return series
+
+
+def _calendar_day_hours(day):
+    """Hour cursors covering one Eastern calendar day, through the current hour if that day is today."""
+    first = datetime.combine(day, datetime.min.time(), tzinfo=_EASTERN)
+    last = datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=_EASTERN) - timedelta(hours=1)
+    now_hour = datetime.now(_EASTERN).replace(minute=0, second=0, microsecond=0)
+    if last > now_hour:
+        last = now_hour
+    if last < first:
+        last = first
+    return first, last
+
+
+def _usage_cost_series(days, firm_id, employee_code, start=None, end=None):
     if not tracker_db.DATABASE_URL:
         return []
 
-    if days == 1:
-        raw = tracker_db.usage_cost_by_hour(days=days, firm_id=firm_id, employee_code=employee_code)
+    window = dict(days=days, firm_id=firm_id, employee_code=employee_code, start=start, end=end)
+    custom_day = bool(start and end and start == end)
+
+    if custom_day or days == 1:
+        raw = tracker_db.usage_cost_by_hour(**window)
         by_hour = {}
         for row in raw:
             hour = _as_et_hour(row.get("hour"))
             if not hour:
                 continue
             by_hour[hour] = float(row.get("cost") or 0)
-        end = datetime.now(_EASTERN).replace(minute=0, second=0, microsecond=0)
-        cursor = end - timedelta(hours=23)
-        series = []
-        while cursor <= end:
-            hour, ampm = _clock_parts(cursor)
-            series.append({
-                "date": cursor.isoformat(),
-                "label": hour + " " + ampm,
-                "tip": (
-                    cursor.strftime("%b ") + str(cursor.day) + ", " + str(cursor.year)
-                    + ", " + hour + cursor.strftime(":%M ") + ampm + " ET"
-                ),
-                "cost": round(by_hour.get(cursor, 0.0), 4),
-            })
-            cursor += timedelta(hours=1)
-        running = 0.0
-        for item in series:
-            running += item["cost"]
-            item["cost"] = round(running, 4)
-        return series
+        if custom_day:
+            first, last = _calendar_day_hours(start)
+        else:
+            last = datetime.now(_EASTERN).replace(minute=0, second=0, microsecond=0)
+            first = last - timedelta(hours=23)
+        return _hour_cost_series(by_hour, first, last)
 
-    raw = tracker_db.usage_cost_by_day(days=days, firm_id=firm_id, employee_code=employee_code)
+    raw = tracker_db.usage_cost_by_day(**window)
     by_day = {}
     for row in raw:
         day = _as_date(row.get("day"))
@@ -3466,18 +3542,20 @@ def _usage_cost_series(days, firm_id, employee_code):
         by_day[day] = float(row.get("cost") or 0)
 
     today = datetime.now(_EASTERN).date()
-    if days:
-        start = (datetime.now(_EASTERN) - timedelta(days=int(days))).date()
-    elif by_day:
-        start = min(by_day)
+    if start and end:
+        axis_start, axis_end = start, end
+        use_week = (end - start).days > 180
     else:
-        return []
-
-    if start > today:
-        start = today
-
-    span = (today - start).days
-    use_week = days is None and span > 180
+        if days:
+            axis_start = (datetime.now(_EASTERN) - timedelta(days=int(days))).date()
+        elif by_day:
+            axis_start = min(by_day)
+        else:
+            return []
+        if axis_start > today:
+            axis_start = today
+        axis_end = today
+        use_week = days is None and (axis_end - axis_start).days > 180
     series = []
 
     if use_week:
@@ -3485,9 +3563,9 @@ def _usage_cost_series(days, firm_id, employee_code):
         for day, cost in by_day.items():
             key = _monday(day)
             weekly[key] = weekly.get(key, 0.0) + cost
-        cursor = _monday(start)
-        end = _monday(today)
-        while cursor <= end:
+        cursor = _monday(axis_start)
+        end_week = _monday(axis_end)
+        while cursor <= end_week:
             series.append({
                 "date": cursor.isoformat(),
                 "label": cursor.strftime("%b ") + str(cursor.day),
@@ -3496,8 +3574,8 @@ def _usage_cost_series(days, firm_id, employee_code):
             })
             cursor += timedelta(days=7)
     else:
-        cursor = start
-        while cursor <= today:
+        cursor = axis_start
+        while cursor <= axis_end:
             series.append({
                 "date": cursor.isoformat(),
                 "label": cursor.strftime("%b ") + str(cursor.day),
@@ -3531,15 +3609,20 @@ _FIRM_USAGE_CHART_COLORS = [
 ]
 
 
-def _firm_usage_chart_series(firm_id, days):
+def _firm_usage_chart_series(firm_id, days, start=None, end=None):
     if not tracker_db.DATABASE_URL or not firm_id:
         return None
 
     buckets = collections.defaultdict(lambda: collections.defaultdict(int))
     tool_totals = collections.defaultdict(int)
+    custom_day = bool(start and end and start == end)
 
-    if days == 1:
-        for row in tracker_db.firm_usage_by_hour_tool(firm_id, days=days):
+    if custom_day or days == 1:
+        if custom_day:
+            rows = tracker_db.firm_usage_by_hour_tool(firm_id, start=start, end=end)
+        else:
+            rows = tracker_db.firm_usage_by_hour_tool(firm_id, days=days)
+        for row in rows:
             hour = _as_et_hour(row.get("hour"))
             if not hour:
                 continue
@@ -3549,10 +3632,14 @@ def _firm_usage_chart_series(firm_id, days):
             tool_totals[tool] += n
         if not tool_totals:
             return None
-        end = datetime.now(_EASTERN).replace(minute=0, second=0, microsecond=0)
-        cursor = end - timedelta(hours=23)
+        if custom_day:
+            first, last = _calendar_day_hours(start)
+        else:
+            last = datetime.now(_EASTERN).replace(minute=0, second=0, microsecond=0)
+            first = last - timedelta(hours=23)
         points = []
-        while cursor <= end:
+        cursor = first
+        while cursor <= last:
             hour, ampm = _clock_parts(cursor)
             counts = {k: int(buckets[cursor].get(k, 0)) for k in tool_totals}
             points.append({
@@ -3567,7 +3654,7 @@ def _firm_usage_chart_series(firm_id, days):
             })
             cursor += timedelta(hours=1)
     else:
-        for row in tracker_db.firm_usage_by_day_tool(firm_id, days=days):
+        for row in tracker_db.firm_usage_by_day_tool(firm_id, days=days, start=start, end=end):
             day = _as_date(row.get("day"))
             if not day:
                 continue
@@ -3579,15 +3666,18 @@ def _firm_usage_chart_series(firm_id, days):
             return None
 
         today = datetime.now(_EASTERN).date()
-        if days:
-            start = (datetime.now(_EASTERN) - timedelta(days=int(days))).date()
+        if start and end:
+            axis_start, axis_end = start, end
+            use_week = (end - start).days > 180
         else:
-            start = min(buckets)
-        if start > today:
-            start = today
-
-        span = (today - start).days
-        use_week = days is None and span > 180
+            if days:
+                axis_start = (datetime.now(_EASTERN) - timedelta(days=int(days))).date()
+            else:
+                axis_start = min(buckets)
+            if axis_start > today:
+                axis_start = today
+            axis_end = today
+            use_week = days is None and (axis_end - axis_start).days > 180
         points = []
 
         if use_week:
@@ -3596,9 +3686,9 @@ def _firm_usage_chart_series(firm_id, days):
                 key = _monday(day)
                 for tool, n in tools.items():
                     weekly[key][tool] += n
-            cursor = _monday(start)
-            end = _monday(today)
-            while cursor <= end:
+            cursor = _monday(axis_start)
+            end_week = _monday(axis_end)
+            while cursor <= end_week:
                 counts = {k: int(weekly[cursor].get(k, 0)) for k in tool_totals}
                 points.append({
                     "date": cursor.isoformat(),
@@ -3609,8 +3699,8 @@ def _firm_usage_chart_series(firm_id, days):
                 })
                 cursor += timedelta(days=7)
         else:
-            cursor = start
-            while cursor <= today:
+            cursor = axis_start
+            while cursor <= axis_end:
                 counts = {k: int(buckets[cursor].get(k, 0)) for k in tool_totals}
                 points.append({
                     "date": cursor.isoformat(),
@@ -3635,7 +3725,7 @@ def _firm_usage_chart_series(firm_id, days):
 @app.route("/admin/usage")
 @admin_required
 def admin_usage():
-    days, days_key, firm_id, employee_code = _usage_filters_from_request()
+    days, days_key, start, end, firm_id, employee_code = _usage_filters_from_request()
     firms = tracker_db.list_firms() if tracker_db.DATABASE_URL else []
 
     overview = {
@@ -3647,14 +3737,14 @@ def admin_usage():
     by_tool, by_firm, by_employee, errors = [], [], [], []
 
     if tracker_db.DATABASE_URL:
-        kwargs = dict(days=days, firm_id=firm_id, employee_code=employee_code)
+        kwargs = dict(days=days, firm_id=firm_id, employee_code=employee_code, start=start, end=end)
         row = tracker_db.usage_overview(**kwargs)
         if row:
             overview = dict(row)
         calls = int(overview.get("calls") or 0)
         errors_n = int(overview.get("errors") or 0)
         overview["error_rate"] = round(100.0 * errors_n / calls, 1) if calls else 0
-        if days is not None:
+        if days_key != "all":
             current_cost = float(overview.get("cost") or 0)
             prior_cost = float(overview.get("cost_prior") or 0)
             delta = current_cost - prior_cost
@@ -3675,7 +3765,7 @@ def admin_usage():
             item["summary"] = _usage_error_summary(item.get("notes"))
             errors.append(item)
 
-    cost_series = _usage_cost_series(days, firm_id, employee_code)
+    cost_series = _usage_cost_series(days, firm_id, employee_code, start, end)
 
     scope_firm_name = None
     if firm_id:
@@ -3703,7 +3793,6 @@ def admin_usage():
         by_employee=by_employee,
         errors=errors,
         firms=firms,
-        days_key=days_key,
         selected_firm=firm_id or "",
         selected_employee=employee_code or "",
         scope_firm_name=scope_firm_name,
@@ -3711,15 +3800,16 @@ def admin_usage():
         tool_label=_usage_label_tool,
         provider_label=_usage_label_provider,
         cost_series=cost_series,
+        **_period_template(days_key, start, end),
     )
 
 
 @app.route("/admin/usage/csv")
 @admin_required
 def admin_usage_csv():
-    days, days_key, firm_id, employee_code = _usage_filters_from_request()
+    days, days_key, start, end, firm_id, employee_code = _usage_filters_from_request()
     rows = tracker_db.usage_log_rows(
-        days=days, firm_id=firm_id, employee_code=employee_code,
+        days=days, firm_id=firm_id, employee_code=employee_code, start=start, end=end,
     ) if tracker_db.DATABASE_URL else []
 
     import csv
@@ -3759,11 +3849,11 @@ def admin_usage_csv():
 @app.route("/admin/feed")
 @admin_required
 def admin_feed():
-    days, days_key, firm_id, _employee = _usage_filters_from_request()
+    days, days_key, start, end, firm_id, _employee = _usage_filters_from_request()
     firms = tracker_db.list_firms() if tracker_db.DATABASE_URL else []
     limit = 4000
     rows = tracker_db.usage_feed_rows(
-        days=days, firm_id=firm_id, limit=limit,
+        days=days, firm_id=firm_id, limit=limit, start=start, end=end,
     ) if tracker_db.DATABASE_URL else []
     steps = []
     if rows:
@@ -3781,6 +3871,7 @@ def admin_feed():
         since = oldest - timedelta(milliseconds=pad_ms, minutes=15)
         steps = tracker_db.usage_feed_step_costs(
             days=days, firm_id=firm_id, since=since, until=newest,
+            start=start, end=end,
         )
     capped = len(rows) >= limit
     items = usage_tools.feed_items(rows, extra_costs=steps)
@@ -3802,10 +3893,10 @@ def admin_feed():
         "admin_feed.html",
         items=items,
         firms=firms,
-        days_key=days_key,
         selected_firm=firm_id or "",
         scope_firm_name=scope_firm_name,
         truncated=capped or hidden,
+        **_period_template(days_key, start, end),
     )
 
 
