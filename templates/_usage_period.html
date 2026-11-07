@@ -7,10 +7,12 @@
     <option value="custom" {{ 'selected' if days_key == 'custom' }}>Custom range</option>
 </select>
 <span class="usage-custom-dates"{% if days_key != 'custom' %} hidden{% endif %}>
-    <input type="date" name="from" value="{{ date_from }}" max="{{ date_max }}" class="admin-input login-log-select usage-date" aria-label="Start date" onchange="usageCustomChanged(this)"{% if days_key != 'custom' %} disabled{% endif %}>
+    <input type="date" name="from" value="{{ date_from }}" max="{{ date_max }}" class="admin-input login-log-select usage-date" aria-label="Start date"{% if days_key != 'custom' %} disabled{% endif %}>
     <span class="usage-date-sep" aria-hidden="true">–</span>
-    <input type="date" name="to" value="{{ date_to }}" max="{{ date_max }}" class="admin-input login-log-select usage-date" aria-label="End date" onchange="usageCustomChanged(this)"{% if days_key != 'custom' %} disabled{% endif %}>
+    <input type="date" name="to" value="{{ date_to }}" max="{{ date_max }}" class="admin-input login-log-select usage-date" aria-label="End date"{% if days_key != 'custom' %} disabled{% endif %}>
+    <button type="submit" class="btn-pill btn-sm usage-range-btn"{% if days_key != 'custom' %} disabled{% endif %}>Update Custom Range</button>
 </span>
+<p class="usage-range-note"{% if days_key != 'custom' or not custom_range_label %} hidden{% endif %}>Filtered to {{ custom_range_label }}</p>
 <script>
 function usageIsoShift(iso, daysBack) {
     var parts = iso.split("-");
@@ -25,10 +27,12 @@ function usagePeriodChanged(select) {
     var wrap = form.querySelector(".usage-custom-dates");
     var from = form.querySelector('[name="from"]');
     var to = form.querySelector('[name="to"]');
+    var button = wrap.querySelector("button");
     if (select.value === "custom") {
         wrap.hidden = false;
         from.disabled = false;
         to.disabled = false;
+        button.disabled = false;
         if (!from.value || !to.value) {
             var today = to.max || from.max;
             if (today) {
@@ -36,27 +40,32 @@ function usagePeriodChanged(select) {
                 if (!from.value) from.value = usageIsoShift(today, 29);
             }
         }
-        if (from.value && to.value) {
-            if (from.value > to.value) to.value = from.value;
-            form.submit();
-        } else {
-            (from.value ? to : from).focus();
-        }
         return;
     }
     from.disabled = true;
     to.disabled = true;
+    button.disabled = true;
     form.submit();
 }
-function usageCustomChanged(input) {
-    var form = input.form;
-    var from = form.querySelector('[name="from"]');
-    var to = form.querySelector('[name="to"]');
-    if (!from.value || !to.value) return;
-    if (from.value > to.value) {
-        if (input === from) to.value = from.value;
-        else from.value = to.value;
-    }
-    form.submit();
-}
+(function () {
+    var form = document.currentScript && document.currentScript.closest("form");
+    if (!form || form.dataset.usageRangeBound) return;
+    form.dataset.usageRangeBound = "1";
+    form.addEventListener("submit", function (event) {
+        var select = form.querySelector('[name="days"]');
+        if (!select || select.value !== "custom") return;
+        var from = form.querySelector('[name="from"]');
+        var to = form.querySelector('[name="to"]');
+        if (!from.value || !to.value) {
+            event.preventDefault();
+            (from.value ? to : from).focus();
+            return;
+        }
+        if (from.value > to.value) {
+            var swap = from.value;
+            from.value = to.value;
+            to.value = swap;
+        }
+    });
+})();
 </script>

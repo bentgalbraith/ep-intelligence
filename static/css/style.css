@@ -2977,6 +2977,31 @@ a.doc-list-item--link:hover {
     line-height: 1;
 }
 
+.usage-range-btn {
+    height: 2.15rem;
+    padding: 0 0.95rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.usage-range-btn:disabled {
+    display: none;
+}
+
+.usage-range-note {
+    order: 2;
+    flex: 1 0 100%;
+    margin: 0.15rem 0 0;
+    font-size: 0.88rem;
+    color: rgba(0, 0, 0, 0.55);
+}
+
+.usage-range-note[hidden] {
+    display: none;
+}
+
 /* ── Admin feed ── */
 
 .feed-list {

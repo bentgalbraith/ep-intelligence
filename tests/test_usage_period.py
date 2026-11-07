@@ -156,6 +156,9 @@ class DashboardRenderTest(unittest.TestCase):
             self.assertIn('value="2026-01-01"', html)
             self.assertIn('value="2026-01-10"', html)
             self.assertIn('name="from"', html)
+            self.assertIn("Update Custom Range", html)
+            self.assertIn("Filtered to Jan 1, 2026 – Jan 10, 2026", html)
+            self.assertNotIn("usageCustomChanged", html)
             dates = html.split('class="usage-custom-dates"', 1)[1].split("</span>", 1)[0]
             self.assertNotIn("disabled", dates)
 
@@ -183,6 +186,8 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn("Custom range", html)
         self.assertIn('value="2026-04-01"', html)
         self.assertIn('value="2026-04-02"', html)
+        self.assertIn("Filtered to Apr 1, 2026 – Apr 2, 2026", html)
+        self.assertIn("Update Custom Range", html)
 
 
 if __name__ == "__main__":

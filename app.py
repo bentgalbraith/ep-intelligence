@@ -923,17 +923,24 @@ def _request_usage_period():
     )
 
 
+def _usage_day_label(day):
+    return day.strftime("%b ") + str(day.day) + ", " + str(day.year)
+
+
 def _period_template(days_key, start, end):
     today = datetime.now(_EASTERN).date()
     query = {"days": days_key}
+    label = ""
     if days_key == "custom" and start and end:
         query["from"] = start.isoformat()
         query["to"] = end.isoformat()
+        label = _usage_day_label(start) + " – " + _usage_day_label(end)
     return {
         "days_key": days_key,
         "date_from": start.isoformat() if start else "",
         "date_to": end.isoformat() if end else "",
         "date_max": today.isoformat(),
+        "custom_range_label": label,
         "period_query": query,
     }
 
