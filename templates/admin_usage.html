@@ -33,13 +33,13 @@
     {% endif %}
 
     <form method="get" class="login-log-filters usage-filters">
-        {% include "_usage_period.html" %}
         <select name="firm" class="admin-input login-log-select" onchange="this.form.submit()">
             <option value="">All firms</option>
             {% for f in firms %}
             <option value="{{ f.id }}" {{ 'selected' if selected_firm == f.id|string }}>{{ f.name }}</option>
             {% endfor %}
         </select>
+        {% include "_usage_period.html" %}
         {% if selected_employee %}
         <input type="hidden" name="employee" value="{{ selected_employee }}">
         {% endif %}
