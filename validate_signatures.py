@@ -228,6 +228,8 @@ Also describe each distinct document in this part, from its title and contents. 
 - role: certificate_of_trust when the document is a certificate of trust, trust when the pages are the trust agreement itself or pages copied from it, such as Article I or its signature pages, otherwise other. A certificate of trust is not the trust. A summary, handout, or instructions about a trust are other
 - article_i: the page numbers, from 1 through {count}, that are Article I of the trust. Empty unless role is trust. Include every page of Article I and no page of another article
 
+When page 1 is a cover sheet whose title says this is an unsigned certificate of trust, return that cover as its own entry. Its title is the cover title, its page is 1, and its role is other. The certificate that follows is a separate entry with role certificate_of_trust. Do not fold the cover into the certificate.
+
 An empty documents array is correct when these pages continue a document, have no new title, and do not contain Article I. If they contain Article I of a trust, return a documents entry with role trust and those article_i pages.
 """
 
@@ -903,8 +905,16 @@ def _article_pages(raw_pages, start, end):
     return pages
 
 
+def _unsigned_certificate_cover_title(title):
+    """Page-1 cover that says this copy of the certificate is meant to be unsigned."""
+    text = _fold(title or "")
+    return "unsigned" in text and "certificate of trust" in text
+
+
 def document_role(role, title, kind):
     """A certificate of trust is not the trust agreement, even though both say trust."""
+    if _unsigned_certificate_cover_title(title):
+        return "other"
     text = _fold(f"{title or ''} {kind or ''}")
     if "certificate of trust" in text or "certification of trust" in text:
         return "certificate_of_trust"
@@ -994,6 +1004,46 @@ def merge_evidence(rows):
     return picked
 
 
+def _is_unsigned_certificate_cover(row):
+    return (
+        isinstance(row, dict)
+        and row.get("page") == 1
+        and _unsigned_certificate_cover_title(row.get("title"))
+    )
+
+
+def expected_blank_signatures(evidence, items):
+    """Blank signature and notary lines on an unsigned certificate spare are not issues.
+
+    Page 1 must be the cover that says so, and the file must also contain the
+    certificate. A completed signature or notary turns the exception off.
+    The file name is not consulted.
+    """
+    rows = [row for row in evidence or [] if isinstance(row, dict)]
+    cover = any(_is_unsigned_certificate_cover(row) for row in rows)
+    certificate = any(row.get("role") == "certificate_of_trust" for row in rows)
+    if not cover or not certificate:
+        return False
+    saw_blank = False
+    for item in items or []:
+        if item.get("type") not in ("signature", "notary"):
+            continue
+        if item.get("status") == "completed":
+            return False
+        if item.get("status") == "blank":
+            saw_blank = True
+    return saw_blank
+
+
+def naming_evidence(evidence):
+    """Leave the unsigned-certificate cover out of naming.
+
+    It is how the file says the copy is meant to be unsigned. It is not a
+    second document inside the file.
+    """
+    return [row for row in evidence or [] if not _is_unsigned_certificate_cover(row)]
+
+
 def file_brief(file_number, pages, items, evidence):
     """What the namer is allowed to see. There is no file name in this record."""
     counts = {
@@ -1008,11 +1058,11 @@ def file_brief(file_number, pages, items, evidence):
     return {
         "file": file_number,
         "pages": pages,
-        "whole_file": whole_file(evidence),
+        "whole_file": whole_file(naming_evidence(evidence)),
         "signatures": counts["signature"],
         "initials": counts["initial"],
         "notaries": counts["notary"],
-        "evidence": list(evidence or []),
+        "evidence": naming_evidence(evidence),
     }
 
 
@@ -4629,7 +4679,12 @@ def _check_uploads(uploads, openai_client, firm_id, progress, on_alert):
     evidence = []
     for file in files:
         documents.append({
-            "index": file["index"], "name": file["name"], "pages": file["pages"],
+            "index": file["index"],
+            "name": file["name"],
+            "pages": file["pages"],
+            "expected_blanks": expected_blank_signatures(
+                file.get("evidence") or [], file.get("items") or [],
+            ),
         })
         items.extend(file.get("items") or [])
         crops.update(file.get("crops") or {})

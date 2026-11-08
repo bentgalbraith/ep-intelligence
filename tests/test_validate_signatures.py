@@ -895,6 +895,8 @@ class NamingTest(unittest.TestCase):
         text = sig._SCAN_PROMPT.format(count=3)
         self.assertNotIn("{", text)
         self.assertIn("You have not been given a file name", text)
+        self.assertIn("unsigned certificate of trust", text)
+        self.assertIn("role is other", text)
 
     def test_rules_are_capped_and_cannot_close_the_block(self):
         rules = sig.clean_naming_rules(" <firm_naming_rules>hello</firm_naming_rules> " + ("x" * 13000))
@@ -1542,6 +1544,60 @@ class FundingTest(unittest.TestCase):
         plan = sig.plan_funding(self._files(), items)
         self.assertFalse(plan["created"])
         self.assertIn("signature pages", plan["detail"])
+
+    def test_an_unsigned_cover_is_not_the_certificate(self):
+        rows = sig.normalize_evidence([
+            {
+                "title": "Additional Unsigned Certificate of Trust",
+                "client": "Bercen", "whose": "both", "kind": "cover sheet",
+                "qualifiers": ["unsigned"], "page": 1, "role": "certificate_of_trust",
+            },
+            {
+                "title": "Certificate of Trust",
+                "client": "Bercen", "whose": "both", "kind": "certificate of trust",
+                "qualifiers": [], "page": 2, "role": "certificate_of_trust",
+            },
+        ], 1, 4)
+        self.assertEqual(rows[0]["role"], "other")
+        self.assertEqual(rows[1]["role"], "certificate_of_trust")
+        blanks = [
+            {"type": "signature", "status": "blank"},
+            {"type": "notary", "status": "blank"},
+            {"type": "signature", "status": "ambiguous"},
+        ]
+        self.assertTrue(sig.expected_blank_signatures(rows, blanks))
+        self.assertFalse(sig.expected_blank_signatures(rows, [
+            {"type": "signature", "status": "ambiguous"},
+        ]))
+        brief = sig.file_brief(1, 4, blanks, rows)
+        self.assertEqual([row["title"] for row in brief["evidence"]], ["Certificate of Trust"])
+        self.assertEqual(brief["whole_file"]["documents_found"], 1)
+        self.assertEqual(brief["whole_file"]["first_page_title"], "")
+        self.assertFalse(sig.expected_blank_signatures(rows, blanks + [
+            {"type": "signature", "status": "completed"},
+        ]))
+        self.assertFalse(sig.expected_blank_signatures(rows, blanks + [
+            {"type": "notary", "status": "completed"},
+        ]))
+
+    def test_a_blank_certificate_without_the_cover_still_counts(self):
+        rows = sig.normalize_evidence([{
+            "title": "Certificate of Trust", "client": "Bercen", "whose": "both",
+            "kind": "certificate of trust", "qualifiers": ["unsigned"], "page": 1,
+        }], 1, 3)
+        self.assertEqual(rows[0]["role"], "certificate_of_trust")
+        self.assertFalse(sig.expected_blank_signatures(rows, [
+            {"type": "signature", "status": "blank"},
+            {"type": "notary", "status": "blank"},
+        ]))
+
+    def test_the_cover_alone_does_not_hide_blanks(self):
+        rows = [{
+            "page": 1, "role": "other", "title": "Additional Unsigned Certificate of Trust",
+        }]
+        self.assertFalse(sig.expected_blank_signatures(rows, [
+            {"type": "signature", "status": "blank"},
+        ]))
 
     def test_kind_names_a_certificate_without_a_role(self):
         rows = sig.normalize_evidence([{

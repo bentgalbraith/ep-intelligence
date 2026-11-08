@@ -212,10 +212,15 @@ function summaryCard(pages, items, documents, names, urls, issues, funding) {
     return card;
 }
 
+function isExpectedBlank(doc, item) {
+    return !!(doc && doc.expected_blanks && item.status === 'blank'
+        && (item.type === 'signature' || item.type === 'notary'));
+}
+
 function issueEntries(documents, items) {
     const entries = [];
     documents.forEach((doc, index) => {
-        items.filter((item) => item.file === doc.name && (item.status === 'blank' || item.status === 'ambiguous'))
+        items.filter((item) => item.file === doc.name && (item.status === 'blank' || item.status === 'ambiguous') && !isExpectedBlank(doc, item))
             .slice()
             .sort((a, b) => (a.page || 0) - (b.page || 0) || (a.status === 'blank' ? 0 : 1) - (b.status === 'blank' ? 0 : 1))
             .forEach((item) => entries.push({ item: item, docIndex: index }));
@@ -355,7 +360,7 @@ function renderDocument(doc, items, urls, names, index, onRename) {
     const nameLine = el('div', 'sig-name-line');
     nameLine.appendChild(input);
     field.appendChild(nameLine);
-    const docIssues = items.filter((item) => item.status === 'blank' || item.status === 'ambiguous');
+    const docIssues = items.filter((item) => (item.status === 'blank' || item.status === 'ambiguous') && !isExpectedBlank(doc, item));
     const metaBits = [];
     if (doc.pages) metaBits.push(countLabel(doc.pages, 'page', 'pages'));
     metaBits.push(countLabel(items.length, 'item', 'items'));
@@ -368,6 +373,9 @@ function renderDocument(doc, items, urls, names, index, onRename) {
     field.appendChild(meta);
     if (doc.name_status === 'ambiguous' && doc.name_reason) {
         field.appendChild(el('p', 'sig-name-note', doc.name_reason));
+    }
+    if (doc.expected_blanks) {
+        field.appendChild(el('p', 'sig-name-note', 'Blank signature lines are expected on this unsigned copy.'));
     }
     head.appendChild(field);
 
