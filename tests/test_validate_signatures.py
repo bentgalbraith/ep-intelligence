@@ -337,7 +337,9 @@ class RulesTest(unittest.TestCase):
         self.assertIn("whole notarization section", scan)
         self.assertIn("When stamp is true and status is blank or ambiguous", sig._CROP_PROMPT)
         self.assertIn("A stamp is blank when that notarization has no seal", scan)
+        self.assertIn("signing ceremony script is not a notarization", scan)
         self.assertIn("Do not turn the notary signature into the stamp", sig._VERIFY_PROMPT)
+        self.assertIn("signing ceremony script is not a notarization", sig._VERIFY_PROMPT)
 
     def test_a_stamp_is_its_own_notary_item(self):
         found = sig.normalize_chunk([{
@@ -1544,6 +1546,29 @@ class FundingTest(unittest.TestCase):
         plan = sig.plan_funding(self._files(), items)
         self.assertFalse(plan["created"])
         self.assertIn("signature pages", plan["detail"])
+
+    def test_a_signing_ceremony_does_not_keep_a_missing_stamp(self):
+        evidence = [
+            {"page": 1, "title": "The Signing Ceremony", "kind": "signing ceremony"},
+            {"page": 1, "title": "Will", "kind": "will"},
+            {"page": 2, "title": "Declaration of Guardian", "kind": "declaration of guardian"},
+            {"page": 5, "title": "Last Will and Testament", "kind": "will"},
+        ]
+        signature = {"id": "sign", "type": "notary", "stamp": False, "status": "completed", "page": 4}
+        ceremony_stamp = {"id": "missing", "type": "notary", "stamp": True, "status": "blank", "page": 4}
+        unclear_stamp = {"id": "unsure", "type": "notary", "stamp": True, "status": "ambiguous", "page": 2}
+        real_seal = {"id": "seal", "type": "notary", "stamp": True, "status": "completed", "page": 4}
+        will_stamp = {"id": "will", "type": "notary", "stamp": True, "status": "blank", "page": 6}
+        kept = sig.omit_signing_ceremony_stamps(
+            evidence, [signature, ceremony_stamp, unclear_stamp, real_seal, will_stamp], 8,
+        )
+        self.assertEqual([item["id"] for item in kept], ["sign", "seal", "will"])
+
+    def test_another_document_still_keeps_a_missing_stamp(self):
+        evidence = [{"page": 1, "title": "Certificate of Trust", "kind": "certificate of trust"}]
+        stamp = {"id": "stamp", "type": "notary", "stamp": True, "status": "blank", "page": 3}
+        kept = sig.omit_signing_ceremony_stamps(evidence, [stamp], 4)
+        self.assertEqual(kept, [stamp])
 
     def test_an_unsigned_cover_is_not_the_certificate(self):
         rows = sig.normalize_evidence([

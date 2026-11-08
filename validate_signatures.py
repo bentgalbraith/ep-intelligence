@@ -213,6 +213,8 @@ A required initial stays its own item with choice false. That includes a margin 
 
 A notary stamp is its own item. Set type to notary and stamp to true. The notary signature is a separate item with stamp false. When the seal is visible, status is completed and the box is the seal only. Do not include the notary signature or the paragraph above the seal. When a notarization has no seal, return one blank stamp item. Its box is the whole notarization section: the venue, the acknowledgment or jurat, the notary signature, and the area where the seal would be. Leave the signer's signature above that section out of the box. A page with no notarization does not get a stamp item.
 
+A signing ceremony script is not a notarization. Its title is the signing ceremony. Headings inside it, such as Will and Declaration of Guardian, are parts of that script, not separate documents. The notary's signature on that script is an ordinary signature, with stamp false. Do not return a stamp item for it. The seal belongs on the will or the affidavit, not on the ceremony script.
+
 Set choice to false on every signature and notarization. Do not put a signature, a notarization, or a required initial inside a choice box. Set stamp to false on every item that is not the stamp.
 
 Return every item. An empty list is correct only when this part has nowhere to sign, initial, or notarize.
@@ -313,7 +315,7 @@ An initial can be a choice block: the page tells the person to initial the optio
 
 Do not drop a signature, a notarization, a notary stamp, or a required initial. A required initial keeps choice false. A drop on an initial outside the choice block is ignored.
 
-A notary stamp is its own item, with stamp true and type notary. The notary signature is a separate item with stamp false. You may add a stamp that was missed. When the seal is visible, the stamp box is the seal only. When the notarization has no seal, the stamp is blank and its box is the whole notarization section, not the signer's signature above it. Do not turn the notary signature into the stamp.
+A notary stamp is its own item, with stamp true and type notary. The notary signature is a separate item with stamp false. You may add a stamp that was missed. When the seal is visible, the stamp box is the seal only. When the notarization has no seal, the stamp is blank and its box is the whole notarization section, not the signer's signature above it. Do not turn the notary signature into the stamp. A signing ceremony script is not a notarization. Do not add a stamp for the notary's signature on that script. The seal belongs on the will or the affidavit, not on the ceremony script.
 
 Items:
 {items}
@@ -1002,6 +1004,79 @@ def merge_evidence(rows):
         used.add(marker)
         picked.append(row)
     return picked
+
+
+_CEREMONY_SECTIONS = frozenset({
+    "will",
+    "wills",
+    "declaration of guardian",
+    "declarations of guardian",
+    "self-proving affidavit",
+    "self proving affidavit",
+})
+
+
+def _heading(value):
+    return _fold(value).strip(" .:-")
+
+
+def _is_signing_ceremony(row):
+    text = _fold(f"{(row or {}).get('title') or ''} {(row or {}).get('kind') or ''}")
+    return "signing ceremony" in text
+
+
+def _ceremony_section(row):
+    """A heading inside the script, not a separate will or declaration.
+
+    Only the title counts. A later document whose kind is "will" still ends
+    the script.
+    """
+    return _heading((row or {}).get("title")) in _CEREMONY_SECTIONS
+
+
+def signing_ceremony_pages(evidence, page_count):
+    """Pages of a signing ceremony script, up to the next real document.
+
+    Will and Declaration of Guardian headings inside the script do not end it.
+    """
+    rows = [row for row in evidence or [] if isinstance(row, dict) and row.get("page")]
+    rows.sort(key=lambda row: row["page"])
+    pages = set()
+    for index, row in enumerate(rows):
+        if not _is_signing_ceremony(row):
+            continue
+        start = int(row["page"])
+        end = int(page_count or start)
+        for later in rows[index + 1:]:
+            if int(later["page"]) <= start:
+                continue
+            if _is_signing_ceremony(later) or _ceremony_section(later):
+                continue
+            end = int(later["page"]) - 1
+            break
+        if end < start:
+            end = start
+        pages.update(range(start, end + 1))
+    return pages
+
+
+def omit_signing_ceremony_stamps(evidence, items, page_count):
+    """A signing ceremony is not expected to carry a notary seal.
+
+    The notary's signature stays. A stamp that is actually present stays.
+    A missing or unclear stamp on those pages is dropped. Other documents
+    in the same file are left alone.
+    """
+    pages = signing_ceremony_pages(evidence, page_count)
+    if not pages:
+        return list(items or [])
+    kept = []
+    for item in items or []:
+        missing_stamp = item.get("stamp") and item.get("status") != "completed"
+        if missing_stamp and item.get("page") in pages:
+            continue
+        kept.append(item)
+    return kept
 
 
 def _is_unsigned_certificate_cover(row):
@@ -4492,11 +4567,17 @@ def _check_uploads(uploads, openai_client, firm_id, progress, on_alert):
             for page_number in sorted(groups):
                 page_q.append((file["index"], page_number, groups[page_number]))
 
+        def settle_items(file):
+            file["items"] = omit_signing_ceremony_stamps(
+                file.get("evidence"), file.get("items"), file.get("pages"),
+            )
+
         def assemble_verified(file):
             checked = []
             for page in sorted(file["verified"]):
                 checked.extend(file["verified"][page])
             file["items"] = file["rest"] + checked
+            settle_items(file)
 
         def note_verified(index, page, page_items, result):
             file = files[index]
@@ -4511,6 +4592,7 @@ def _check_uploads(uploads, openai_client, firm_id, progress, on_alert):
             file["rest"] = rest
             file["verified"] = {}
             if openai_client is None or not by_page:
+                settle_items(file)
                 start_screenshots(file)
                 return
             file["verify_left"] = len(by_page)
