@@ -1594,10 +1594,37 @@ class FundingTest(unittest.TestCase):
         self.assertFalse(sig.expected_blank_signatures(rows, [
             {"type": "signature", "status": "ambiguous"},
         ]))
-        brief = sig.file_brief(1, 4, blanks, rows)
-        self.assertEqual([row["title"] for row in brief["evidence"]], ["Certificate of Trust"])
+        self.assertNotIn("unsigned_copy", sig.file_brief(1, 4, blanks, rows))
+        clean = [item for item in blanks if item["status"] == "blank"]
+        brief = sig.file_brief(1, 4, clean, rows)
+        self.assertEqual(
+            [row["title"] for row in brief["evidence"]],
+            ["Additional Unsigned Certificate of Trust", "Certificate of Trust"],
+        )
+        self.assertEqual(
+            brief["whole_file"]["first_page_title"], "Additional Unsigned Certificate of Trust",
+        )
         self.assertEqual(brief["whole_file"]["documents_found"], 1)
-        self.assertEqual(brief["whole_file"]["first_page_title"], "")
+        self.assertTrue(brief["unsigned_copy"])
+        self.assertEqual(sig.name_from_evidence(rows), "Bercen certificate of trust.pdf")
+        prompt = sig.build_naming_prompt("Use the surname.", [brief])
+        self.assertIn("Additional Unsigned Certificate of Trust", prompt)
+        self.assertIn('"unsigned_copy": true', prompt)
+        self.assertIn("When unsigned_copy is true", prompt)
+        review = sig.build_name_review_prompt("Use the surname.", {"filename": ""}, brief)
+        self.assertIn('"unsigned_copy": true', review)
+        self.assertIn("When unsigned_copy is true", review)
+        self.assertIn("Keep the unsigned label on that file", sig._NAME_CHECK_PROMPT)
+        roster = sig.name_check_roster({0: {"filename": "BERCEN CERTIFICATE OF TRUST UNSIGNED.pdf"}}, [brief])
+        self.assertTrue(roster[0]["unsigned_copy"])
+        kept = sig.apply_name_changes(
+            {0: {"filename": "BERCEN CERTIFICATE OF TRUST UNSIGNED.pdf", "confidence": "high"}},
+            {0: "BERCEN CERTIFICATE OF TRUST.pdf"},
+            [brief],
+        )
+        self.assertEqual(kept[0]["filename"], "BERCEN CERTIFICATE OF TRUST UNSIGNED.pdf")
+        signed = sig.file_brief(1, 4, [{"type": "signature", "status": "completed"}], rows)
+        self.assertNotIn("unsigned_copy", signed)
         self.assertFalse(sig.expected_blank_signatures(rows, blanks + [
             {"type": "signature", "status": "completed"},
         ]))
