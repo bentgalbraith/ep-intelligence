@@ -323,7 +323,10 @@ class RulesTest(unittest.TestCase):
     def test_choice_instructions_are_in_the_prompts(self):
         scan = sig._SCAN_PROMPT.format(count=3)
         self.assertNotIn("{", scan)
-        self.assertIn("omit the block", scan)
+        self.assertIn("Status is blank when every line in the block is empty", scan)
+        self.assertIn("A single initial line is never a choice block", scan)
+        self.assertIn("A single initial line is never a choice block", sig._VERIFY_PROMPT)
+        self.assertNotIn("omit", scan)
         self.assertIn("words beside", scan)
         self.assertIn("required initial", scan)
         self.assertIn("drop", sig._VERIFY_PROMPT)

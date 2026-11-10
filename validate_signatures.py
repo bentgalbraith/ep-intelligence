@@ -190,7 +190,7 @@ _SCAN_PROMPT = """You are checking an estate-planning PDF for every place a pers
 
 This file has {count} pages. Number those pages from 1. Page 1 is the first page of this file, not a page number printed in a footer.
 
-Find every signature, required initial, choice block, and notarization, whether it is filled in or blank. Include signature blocks, required initial lines in the margins and footers, witness lines, notary acknowledgments, jurats, and notary seals. A choice block is one item, not one item for each option line. A notary stamp is its own item, separate from the notary signature.
+Find every signature, required initial, choice block, and notarization, whether it is filled in or blank. Include signature blocks, required initial lines in the margins and footers, short initial lines in front of a paragraph, witness lines, notary acknowledgments, jurats, and notary seals. A choice block is one item, not one item for each option line. A notary stamp is its own item, separate from the notary signature.
 
 Do not list ordinary sentences, dates on their own, or blank lines that are not for a signature, initial, or notarization.
 
@@ -205,11 +205,11 @@ For each item:
 - choice is true only for a choice block, and false for everything else
 - stamp is true only for a notary stamp, and false for everything else
 
-A choice block is a set of initial lines where the page tells the person to initial the option they want. A blank line in that block is an option they did not pick. Return one item for the whole block, not one item per line. Status is completed when at least one line in the block is initialed. Status is blank when the page requires a selection and every line is empty. When the page allows no selection and every line is empty, omit the block.
+A choice block is a set of two or more initial lines listed together where the person picks among the options, such as a list of powers with one line that grants them all, or a choice between resuscitation instructions. A blank line in that block is an option they did not pick. Return one item for the whole block, not one item per line. Status is completed when at least one line in the block is initialed. Status is blank when every line in the block is empty.
 
-A single optional grant is a choice block of one line. When it is initialed, return that one item, with the box covering the line and the words beside it. When it is left blank and the page allows that, omit it.
+Every other initial line is a required initial, even when it stands alone and the wording makes it sound optional, such as initial here if you agree, or to withhold a power, do not initial. The document asks for that initial because the person is expected to give it. A single initial line is never a choice block. A signature line is required in the same way, even when the wording makes it sound optional.
 
-A required initial stays its own item with choice false. That includes a margin or footer initial and any initial the page does not describe as optional. A blank required initial has status blank.
+A required initial stays its own item with choice false. That includes a margin or footer initial and a standalone grant of a power. A blank required initial has status blank.
 
 A notary stamp is its own item. Set type to notary and stamp to true. The notary signature is a separate item with stamp false. When the seal is visible, status is completed and the box is the seal only. Do not include the notary signature or the paragraph above the seal. When a notarization has no seal, return one blank stamp item. Its box is the whole notarization section: the venue, the acknowledgment or jurat, the notary signature, and the area where the seal would be. Leave the signer's signature above that section out of the box. A page with no notarization does not get a stamp item.
 
@@ -317,7 +317,9 @@ _VERIFY_PROMPT = """This image is document page {page} of an estate-planning PDF
 
 Another model found the items below on this page. Confirm each status. You may add a signature, initial, or notarization it missed. Do not remove a signature, a notarization, or a required initial.
 
-An initial can be a choice block: the page tells the person to initial the option they want, and a blank line is an option they did not pick. Return one item for that whole block. On the item you keep, copy one listed id, set choice to true, and set box to every option line and the words beside those lines. Status is completed when any line in the block is initialed, and blank when the page requires a selection and none is initialed. On each other listed initial that is only an unselected line in that block, copy its id and set drop to true. Do not set drop on the item you keep.
+An initial can be a choice block: two or more initial lines listed together where the person picks among the options, and a blank line is an option they did not pick. Return one item for that whole block. On the item you keep, copy one listed id, set choice to true, and set box to every option line and the words beside those lines. Status is completed when any line in the block is initialed, and blank when none is initialed. On each other listed initial that is only an unselected line in that block, copy its id and set drop to true. Do not set drop on the item you keep.
+
+Every other initial line is a required initial, even when it stands alone and the wording makes it sound optional, such as initial here if you agree, or to withhold a power, do not initial. A single initial line is never a choice block. You may add a required initial that was missed. When it is empty, its status is blank.
 
 Do not drop a signature, a notarization, a notary stamp, or a required initial. A required initial keeps choice false. A drop on an initial outside the choice block is ignored.
 
