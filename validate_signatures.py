@@ -118,10 +118,11 @@ _SCAN_SCHEMA = {
                     "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                     "choice": {"type": "boolean"},
                     "stamp": {"type": "boolean"},
+                    "acceptance": {"type": "boolean"},
                 },
                 "required": [
                     "type", "status", "page", "box", "label", "date_line", "confidence",
-                    "choice", "stamp",
+                    "choice", "stamp", "acceptance",
                 ],
             },
         },
@@ -200,10 +201,11 @@ For each item:
 - page is an integer from 1 through {count}
 - box is [x, y, width, height], fractions of the full page from 0 to 1, origin at the top-left. For a signature, a required initial, or a notary signature, box the handwriting and the line it sits on, plus the printed name under that line. Do not box the paragraph above the line, and do not box a single letter. For a choice block, box every option line and the words beside those lines. A stamp has its own box, described below
 - label is a few words such as "Grantor", "Witness", or "Notary acknowledgment". Do not quote the document
-- date_line is filled when a date beside this item is written in, blank when that date line is empty, none when there is no date line, unclear when you cannot tell
+- date_line is filled when a date beside this item is written in, blank when that date line is empty, none when there is no date line, unclear when you cannot tell. A Date line printed under the signer's name belongs to that item
 - confidence is high, medium, or low
 - choice is true only for a choice block, and false for everything else
 - stamp is true only for a notary stamp, and false for everything else
+- acceptance is true only for a line where an agent or a successor agent signs to accept an appointment, such as Acceptance of Agent or Acceptance of Appointment by First Successor Agent. It is false for the principal, a witness, a notary, and everything else
 
 A choice block is a set of two or more initial lines listed together where the person picks among the options, such as a list of powers with one line that grants them all, or a choice between resuscitation instructions. A blank line in that block is an option they did not pick. Return one item for the whole block, not one item per line. Status is completed when at least one line in the block is initialed. Status is blank when every line in the block is empty.
 
@@ -336,6 +338,7 @@ Return JSON with an "items" array. For an item already listed, copy its id. For 
 - date_line: filled, blank, none, or unclear
 - choice: true only for a choice block
 - stamp: true only for the notary stamp. Copy it on a stamp you are correcting, and set it on a stamp you add
+- acceptance: true only for a line where an agent or a successor agent signs to accept an appointment, false for everything else
 - drop: true only for an initial that is an unselected option in a choice block
 """
 
@@ -814,6 +817,7 @@ def apply_verification(items, updates):
             "region": region_label(box),
             "choice": kind == "initial" and _is_choice(raw.get("choice")),
             "stamp": kind == "notary" and _is_choice(raw.get("stamp")),
+            "acceptance": kind == "signature" and _is_choice(raw.get("acceptance")),
         })
     choices = [
         item for item in list(by_id.values()) + extras
@@ -870,6 +874,7 @@ def normalize_chunk(raw_items, start, end, name, file_index):
             "confidence": confidence,
             "choice": kind == "initial" and _is_choice(raw.get("choice")),
             "stamp": kind == "notary" and _is_choice(raw.get("stamp")),
+            "acceptance": kind == "signature" and _is_choice(raw.get("acceptance")),
         })
     return found
 
@@ -884,6 +889,7 @@ def public_item(item):
         "region": item["region"],
         "label": item["label"],
         "date_line": item["date_line"],
+        "expected_blank": bool(item.get("expected_blank")),
     }
 
 
@@ -1085,6 +1091,61 @@ def omit_signing_ceremony_stamps(evidence, items, page_count):
             continue
         kept.append(item)
     return kept
+
+
+def _is_remains_appointment(row):
+    text = _fold(f"{(row or {}).get('title') or ''} {(row or {}).get('kind') or ''}")
+    return "remains" in text and ("disposition" in text or "agent" in text)
+
+
+def _continues_remains(row):
+    """A heading such as Acceptance of Appointment is part of the form, not a new document."""
+    text = _fold(f"{(row or {}).get('title') or ''} {(row or {}).get('kind') or ''}")
+    return "remains" in text or ("acceptance" in text and "agent" in text)
+
+
+def remains_appointment_pages(evidence, page_count):
+    """Pages of each Appointment for Disposition of Remains, up to the next real document."""
+    rows = [row for row in evidence or [] if isinstance(row, dict) and row.get("page")]
+    rows.sort(key=lambda row: row["page"])
+    pages = set()
+    for index, row in enumerate(rows):
+        if not _is_remains_appointment(row):
+            continue
+        start = int(row["page"])
+        end = int(page_count or start)
+        for later in rows[index + 1:]:
+            if int(later["page"]) <= start:
+                continue
+            if _continues_remains(later):
+                continue
+            end = int(later["page"]) - 1
+            break
+        if end < start:
+            end = start
+        pages.update(range(start, end + 1))
+    return pages
+
+
+def mark_remains_acceptances(evidence, items, page_count):
+    """On a disposition of remains form, an agent acceptance that is not yet dated is meant to be blank.
+
+    Agents sign that line only when they act. A dated acceptance was meant to be
+    signed at the signing, so it stays an issue when blank. So does an unclear
+    line, and any line outside that form.
+    """
+    pages = remains_appointment_pages(evidence, page_count)
+    marked = list(items or [])
+    for item in marked:
+        item["expected_blank"] = bool(
+            pages
+            and item.get("page") in pages
+            and item.get("type") == "signature"
+            and item.get("acceptance")
+            and item.get("status") == "blank"
+            and item.get("date_line") == "blank"
+        )
+    return marked
 
 
 def _is_unsigned_certificate_cover(row):
@@ -2048,6 +2109,7 @@ def _verify_page(openai_client, image_bytes, page, items, firm_id, on_alert=None
             "date_line": item["date_line"],
             "choice": bool(item.get("choice")),
             "stamp": bool(item.get("stamp")),
+            "acceptance": bool(item.get("acceptance")),
             "box": [round(value, 4) for value in item["box"]],
         }
         for item in items
@@ -4589,6 +4651,9 @@ def _check_uploads(uploads, openai_client, firm_id, progress, on_alert):
 
         def settle_items(file):
             file["items"] = omit_signing_ceremony_stamps(
+                file.get("evidence"), file.get("items"), file.get("pages"),
+            )
+            file["items"] = mark_remains_acceptances(
                 file.get("evidence"), file.get("items"), file.get("pages"),
             )
 

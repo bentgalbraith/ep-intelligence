@@ -213,6 +213,7 @@ function summaryCard(pages, items, documents, names, urls, issues, funding) {
 }
 
 function isExpectedBlank(doc, item) {
+    if (item.expected_blank && item.status === 'blank') return true;
     return !!(doc && doc.expected_blanks && item.status === 'blank'
         && (item.type === 'signature' || item.type === 'notary'));
 }
@@ -514,7 +515,8 @@ function renderRow(item, urls) {
     const title = el('p', 'sig-title');
     title.appendChild(el('span', null, typeLabel(item.type)));
     title.appendChild(el('span', 'sig-sep', ' · '));
-    title.appendChild(el('span', statusClass(item.status), statusLabel(item.status)));
+    const expected = item.expected_blank && item.status === 'blank';
+    title.appendChild(el('span', expected ? '' : statusClass(item.status), statusLabel(item.status)));
     info.appendChild(title);
     info.appendChild(el('p', 'sig-meta', [item.page != null ? 'p. ' + item.page : '', item.region].filter(Boolean).join(' · ')));
     const note = noteLine(item);
@@ -641,6 +643,7 @@ function rowLabel(item) {
 function noteLine(item) {
     const parts = [];
     if (item.label) parts.push(item.label);
+    if (item.expected_blank && item.status === 'blank') parts.push('Expected blank until the agent acts');
     if (item.date_line === 'blank') parts.push('Date line blank');
     if (item.date_line === 'unclear') parts.push('Date line unclear');
     return parts.join(' · ');

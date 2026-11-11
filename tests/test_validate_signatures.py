@@ -1635,6 +1635,80 @@ class FundingTest(unittest.TestCase):
             {"type": "notary", "status": "completed"},
         ]))
 
+    def test_undated_remains_acceptances_are_expected_blank(self):
+        evidence = [
+            {"page": 1, "title": "Appointment for Disposition of Remains", "kind": "appointment of agent"},
+            {"page": 5, "title": "Appointment for Disposition of Remains", "kind": "appointment of agent"},
+            {"page": 9, "title": "Last Will and Testament", "kind": "will"},
+        ]
+        rows = [
+            item(id="principal", page=3, status="completed", date_line="filled"),
+            item(id="spouse", page=3, status="completed", date_line="filled", acceptance=True),
+            item(id="successor", page=3, status="blank", date_line="blank", acceptance=True),
+            item(id="dated", page=7, status="blank", date_line="filled", acceptance=True),
+            item(id="unclear_date", page=8, status="blank", date_line="unclear", acceptance=True),
+            item(id="unclear_ink", page=8, status="ambiguous", date_line="blank", acceptance=True),
+            item(id="later", page=8, status="blank", date_line="blank", acceptance=True),
+            item(id="not_acceptance", page=8, status="blank", date_line="blank"),
+            item(id="will", page=9, status="blank", date_line="blank", acceptance=True),
+        ]
+        marked = {row["id"]: row["expected_blank"] for row in sig.mark_remains_acceptances(evidence, rows, 10)}
+        self.assertEqual(marked, {
+            "principal": False, "spouse": False, "successor": True, "dated": False,
+            "unclear_date": False, "unclear_ink": False, "later": True,
+            "not_acceptance": False, "will": False,
+        })
+        self.assertTrue(sig.public_item({**rows[2], "region": "middle", "expected_blank": True})["expected_blank"])
+        self.assertFalse(sig.public_item({**rows[0], "region": "middle"})["expected_blank"])
+
+    def test_acceptance_heading_does_not_end_the_remains_form(self):
+        evidence = [
+            {"page": 1, "title": "Appointment for Disposition of Remains", "kind": ""},
+            {"page": 3, "title": "Acceptance of Appointment by Agent", "kind": "agent acceptance"},
+        ]
+        self.assertEqual(sig.remains_appointment_pages(evidence, 4), {1, 2, 3, 4})
+        row = item(page=4, status="blank", date_line="blank", acceptance=True)
+        self.assertTrue(sig.mark_remains_acceptances(evidence, [row], 4)[0]["expected_blank"])
+
+    def test_acceptances_outside_a_remains_form_stay_issues(self):
+        evidence = [{"page": 1, "title": "Statutory Durable Power of Attorney", "kind": "power of attorney"}]
+        row = item(page=2, status="blank", date_line="blank", acceptance=True)
+        self.assertFalse(sig.mark_remains_acceptances(evidence, [row], 3)[0]["expected_blank"])
+        self.assertFalse(sig.mark_remains_acceptances([], [row], 3)[0]["expected_blank"])
+
+    def test_a_trustee_acceptance_after_the_remains_form_stays_an_issue(self):
+        evidence = [
+            {"page": 1, "title": "Appointment for Disposition of Remains", "kind": ""},
+            {"page": 4, "title": "Acceptance of Trusteeship", "kind": "acceptance"},
+        ]
+        self.assertEqual(sig.remains_appointment_pages(evidence, 5), {1, 2, 3})
+        row = item(page=5, status="blank", date_line="blank", acceptance=True)
+        self.assertFalse(sig.mark_remains_acceptances(evidence, [row], 5)[0]["expected_blank"])
+
+    def test_verify_keeps_acceptance_and_reads_it_on_added_lines(self):
+        listed = item(id="agent", page=3, status="ambiguous", date_line="blank", acceptance=True)
+        merged = sig.apply_verification([listed], [
+            {"id": "agent", "status": "blank", "acceptance": False},
+            {"type": "signature", "status": "blank", "box": [0.5, 0.8, 0.3, 0.05],
+             "date_line": "blank", "acceptance": True},
+            {"type": "notary", "status": "blank", "box": [0.1, 0.8, 0.3, 0.05],
+             "date_line": "none", "acceptance": True},
+        ])
+        self.assertEqual([row["acceptance"] for row in merged], [True, True, False])
+        self.assertIn("- acceptance: true only for a line where an agent", sig._VERIFY_PROMPT)
+
+    def test_scan_reads_acceptance_only_on_signatures(self):
+        self.assertIn("acceptance", sig._SCAN_SCHEMA["properties"]["items"]["items"]["required"])
+        found = sig.normalize_chunk([
+            {"type": "signature", "status": "blank", "page": 1, "box": [0.5, 0.5, 0.3, 0.05],
+             "label": "Agent", "date_line": "blank", "confidence": "high",
+             "choice": False, "stamp": False, "acceptance": True},
+            {"type": "notary", "status": "blank", "page": 1, "box": [0.1, 0.5, 0.3, 0.05],
+             "label": "Notary", "date_line": "none", "confidence": "high",
+             "choice": False, "stamp": False, "acceptance": True},
+        ], 1, 1, "Remains.pdf", 0)
+        self.assertEqual([row["acceptance"] for row in found], [True, False])
+
     def test_a_blank_certificate_without_the_cover_still_counts(self):
         rows = sig.normalize_evidence([{
             "title": "Certificate of Trust", "client": "Bercen", "whose": "both",
@@ -2039,6 +2113,48 @@ class ParallelRunTest(unittest.TestCase):
         self.assertEqual(len(result["items"]), 6)
         self.assertTrue(any(message.startswith("Reading ") for message in messages))
         self.assertIn("Naming the files", messages)
+
+    def test_an_undated_remains_acceptance_reaches_the_result_as_expected(self):
+        import pymupdf
+
+        doc = pymupdf.open()
+        doc.new_page()
+        data = doc.tobytes()
+        doc.close()
+
+        def line(label, status, date_line, acceptance, y):
+            return {
+                "type": "signature", "status": status, "page": 1,
+                "box": [0.5, y, 0.3, 0.05], "label": label, "date_line": date_line,
+                "confidence": "high", "choice": False, "stamp": False, "acceptance": acceptance,
+            }
+
+        def fake_scan(_data, _start, _end, _firm):
+            return ([
+                line("Principal", "completed", "filled", False, 0.2),
+                line("Agent", "blank", "filled", True, 0.5),
+                line("Successor", "blank", "blank", True, 0.8),
+            ], [{
+                "title": "Appointment for Disposition of Remains", "client": "Barnett",
+                "whose": "his", "kind": "appointment of agent", "purpose": "Names an agent.",
+                "qualifiers": [], "page": 1, "role": "other", "article_i": [],
+            }])
+
+        def fake_ask(_page, shots, _firm):
+            return [{"id": shot["id"], "ok": True, "box": list(shot["box"])} for shot in shots]
+
+        def fake_name(_rules, briefs, _firm):
+            return {0: {"filename": "BARNETT REMAINS.pdf", "confidence": "high", "reason": ""}}
+
+        with patch.object(sig, "_scan_chunk", fake_scan), \
+                patch.object(sig, "_ask_screenshot_review", fake_ask), \
+                patch.object(sig, "_name_batch", fake_name), \
+                patch.object(sig, "_log_model"):
+            result, _crops, _funding = sig.validate_documents(
+                [("1.pdf", data)], None, firm_id=None, naming_rules="",
+            )
+        by_label = {row["label"]: row["expected_blank"] for row in result["items"]}
+        self.assertEqual(by_label, {"Principal": False, "Agent": False, "Successor": True})
 
     def test_an_unclear_page_is_rechecked_and_a_screenshot_can_move(self):
         import pymupdf
