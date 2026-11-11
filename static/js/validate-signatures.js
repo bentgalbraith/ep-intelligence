@@ -377,6 +377,8 @@ function renderDocument(doc, items, urls, names, index, onRename) {
     }
     if (doc.expected_blanks) {
         field.appendChild(el('p', 'sig-name-note', 'Blank signature lines are expected on this unsigned copy.'));
+    } else if (items.some((item) => item.expected_blank && item.status === 'blank')) {
+        field.appendChild(el('p', 'sig-name-note', 'Undated agent acceptance lines are expected to be blank. Agents sign them when they act.'));
     }
     head.appendChild(field);
 
@@ -403,7 +405,7 @@ function renderDocument(doc, items, urls, names, index, onRename) {
     if (!items.length) {
         body.appendChild(el('p', 'sig-empty', 'No signature, initial, or notary lines found.'));
     } else {
-        orderedItems(items).forEach((item) => body.appendChild(renderRow(item, urls)));
+        orderedItems(items).forEach((item) => body.appendChild(renderRow(doc, item, urls)));
     }
     toggle.addEventListener('click', () => {
         setDocOpen(section, toggle.getAttribute('aria-expanded') !== 'true');
@@ -496,8 +498,12 @@ function postDownload(action, fields) {
     form.remove();
 }
 
-function renderRow(item, urls) {
+function renderRow(doc, item, urls) {
     const row = el('article', 'sig-row');
+    if (!isExpectedBlank(doc, item)) {
+        if (item.status === 'blank') row.classList.add('is-issue');
+        else if (item.status === 'ambiguous') row.classList.add('is-potential');
+    }
     row.id = 'sig-item-' + item.id;
     row.dataset.status = item.status || '';
     const button = el('button', 'sig-crop-btn');
@@ -515,8 +521,7 @@ function renderRow(item, urls) {
     const title = el('p', 'sig-title');
     title.appendChild(el('span', null, typeLabel(item.type)));
     title.appendChild(el('span', 'sig-sep', ' · '));
-    const expected = item.expected_blank && item.status === 'blank';
-    title.appendChild(el('span', expected ? '' : statusClass(item.status), statusLabel(item.status)));
+    title.appendChild(el('span', statusClass(item.status), statusLabel(item.status)));
     info.appendChild(title);
     info.appendChild(el('p', 'sig-meta', [item.page != null ? 'p. ' + item.page : '', item.region].filter(Boolean).join(' · ')));
     const note = noteLine(item);
@@ -643,7 +648,6 @@ function rowLabel(item) {
 function noteLine(item) {
     const parts = [];
     if (item.label) parts.push(item.label);
-    if (item.expected_blank && item.status === 'blank') parts.push('Expected blank until the agent acts');
     if (item.date_line === 'blank') parts.push('Date line blank');
     if (item.date_line === 'unclear') parts.push('Date line unclear');
     return parts.join(' · ');

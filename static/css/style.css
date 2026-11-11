@@ -4918,10 +4918,25 @@ a.specimen-name:hover {
     gap: 0.85rem;
     padding: 0.75rem 0.9rem;
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.sig-row.is-issue {
+    background: rgba(234, 88, 12, 0.08);
+}
+
+.sig-row.is-potential {
+    background: rgba(202, 138, 4, 0.1);
 }
 
 .sig-row.is-target {
-    background: rgba(234, 88, 12, 0.08);
+    background: rgba(234, 88, 12, 0.2);
+    box-shadow: inset 3px 0 0 #ea580c;
+}
+
+.sig-row.is-potential.is-target {
+    background: rgba(202, 138, 4, 0.24);
+    box-shadow: inset 3px 0 0 #ca8a04;
 }
 
 .sig-info {
