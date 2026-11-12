@@ -26,28 +26,26 @@
 
             <section data-step="people">
                 <h2 class="dq-h">The trust</h2>
-                <p class="dq-lead">The name appears on the screen for the client, then rests at the top.</p>
                 <fieldset class="dq-set">
-                    <legend>Who is in this meeting</legend>
+                    <legend>Clients</legend>
                     <div class="dq-choices">
                         <label class="dq-choice"><input type="radio" name="household" value="couple" checked> Couple</label>
-                        <label class="dq-choice"><input type="radio" name="household" value="single"> Single client</label>
+                        <label class="dq-choice"><input type="radio" name="household" value="single"> Single</label>
                     </div>
                 </fieldset>
                 <label class="dq-field">Client
-                    <input name="client_name" type="text" maxlength="120" placeholder="Full legal name">
+                    <input name="client_name" type="text" maxlength="120">
                 </label>
                 <label class="dq-field" data-couple>Spouse
-                    <input name="spouse_name" type="text" maxlength="120" placeholder="Full legal name">
+                    <input name="spouse_name" type="text" maxlength="120">
                 </label>
                 <label class="dq-field">Trust name
-                    <input name="trust_name" type="text" maxlength="160" placeholder="Name of the trust">
+                    <input name="trust_name" type="text" maxlength="160">
                 </label>
             </section>
 
             <section data-step="health" hidden>
                 <h2 class="dq-h">Health care</h2>
-                <p class="dq-lead">These agents make medical decisions and decide when someone can no longer decide for themselves.</p>
                 <h3 class="dq-sub" id="dq-client-agent-heading">Client's agents</h3>
                 <div class="dq-lines">
                     <label class="dq-line"><span>1</span><input name="client_agent_1" type="text" maxlength="120"></label>
@@ -67,8 +65,7 @@
             </section>
 
             <section data-step="wishes" hidden>
-                <h2 class="dq-h">Living will and final wishes</h2>
-                <p class="dq-lead">Directive to physicians, and what happens to the body.</p>
+                <h2 class="dq-h">Wishes</h2>
                 <fieldset class="dq-set">
                     <legend id="dq-client-wish-heading">Client</legend>
                     <p class="dq-label">Pace</p>
@@ -77,7 +74,7 @@
                         <label class="dq-choice"><input type="radio" name="client_speed" value="middle"> Middle</label>
                         <label class="dq-choice"><input type="radio" name="client_speed" value="express"> Express</label>
                     </div>
-                    <p class="dq-label">Physicians to confirm</p>
+                    <p class="dq-label">Doctors</p>
                     <div class="dq-choices">
                         <label class="dq-choice"><input type="radio" name="client_doctors" value="1"> 1 doctor</label>
                         <label class="dq-choice"><input type="radio" name="client_doctors" value="2"> 2 doctors</label>
@@ -93,7 +90,7 @@
                         <label class="dq-choice"><input type="radio" name="client_disposition" value="cremation"> Cremation</label>
                         <label class="dq-choice"><input type="radio" name="client_disposition" value="burial"> Burial</label>
                     </div>
-                    <label class="dq-field">Specific requests
+                    <label class="dq-field">Requests
                         <input name="client_wishes" type="text" maxlength="240">
                     </label>
                 </fieldset>
@@ -105,7 +102,7 @@
                         <label class="dq-choice"><input type="radio" name="spouse_speed" value="middle"> Middle</label>
                         <label class="dq-choice"><input type="radio" name="spouse_speed" value="express"> Express</label>
                     </div>
-                    <p class="dq-label">Physicians to confirm</p>
+                    <p class="dq-label">Doctors</p>
                     <div class="dq-choices">
                         <label class="dq-choice"><input type="radio" name="spouse_doctors" value="1"> 1 doctor</label>
                         <label class="dq-choice"><input type="radio" name="spouse_doctors" value="2"> 2 doctors</label>
@@ -121,7 +118,7 @@
                         <label class="dq-choice"><input type="radio" name="spouse_disposition" value="cremation"> Cremation</label>
                         <label class="dq-choice"><input type="radio" name="spouse_disposition" value="burial"> Burial</label>
                     </div>
-                    <label class="dq-field">Specific requests
+                    <label class="dq-field">Requests
                         <input name="spouse_wishes" type="text" maxlength="240">
                     </label>
                 </fieldset>
@@ -129,12 +126,11 @@
 
             <section data-step="charge" hidden>
                 <h2 class="dq-h">Who is in charge</h2>
-                <p class="dq-lead">Trustees manage the trust. The financial power of attorney covers retirement accounts and anything not titled in the trust, with the same powers.</p>
                 <fieldset class="dq-set">
                     <legend>Co-trustee</legend>
                     <div class="dq-choices">
-                        <label class="dq-choice"><input type="radio" name="cotrustee" value="yes"> Name one</label>
-                        <label class="dq-choice"><input type="radio" name="cotrustee" value="no"> Do not name one</label>
+                        <label class="dq-choice"><input type="radio" name="cotrustee" value="yes"> Yes</label>
+                        <label class="dq-choice"><input type="radio" name="cotrustee" value="no"> No</label>
                     </div>
                     <div data-couple data-cotrustee>
                         <p class="dq-label">Serves upon</p>
@@ -142,13 +138,13 @@
                             <label class="dq-choice"><input type="radio" name="cotrustee_when" value="first"> 1st disability or death</label>
                             <label class="dq-choice"><input type="radio" name="cotrustee_when" value="second"> 2nd disability or death</label>
                         </div>
-                        <p class="dq-label">Spouse reserves the right to serve alone</p>
+                        <p class="dq-label">May serve alone</p>
                         <div class="dq-choices">
                             <label class="dq-choice"><input type="radio" name="spouse_alone" value="yes"> Yes</label>
                             <label class="dq-choice"><input type="radio" name="spouse_alone" value="no"> No</label>
                         </div>
                     </div>
-                    <p class="dq-label" data-single data-cotrustee>Serves at disability or death.</p>
+                    <p class="dq-label" data-single data-cotrustee>At disability or death.</p>
                 </fieldset>
                 <h3 class="dq-sub">Trustees</h3>
                 <div class="dq-lines">
@@ -157,7 +153,7 @@
                     <label class="dq-line"><span>3</span><input name="trustee_3" type="text" maxlength="120"></label>
                     <label class="dq-line"><span>4</span><input name="trustee_4" type="text" maxlength="120"></label>
                 </div>
-                <h3 class="dq-sub">Financial power of attorney</h3>
+                <h3 class="dq-sub">Financial POA</h3>
                 <div class="dq-lines">
                     <label class="dq-line"><span>1</span><input name="poa_1" type="text" maxlength="120"></label>
                     <label class="dq-line"><span>2</span><input name="poa_2" type="text" maxlength="120"></label>
@@ -166,13 +162,13 @@
                 </div>
                 <fieldset class="dq-set">
                     <legend>Pour-over will</legend>
-                    <p class="dq-label">Executor and trustee are the same people</p>
+                    <p class="dq-label">Same as trustees</p>
                     <div class="dq-choices">
                         <label class="dq-choice"><input type="radio" name="executor_same" value="yes"> Yes</label>
                         <label class="dq-choice"><input type="radio" name="executor_same" value="no"> No</label>
                     </div>
                 </fieldset>
-                <h3 class="dq-sub">Guardians for minor children</h3>
+                <h3 class="dq-sub">Guardians</h3>
                 <div class="dq-lines">
                     <label class="dq-line"><span>1</span><input name="guardian_1" type="text" maxlength="120"></label>
                     <label class="dq-line"><span>2</span><input name="guardian_2" type="text" maxlength="120"></label>
@@ -181,19 +177,18 @@
             </section>
 
             <section data-step="living" hidden>
-                <h2 class="dq-h">While you are living</h2>
-                <p class="dq-lead">What stays true now, and who helps run things.</p>
+                <h2 class="dq-h">While living</h2>
                 <div class="dq-yn">
                     <span>Homecare</span>
                     <label class="dq-choice"><input type="radio" name="homecare" value="yes"> Yes</label>
                     <label class="dq-choice"><input type="radio" name="homecare" value="no"> No</label>
                 </div>
                 <label class="dq-field">Children
-                    <input name="children" type="text" maxlength="240" placeholder="Names">
+                    <input name="children" type="text" maxlength="240">
                 </label>
-                <p class="dq-hint">Support is for health, education, and maintenance.</p>
+                <p class="dq-hint">Health, education, and maintenance.</p>
                 <div class="dq-yn">
-                    <span>Pet provisions</span>
+                    <span>Pets</span>
                     <label class="dq-choice"><input type="radio" name="pets" value="yes"> Yes</label>
                     <label class="dq-choice"><input type="radio" name="pets" value="no"> No</label>
                 </div>
@@ -208,7 +203,7 @@
                     <label class="dq-line"><span>2</span><input name="priority_2" type="text" maxlength="120"></label>
                     <label class="dq-line"><span>3</span><input name="priority_3" type="text" maxlength="120"></label>
                 </div>
-                <label class="dq-field">Specific requests
+                <label class="dq-field">Requests
                     <textarea name="admin_notes" rows="3" maxlength="2000"></textarea>
                 </label>
                 <h3 class="dq-sub">Coordinate with</h3>
@@ -222,14 +217,13 @@
 
             <section data-step="survivor" data-couple hidden>
                 <h2 class="dq-h">At the first death</h2>
-                <p class="dq-lead">The screen shows the survivor's trust, the marital trust, and the family trust.</p>
                 <div class="dq-yn">
                     <span>Remarriage protection</span>
                     <label class="dq-choice"><input type="radio" name="remarriage" value="yes"> Yes</label>
                     <label class="dq-choice"><input type="radio" name="remarriage" value="no"> No</label>
                 </div>
                 <div class="dq-yn">
-                    <span>Spouse stays as trustee</span>
+                    <span>Spouse stays trustee</span>
                     <label class="dq-choice"><input type="radio" name="spouse_trustee" value="yes"> Yes</label>
                     <label class="dq-choice"><input type="radio" name="spouse_trustee" value="no"> No</label>
                 </div>
@@ -238,13 +232,10 @@
                     <label class="dq-choice"><input type="radio" name="prenuptial" value="yes"> Yes</label>
                     <label class="dq-choice"><input type="radio" name="prenuptial" value="no"> No</label>
                 </div>
-                <p class="dq-hint">A prenuptial agreement here applies at the first death.</p>
             </section>
 
             <section data-step="assets" hidden>
                 <h2 class="dq-h">Gifts and property</h2>
-                <p class="dq-lead" data-couple>Accounts, entities, and gifts decided with the first death.</p>
-                <p class="dq-lead" data-single>Accounts, entities, and gifts decided for this plan.</p>
                 <h3 class="dq-sub">Retirement accounts</h3>
                 <div class="dq-lines">
                     <label class="dq-line"><span>1</span><input name="retirement_1" type="text" maxlength="160"></label>
@@ -296,7 +287,7 @@
                 <label class="dq-field">Entities
                     <input name="entities" type="text" maxlength="240">
                 </label>
-                <h3 class="dq-sub">Specific distributions</h3>
+                <h3 class="dq-sub">Gifts</h3>
                 <div class="dq-lines">
                     <label class="dq-line"><span>1</span><input name="gift_1" type="text" maxlength="200"></label>
                     <label class="dq-line"><span>2</span><input name="gift_2" type="text" maxlength="200"></label>
@@ -307,7 +298,7 @@
                 </div>
                 <fieldset class="dq-set">
                     <legend>Limited power of appointment</legend>
-                    <div class="dq-yn"><span>Terms and conditions</span>
+                    <div class="dq-yn"><span>Terms</span>
                         <label class="dq-choice"><input type="radio" name="lpoa_terms" value="yes"> Yes</label>
                         <label class="dq-choice"><input type="radio" name="lpoa_terms" value="no"> No</label>
                     </div>
@@ -334,20 +325,18 @@
                         <label class="dq-line"><span>4</span><input name="disinherit_4" type="text" maxlength="120"></label>
                     </div>
                 </fieldset>
-                <label class="dq-field">Tangible personal property
+                <label class="dq-field">Tangible property
                     <input name="tangible" type="text" maxlength="240">
                 </label>
             </section>
 
             <section data-step="distribution" hidden>
                 <h2 class="dq-h">Who inherits</h2>
-                <p class="dq-lead" data-couple>This happens at the second death. Debts, expenses, taxes, and specific gifts are paid first.</p>
-                <p class="dq-lead" data-single>This happens at the client's death. Debts, expenses, taxes, and specific gifts are paid first.</p>
                 <div class="dq-bens" id="dq-bens">
                     {% for n in [1, 2, 3, 4, 5] %}
                     <div class="dq-ben">
                         <span>{{ n }}</span>
-                        <input name="ben_name_{{ n }}" type="text" maxlength="120" placeholder="Beneficiary" aria-label="Beneficiary {{ n }}">
+                        <input name="ben_name_{{ n }}" type="text" maxlength="120" aria-label="Beneficiary {{ n }}">
                         <input class="dq-pct" name="ben_pct_{{ n }}" type="text" inputmode="decimal" maxlength="6" placeholder="%" aria-label="Share {{ n }} percent">
                         <div class="dq-pass">
                             <label class="dq-choice"><input type="radio" name="ben_pass_{{ n }}" value="stirpes"> Per stirpes</label>
@@ -357,15 +346,14 @@
                     {% endfor %}
                 </div>
                 <p class="dq-hint" id="dq-pct-total"></p>
-                <label class="dq-field">Specific provisions for distributions
+                <label class="dq-field">Provisions
                     <textarea name="provisions" rows="4" maxlength="4000"></textarea>
                 </label>
                 <label class="dq-field">Minor age
-                    <input name="minor_age" type="text" inputmode="numeric" maxlength="3" placeholder="Age a beneficiary receives the share outright">
+                    <input name="minor_age" type="text" inputmode="numeric" maxlength="3">
                 </label>
-                <p class="dq-hint">The age at which a beneficiary receives the share outright, or becomes their own trustee.</p>
                 <fieldset class="dq-set">
-                    <legend>If no one named above is living</legend>
+                    <legend>If none survive</legend>
                     <div class="dq-choices dq-choices-col">
                         <label class="dq-choice"><input type="radio" name="remote" value="heirs"> Heirs at law (Texas)</label>
                         <label class="dq-choice"><input type="radio" name="remote" value="charity"> Charity</label>
@@ -387,7 +375,7 @@
 
             <section data-step="review" hidden>
                 <h2 class="dq-h">Finished</h2>
-                <p class="dq-lead">The client still sees the plan. Download the answers for the file. A refresh clears this meeting. Nothing is saved on the server.</p>
+                <p class="dq-lead">Not saved.</p>
                 <button type="button" class="dq-download" id="dq-download">Download Completed Questionnaire</button>
             </section>
         </div>
@@ -400,7 +388,6 @@
     <aside class="dq-stage is-hero" id="dq-stage">
         <header class="dq-mast">
             <p class="dq-kicker">Revocable living trust</p>
-            <p class="dq-prompt" id="dq-prompt">The trust name will appear here.</p>
             <h2 class="dq-trust" id="dq-trust"></h2>
             <p class="dq-who" id="dq-who"></p>
         </header>

@@ -16,7 +16,7 @@
         { id: "health", label: "Health care" },
         { id: "wishes", label: "Wishes" },
         { id: "charge", label: "Who is in charge" },
-        { id: "living", label: "While you are living" },
+        { id: "living", label: "While living" },
         { id: "survivor", label: "At the first death", couple: true },
         { id: "assets", label: "Gifts and property" },
         { id: "distribution", label: "Who inherits" },
@@ -155,16 +155,14 @@
     function personCard(role, name, agents) {
         var card = el("article", "dq-person");
         card.appendChild(el("p", "dq-role", role));
-        card.appendChild(el("h3", "", name || "Name"));
+        if (name) card.appendChild(el("h3", "", name));
         if (agents.length) card.appendChild(numbered(agents));
-        else card.appendChild(el("p", "dq-note", "No one named yet."));
-        card.appendChild(el("p", "dq-note", "They make medical decisions, and they decide when you can no longer decide for yourself."));
         return card;
     }
 
     function wishCard(name, prefix) {
         var card = el("article", "dq-card");
-        card.appendChild(el("p", "dq-role", name || "Name"));
+        card.appendChild(el("p", "dq-role", name || "Client"));
         var rail = el("div", "dq-rail");
         [["slow", "Slow"], ["middle", "Middle"], ["express", "Express"]].forEach(function (pair) {
             var on = val(prefix + "_speed") === pair[0];
@@ -172,7 +170,7 @@
         });
         card.appendChild(rail);
         var bits = [];
-        if (val(prefix + "_doctors")) bits.push(doctors(val(prefix + "_doctors")) + " to confirm");
+        if (val(prefix + "_doctors")) bits.push(doctors(val(prefix + "_doctors")));
         if (val(prefix + "_organ")) bits.push("Organ donation: " + organ(val(prefix + "_organ")));
         if (val(prefix + "_disposition")) bits.push(disposition(val(prefix + "_disposition")));
         if (val(prefix + "_wishes")) bits.push(val(prefix + "_wishes"));
@@ -201,18 +199,18 @@
         var now = el("article", "dq-card");
         now.appendChild(el("p", "dq-role", "Alive and well"));
         now.appendChild(el("h3", "", read().people.join(" and ") || "You"));
-        now.appendChild(el("p", "", "You keep control. A co-trustee does not take over yet."));
+        now.appendChild(el("p", "", "You stay in control."));
         stack.appendChild(now);
 
         var next = el("article", "dq-card");
-        next.appendChild(el("p", "dq-role", "If you cannot manage it"));
-        var note = "The people named for health care confirm that.";
+        next.appendChild(el("p", "dq-role", "Disability"));
+        var note = "Agents confirm incapacity.";
         if (val("cotrustee") === "yes") {
             note += couple() && val("cotrustee_when") === "second"
-                ? " A co-trustee serves at the second disability or death."
-                : " A co-trustee then steps in.";
+                ? " Co-trustee at the 2nd disability or death."
+                : " Co-trustee steps in.";
         }
-        if (couple() && val("spouse_alone") === "yes") note += " The spouse may still serve alone.";
+        if (couple() && val("spouse_alone") === "yes") note += " Spouse may serve alone.";
         next.appendChild(el("p", "", note));
         var trustees = lines("trustee_", 4);
         if (trustees.length) {
@@ -221,7 +219,7 @@
         }
         var poa = lines("poa_", 4);
         if (poa.length) {
-            next.appendChild(el("p", "dq-role", "Financial power of attorney"));
+            next.appendChild(el("p", "dq-role", "Financial POA"));
             next.appendChild(numbered(poa));
         }
         stack.appendChild(next);
@@ -229,7 +227,7 @@
         var guardians = lines("guardian_", 3);
         if (guardians.length) {
             var guard = el("article", "dq-card");
-            guard.appendChild(el("p", "dq-role", "Guardians for minor children"));
+            guard.appendChild(el("p", "dq-role", "Guardians"));
             guard.appendChild(numbered(guardians));
             stack.appendChild(guard);
         }
@@ -240,22 +238,22 @@
         var stack = el("div", "dq-stack");
         var alive = el("article", "dq-card");
         alive.appendChild(el("p", "dq-role", "Alive and well"));
-        alive.appendChild(el("h3", "", "You stay in control"));
-        alive.appendChild(el("p", "", "This does not change your income tax. It is reported on your return under your Social Security number."));
-        alive.appendChild(el("p", "dq-warn", "These assets are not protected from a lawsuit."));
+        alive.appendChild(el("h3", "", "In control"));
+        alive.appendChild(el("p", "", "No tax change. Reported under your SSN."));
+        alive.appendChild(el("p", "dq-warn", "Not lawsuit protected."));
         stack.appendChild(alive);
 
         var chips = el("div", "dq-pills");
-        if (val("homecare")) chips.appendChild(el("span", "dq-pill", "Homecare: " + yn(val("homecare"))));
-        if (val("pets")) chips.appendChild(el("span", "dq-pill", "Pets: " + yn(val("pets"))));
-        if (val("protector")) chips.appendChild(el("span", "dq-pill", "Trust protector: " + yn(val("protector"))));
+        if (val("homecare")) chips.appendChild(el("span", "dq-pill", "Homecare " + yn(val("homecare"))));
+        if (val("pets")) chips.appendChild(el("span", "dq-pill", "Pets " + yn(val("pets"))));
+        if (val("protector")) chips.appendChild(el("span", "dq-pill", "Trust protector " + yn(val("protector"))));
         if (chips.childNodes.length) stack.appendChild(chips);
 
         if (val("children")) {
             var kids = el("article", "dq-card");
             kids.appendChild(el("p", "dq-role", "Children"));
             kids.appendChild(el("h3", "", val("children")));
-            kids.appendChild(el("p", "", "Support for health, education, and maintenance."));
+            kids.appendChild(el("p", "", "Health, education, and maintenance."));
             stack.appendChild(kids);
         }
 
@@ -282,14 +280,14 @@
         var pills = el("div", "dq-pills");
         if (val("remarriage") === "yes") pills.appendChild(el("span", "dq-pill", "Remarriage protection"));
         if (val("spouse_trustee") === "yes") pills.appendChild(el("span", "dq-pill", "Spouse stays trustee"));
-        if (val("prenuptial") === "yes") pills.appendChild(el("span", "dq-pill", "Prenuptial agreement applies"));
+        if (val("prenuptial") === "yes") pills.appendChild(el("span", "dq-pill", "Prenuptial agreement"));
         if (pills.childNodes.length) wrap.appendChild(pills);
         wrap.appendChild(el("p", "dq-branch-label", "At the first death"));
         wrap.appendChild(el("div", "dq-branch-bar"));
         var row = el("div", "dq-trust-row");
-        row.appendChild(trustCard("Revocable", "Survivor's trust", "The surviving spouse keeps full control of this share and can change it. Income and principal are available without limit."));
-        row.appendChild(trustCard("Irrevocable", "Marital trust", "The spouse receives all income. Principal is available for needs. What remains is part of the survivor's taxable estate."));
-        row.appendChild(trustCard("Irrevocable", "Family trust", "For the surviving spouse. Principal is for health, education, and maintenance. This share stays out of the survivor's taxable estate."));
+        row.appendChild(trustCard("Revocable", "Survivor's trust", "Spouse controls it and can change it."));
+        row.appendChild(trustCard("Irrevocable", "Marital trust", "All income to the spouse. Remainder is taxable."));
+        row.appendChild(trustCard("Irrevocable", "Family trust", "Needs only. Out of the survivor's estate."));
         wrap.appendChild(row);
         return wrap;
     }
@@ -307,7 +305,7 @@
         [
             ["Retirement accounts", lines("retirement_", 4)],
             ["Life insurance", lines("insurance_", 4)],
-            ["Specific gifts", lines("gift_", 6)],
+            ["Gifts", lines("gift_", 6)],
             ["Disinherit", lines("disinherit_", 4)]
         ].forEach(function (pair) {
             var card = groupCard(pair[0], pair[1]);
@@ -319,22 +317,19 @@
         if (val("subtrust") === "yes") facts.push("Subtrust");
         if (val("no_contest") === "yes") facts.push("No-contest clause");
         if (couple() && val("marital_agreement") === "yes") facts.push("Marital agreement");
-        if (val("deeds_tod") === "yes") facts.push("Deeds: transfer on death");
-        if (val("deeds_trust") === "yes") facts.push("Deeds: in the trust");
+        if (val("deeds_tod") === "yes") facts.push("TOD deeds");
+        if (val("deeds_trust") === "yes") facts.push("Deeds in trust");
         if (val("entities")) facts.push(val("entities"));
-        if (val("tangible")) facts.push("Tangible property: " + val("tangible"));
+        if (val("tangible")) facts.push("Tangible: " + val("tangible"));
         if (val("disinherit_mode")) facts.push(disinheritLabel(val("disinherit_mode")));
         var extra = groupCard("Also in the plan", facts);
         if (extra) stack.appendChild(extra);
-        if (!stack.childNodes.length) {
-            stack.appendChild(el("p", "dq-note", "Accounts, gifts, and instructions appear here as they are written."));
-        }
         return stack;
     }
 
     function renderDistribution() {
         var wrap = el("div", "");
-        wrap.appendChild(el("p", "dq-paid", "Paid first · debts, expenses, taxes, and specific gifts"));
+        wrap.appendChild(el("p", "dq-paid", "Debts, taxes, and gifts first"));
         var bar = el("div", "dq-bar");
         var listed = read().beneficiaries.filter(function (row) {
             return row.name || row.pct;
@@ -371,19 +366,19 @@
         var list = el("ul", "dq-share-list");
         listed.forEach(function (row) {
             var li = el("li");
-            var name = el("span", "", row.name || "Unnamed");
-            var meta = el("small", "", [row.pct ? row.pct + "%" : "Share not set", passLabel(row.pass)].filter(Boolean).join(" · "));
+            var name = el("span", "", row.name || "—");
+            var meta = el("small", "", [row.pct ? row.pct + "%" : "", passLabel(row.pass)].filter(Boolean).join(" · "));
             li.appendChild(name);
             li.appendChild(meta);
             list.appendChild(li);
         });
         wrap.appendChild(list);
-        if (val("minor_age")) wrap.appendChild(el("p", "dq-note", "At age " + val("minor_age") + ", a beneficiary receives the share outright or becomes their own trustee."));
-        if (val("remote") === "heirs") wrap.appendChild(el("p", "dq-note", "If no one named above is living, it passes to heirs under Texas law."));
-        if (val("remote") === "charity") wrap.appendChild(el("p", "dq-note", "If no one named above is living, it passes to " + (val("remote_charity") || "a charity") + "."));
+        if (val("minor_age")) wrap.appendChild(el("p", "dq-note", "Outright at " + val("minor_age") + "."));
+        if (val("remote") === "heirs") wrap.appendChild(el("p", "dq-note", "Otherwise, heirs at law (Texas)."));
+        if (val("remote") === "charity") wrap.appendChild(el("p", "dq-note", "Otherwise, " + (val("remote_charity") || "a charity") + "."));
         if (val("remote") === "named") {
             var names = [val("remote_named_1"), val("remote_named_2")].filter(Boolean).join(" and ");
-            wrap.appendChild(el("p", "dq-note", "If no one named above is living, it passes to " + (names || "the people named") + "."));
+            if (names) wrap.appendChild(el("p", "dq-note", "Otherwise, " + names + "."));
         }
         return wrap;
     }
@@ -406,8 +401,6 @@
         root.classList.toggle("is-cotrustee", val("cotrustee") === "yes");
         root.classList.toggle("is-remote-charity", val("remote") === "charity");
         root.classList.toggle("is-remote-named", val("remote") === "named");
-        root.classList.toggle("has-name", !!data.trust);
-
         stage.classList.toggle("is-hero", stepId === "people");
         stage.classList.toggle("is-settled", stepId !== "people");
         trustEl.textContent = data.trust;
@@ -578,7 +571,7 @@
             });
         }
         section("The trust", [
-            row("Household", data.couple ? "Couple" : "Single client"),
+            row("Household", data.couple ? "Couple" : "Single"),
             row("Client", data.client),
             data.couple ? row("Spouse", data.spouse) : "",
             row("Trust name", data.trust)
@@ -590,30 +583,30 @@
             return [
                 name,
                 row("Pace", pace(val(prefix + "_speed"))),
-                row("Physicians", doctors(val(prefix + "_doctors"))),
+                row("Doctors", doctors(val(prefix + "_doctors"))),
                 row("Organ donation", organ(val(prefix + "_organ"))),
                 row("Disposition", disposition(val(prefix + "_disposition"))),
                 row("Specific requests", val(prefix + "_wishes"))
             ];
         }
-        section("Living will and final wishes", wishes("client", data.client || "Client").concat(
+        section("Wishes", wishes("client", data.client || "Client").concat(
             data.couple ? wishes("spouse", data.spouse || "Spouse") : []
         ));
         section("Who is in charge", [
             row("Name a co-trustee", yn(val("cotrustee"))),
             data.couple && val("cotrustee") === "yes" ? row("Co-trustee serves upon", val("cotrustee_when") === "first" ? "1st disability or death" : val("cotrustee_when") === "second" ? "2nd disability or death" : "—") : "",
-            !data.couple && val("cotrustee") === "yes" ? "Co-trustee serves at disability or death." : "",
+            !data.couple && val("cotrustee") === "yes" ? "At disability or death." : "",
             data.couple && val("cotrustee") === "yes" ? row("Spouse may serve alone", yn(val("spouse_alone"))) : "",
             listRow("Trustees", lines("trustee_", 4)),
-            listRow("Financial power of attorney", lines("poa_", 4)),
-            row("Executor and trustee are the same", yn(val("executor_same"))),
-            listRow("Guardians for minor children", lines("guardian_", 3))
+            listRow("Financial POA", lines("poa_", 4)),
+            row("Same as trustees", yn(val("executor_same"))),
+            listRow("Guardians", lines("guardian_", 3))
         ].filter(Boolean));
-        section("While you are living", [
+        section("While living", [
             row("Homecare", yn(val("homecare"))),
             row("Children", val("children")),
-            "Support standard: health, education, and maintenance.",
-            row("Pet provisions", yn(val("pets"))),
+            "Health, education, and maintenance.",
+            row("Pets", yn(val("pets"))),
             row("Trust protector", yn(val("protector"))),
             listRow("Priority", lines("priority_", 3)),
             row("Specific requests", val("admin_notes")),
@@ -623,7 +616,7 @@
         if (data.couple) {
             section("At the first death", [
                 row("Remarriage protection", yn(val("remarriage"))),
-                row("Spouse stays as trustee", yn(val("spouse_trustee"))),
+                row("Spouse stays trustee", yn(val("spouse_trustee"))),
                 row("Prenuptial agreement", yn(val("prenuptial")))
             ]);
         }
@@ -638,13 +631,13 @@
             row("Deeds, transfer on death", val("deeds_tod") === "yes" ? "Yes" : "No"),
             row("Deeds, in trust", val("deeds_trust") === "yes" ? "Yes" : "No"),
             row("Entities", val("entities")),
-            listRow("Specific distributions", lines("gift_", 6)),
+            listRow("Gifts", lines("gift_", 6)),
             row("Limited power of appointment, terms", yn(val("lpoa_terms"))),
             row("Limited power of appointment, percentage limit", yn(val("lpoa_percent"))),
             row("Limited power of appointment, charities", yn(val("lpoa_charity"))),
             row("Disinherit", disinheritLabel(val("disinherit_mode"))),
             listRow("Disinherit names", lines("disinherit_", 4)),
-            row("Tangible personal property", val("tangible"))
+            row("Tangible property", val("tangible"))
         ].filter(Boolean));
         var shareRows = data.beneficiaries.map(function (share, index) {
             return row("Beneficiary " + (index + 1), [share.name, share.pct ? share.pct + "%" : "", passLabel(share.pass)].filter(Boolean).join(", "));
@@ -654,9 +647,9 @@
         if (val("remote") === "charity") remote = "Charity: " + (val("remote_charity") || "—");
         if (val("remote") === "named") remote = "Named: " + ([val("remote_named_1"), val("remote_named_2")].filter(Boolean).join("; ") || "—");
         section(data.couple ? "Final distribution, at the second death" : "Final distribution", shareRows.concat([
-            row("Specific provisions", val("provisions")),
+            row("Provisions", val("provisions")),
             row("Minor age", val("minor_age")),
-            row("If no one named above is living", remote)
+            row("If none survive", remote)
         ]));
         return blocks;
     }

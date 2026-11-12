@@ -377,23 +377,15 @@
     margin-bottom: 0.55rem;
 }
 
-.dq-prompt,
-.dq-trust {
-    font-weight: 560;
-    letter-spacing: -0.035em;
-    line-height: 1.02;
-}
-
-.dq-prompt {
-    font-size: clamp(2rem, 4vw, 3.4rem);
-    color: rgba(26, 26, 26, 0.22);
-}
-
-.dq.has-name .dq-prompt {
+.dq-trust:empty,
+.dq-who:empty {
     display: none;
 }
 
 .dq-trust {
+    font-weight: 560;
+    letter-spacing: -0.035em;
+    line-height: 1.02;
     font-size: clamp(2.7rem, 5.2vw, 5rem);
     transition: font-size 0.7s cubic-bezier(0.22, 0.8, 0.28, 1);
 }
