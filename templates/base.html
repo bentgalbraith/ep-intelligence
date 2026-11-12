@@ -20,6 +20,17 @@
     {% block body %}{% endblock %}
     {% block scripts %}{% endblock %}
     {% if show_feedback_widget %}
+    <script>
+    (function () {
+        try {
+            var raw = sessionStorage.getItem('ep_feedback_widget_dismissed_at');
+            var at = raw ? parseInt(raw, 10) : NaN;
+            if (isFinite(at) && (Date.now() - at) < 32 * 60 * 60 * 1000) {
+                document.documentElement.classList.add('ep-feedback-dismissed');
+            }
+        } catch (e) {}
+    })();
+    </script>
     <div class="feedback-widget" id="feedback-widget">
         <div class="feedback-widget-panel" id="feedback-widget-panel" hidden>
             <p class="feedback-widget-title">Send feedback</p>

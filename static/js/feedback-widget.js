@@ -61,6 +61,7 @@
             restoreTimer = null;
         }
         clearDismiss();
+        document.documentElement.classList.remove('ep-feedback-dismissed');
         root.hidden = false;
     }
 
@@ -74,6 +75,7 @@
 
     function hideForDismiss(dismissedAt) {
         setOpen(false);
+        document.documentElement.classList.add('ep-feedback-dismissed');
         root.hidden = true;
         const remaining = DISMISS_MS - (Date.now() - dismissedAt);
         if (remaining > 0) scheduleRestore(remaining);

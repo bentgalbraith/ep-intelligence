@@ -3268,7 +3268,8 @@ a.specimen-name:hover {
     pointer-events: none;
 }
 
-.feedback-widget[hidden] {
+.feedback-widget[hidden],
+html.ep-feedback-dismissed .feedback-widget {
     display: none !important;
 }
 
