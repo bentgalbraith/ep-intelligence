@@ -253,6 +253,33 @@ class FeedItemTest(unittest.TestCase):
         items = usage_tools.feed_items(rows)
         self.assertEqual(items[0]["error"], "truncated")
 
+    def test_feed_items_include_product_tool_key(self):
+        rows = [
+            at(0, "validate_signatures_verify", status="error"),
+            at(1, "validate_signatures"),
+        ]
+        items = usage_tools.feed_items(rows)
+        self.assertEqual(items[0]["tool_key"], "validate_signatures")
+        self.assertEqual(items[0]["status"], "success")
+
+    def test_firm_tool_sections_hide_soft_hop_failures(self):
+        rows = [
+            at(0, "validate_signatures_verify", status="error", employee="E1", name="Ada"),
+            at(1, "validate_signatures", employee="E1", name="Ada"),
+            at(20, "validate_signatures_scan", status="error", employee="E2", name="Bea"),
+        ]
+        items = usage_tools.feed_items(rows)
+        sections = usage_tools.firm_tool_sections(items)
+        self.assertEqual(len(sections), 1)
+        section = sections[0]
+        self.assertEqual(section["tool"], "validate_signatures")
+        self.assertEqual(section["calls"], 2)
+        self.assertEqual(sum(s["calls"] for s in sections), len(items))
+        self.assertEqual(
+            [(e["status"], e["employee_name"]) for e in section["events"]],
+            [("error", "Bea"), ("success", "Ada")],
+        )
+
     def test_cost_formats(self):
         self.assertEqual(usage_tools.format_feed_cost(None), "")
         self.assertEqual(usage_tools.format_feed_cost(0), "$0.00")

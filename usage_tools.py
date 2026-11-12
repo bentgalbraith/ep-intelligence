@@ -261,9 +261,44 @@ def _feed_item(rows):
         "employee_name": person.get("employee_name") or "",
         "employee_id_code": person.get("employee_id_code") or "",
         "tool": _feed_label(rows),
+        "tool_key": product_key(person.get("tool")) or "unknown",
         "status": _feed_status(rows),
         "error": _feed_error(rows),
     }
+
+
+def firm_tool_sections(items, per_tool=100):
+    """Group feed items into the firm dashboard's by-tool log.
+
+    One event per use. Status comes from feed semantics (parent wins when the
+    run finished), so soft hop failures do not show as Failed uses.
+    """
+    by_tool = {}
+    for item in items:
+        key = item.get("tool_key") or "unknown"
+        bucket = by_tool.setdefault(key, {"events": [], "calls": 0, "last_seen": None})
+        bucket["calls"] += 1
+        if bucket["last_seen"] is None:
+            bucket["last_seen"] = item.get("timestamp")
+        if len(bucket["events"]) < per_tool:
+            bucket["events"].append({
+                "timestamp": item.get("timestamp"),
+                "employee_id_code": item.get("employee_id_code") or "",
+                "employee_name": item.get("employee_name") or "",
+                "status": item.get("status") or "success",
+                "tool": key,
+            })
+    sections = []
+    for key, bucket in by_tool.items():
+        sections.append({
+            "tool": key,
+            "calls": bucket["calls"],
+            "last_seen": bucket["last_seen"],
+            "events": bucket["events"],
+            "events_capped": bucket["calls"] > len(bucket["events"]),
+        })
+    sections.sort(key=lambda section: (-int(section["calls"]), section["tool"] or ""))
+    return sections
 
 
 def _execution_seconds(row):

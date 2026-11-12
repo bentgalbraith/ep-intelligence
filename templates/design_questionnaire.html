@@ -19,7 +19,7 @@
     <a href="{{ url_for('logout') }}" class="btn-pill btn-sm">Log Out</a>
 </nav>
 
-<main class="dq is-couple" id="dq" data-firm="{{ firm_name or 'EP Intelligence' }}">
+<main class="dq is-couple" id="dq" data-firm="{{ firm_name or 'EP Intelligence' }}" data-use-url="{{ url_for('api_design_questionnaire_use') }}">
     <form class="dq-form" id="dq-form" autocomplete="off" spellcheck="false">
         <div class="dq-progress" id="dq-progress" role="tablist" aria-label="Sections"></div>
         <div class="dq-scroll">

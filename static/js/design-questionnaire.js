@@ -10,6 +10,22 @@
     var nextBtn = document.getElementById("dq-next");
     var pctTotal = document.getElementById("dq-pct-total");
     var firm = root.getAttribute("data-firm") || "EP Intelligence";
+    var useUrl = root.getAttribute("data-use-url") || "";
+    var usageLogged = false;
+
+    function logDesignQuestionnaireUse() {
+        if (usageLogged || !useUrl) return;
+        usageLogged = true;
+        fetch(useUrl, {
+            method: "POST",
+            credentials: "same-origin",
+            keepalive: true,
+        }).then(function (res) {
+            if (!res.ok) usageLogged = false;
+        }).catch(function () {
+            usageLogged = false;
+        });
+    }
 
     var STEPS = [
         { id: "people", label: "The trust" },
@@ -493,10 +509,12 @@
 
     form.addEventListener("submit", function (event) { event.preventDefault(); });
     form.addEventListener("input", function () {
+        logDesignQuestionnaireUse();
         cancelAnimationFrame(frame);
         frame = requestAnimationFrame(function () { paint(false); });
     });
     form.addEventListener("change", function (event) {
+        logDesignQuestionnaireUse();
         if (event.target.name === "household" && !steps().some(function (step) { return step.id === stepId; })) {
             go("assets");
             return;
@@ -736,6 +754,7 @@
     }
 
     document.getElementById("dq-download").addEventListener("click", function () {
+        logDesignQuestionnaireUse();
         var data = read();
         var pdf = buildPdf(questionnaireBlocks());
         var blob = new Blob([pdf], { type: "application/pdf" });

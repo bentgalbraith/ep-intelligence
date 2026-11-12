@@ -2,7 +2,11 @@
     const root = document.getElementById('feedback-widget');
     if (!root) return;
 
+    const STORAGE_KEY = 'ep_feedback_widget_dismissed_at';
+    const DISMISS_MS = 32 * 60 * 60 * 1000;
+
     const toggle = document.getElementById('feedback-widget-toggle');
+    const dismissBtn = document.getElementById('feedback-widget-dismiss');
     const panel = document.getElementById('feedback-widget-panel');
     const form = document.getElementById('feedback-widget-form');
     const messageEl = document.getElementById('feedback-widget-message');
@@ -11,6 +15,24 @@
     const submitBtn = document.getElementById('feedback-widget-submit');
     const cancelBtn = document.getElementById('feedback-widget-cancel');
     let thanksTimer = null;
+    let restoreTimer = null;
+
+    function readDismissedAt() {
+        try {
+            const raw = sessionStorage.getItem(STORAGE_KEY);
+            if (!raw) return null;
+            const at = parseInt(raw, 10);
+            return Number.isFinite(at) ? at : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function clearDismiss() {
+        try {
+            sessionStorage.removeItem(STORAGE_KEY);
+        } catch (_) { /* ignore */ }
+    }
 
     function clearThanksTimer() {
         if (thanksTimer) {
@@ -31,6 +53,54 @@
         toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
         root.classList.toggle('is-open', open);
         if (open) messageEl.focus();
+    }
+
+    function showWidget() {
+        if (restoreTimer) {
+            clearTimeout(restoreTimer);
+            restoreTimer = null;
+        }
+        clearDismiss();
+        root.hidden = false;
+    }
+
+    function scheduleRestore(ms) {
+        if (restoreTimer) clearTimeout(restoreTimer);
+        restoreTimer = setTimeout(function () {
+            restoreTimer = null;
+            showWidget();
+        }, Math.max(0, ms));
+    }
+
+    function hideForDismiss(dismissedAt) {
+        setOpen(false);
+        root.hidden = true;
+        const remaining = DISMISS_MS - (Date.now() - dismissedAt);
+        if (remaining > 0) scheduleRestore(remaining);
+        else showWidget();
+    }
+
+    function dismissWidget() {
+        const at = Date.now();
+        try {
+            sessionStorage.setItem(STORAGE_KEY, String(at));
+        } catch (_) { /* ignore */ }
+        hideForDismiss(at);
+    }
+
+    const existingDismiss = readDismissedAt();
+    if (existingDismiss != null && (Date.now() - existingDismiss) < DISMISS_MS) {
+        hideForDismiss(existingDismiss);
+    } else if (existingDismiss != null) {
+        clearDismiss();
+    }
+
+    if (dismissBtn) {
+        dismissBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            dismissWidget();
+        });
     }
 
     toggle.addEventListener('click', function () {

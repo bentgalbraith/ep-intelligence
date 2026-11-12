@@ -39,12 +39,19 @@
             </form>
             <p class="feedback-widget-thanks" id="feedback-widget-status" hidden>Thanks — we got it.</p>
         </div>
-        <button type="button" class="feedback-widget-btn" id="feedback-widget-toggle" aria-expanded="false" aria-controls="feedback-widget-panel">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-            </svg>
-            Feedback
-        </button>
+        <div class="feedback-widget-launcher">
+            <button type="button" class="feedback-widget-dismiss" id="feedback-widget-dismiss" aria-label="Hide feedback widget" title="Hide">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+            </button>
+            <button type="button" class="feedback-widget-btn" id="feedback-widget-toggle" aria-expanded="false" aria-controls="feedback-widget-panel">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+                Feedback
+            </button>
+        </div>
     </div>
     <script src="{{ url_for('static', filename='js/feedback-widget.js') }}"></script>
     {% endif %}

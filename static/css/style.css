@@ -3268,9 +3268,45 @@ a.specimen-name:hover {
     pointer-events: none;
 }
 
+.feedback-widget[hidden] {
+    display: none !important;
+}
+
 .feedback-widget-btn,
-.feedback-widget-panel {
+.feedback-widget-panel,
+.feedback-widget-dismiss {
     pointer-events: auto;
+}
+
+.feedback-widget-launcher {
+    position: relative;
+    display: inline-flex;
+}
+
+.feedback-widget-dismiss {
+    position: absolute;
+    top: -0.35rem;
+    right: -0.35rem;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.15rem;
+    height: 1.15rem;
+    padding: 0;
+    color: #6b7280;
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 999px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.feedback-widget-dismiss:hover {
+    color: #1a1a1a;
+    background: #f3f4f6;
+    border-color: rgba(0, 0, 0, 0.2);
 }
 
 .feedback-widget-btn {

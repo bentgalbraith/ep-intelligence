@@ -1004,14 +1004,6 @@ def _firm_usage_days_from_request():
     return _request_usage_period()
 
 
-def _firm_usage_person_key(row):
-    return (
-        str(row.get("employee_id") or ""),
-        row.get("employee_id_code") or "",
-        row.get("employee_name") or "",
-    )
-
-
 def _render_firm_usage_dashboard():
     firm_id = session.get("usage_dash_firm_id")
     if not firm_id:
@@ -1025,13 +1017,11 @@ def _render_firm_usage_dashboard():
     }
     people = []
     tools = []
+    uses = []
 
     if tracker_db.DATABASE_URL:
         row = tracker_db.firm_usage_overview(firm_id, **window)
         if row:
-            overview["calls"] = int(row.get("calls") or 0)
-            overview["last_seen"] = row.get("last_seen")
-            overview["tools"] = int(row.get("tools") or 0)
             overview["cost"] = float(row.get("cost") or 0)
             # Firm "Model" is OpenAI plus Gemini. Admin lists those providers separately.
             overview["cost_openai"] = (
@@ -1039,42 +1029,64 @@ def _render_firm_usage_dashboard():
             )
             overview["cost_ocr"] = float(row.get("cost_ocr") or 0)
 
-        events_by_tool = {}
-        for event in tracker_db.firm_usage_recent_events(firm_id, **window):
-            events_by_tool.setdefault(event.get("tool"), []).append(dict(event))
+        # Same use grouping as the admin feed so soft hop failures are not
+        # separate Failed rows under Validate Signatures and similar tools.
+        feed_rows = tracker_db.usage_feed_rows(
+            firm_id=firm_id, limit=8000, **window,
+        )
+        uses = usage_tools.feed_items(feed_rows)
+        overview["calls"] = len(uses)
+        overview["last_seen"] = uses[0]["timestamp"] if uses else None
+        overview["tools"] = len({item.get("tool_key") for item in uses})
 
-        for raw in tracker_db.firm_usage_by_tool(firm_id, **window):
-            tool_key = raw.get("tool")
-            events = events_by_tool.get(tool_key, [])
+        for section in usage_tools.firm_tool_sections(uses, per_tool=100):
+            tool_key = section["tool"]
             tools.append({
-                "tool": tool_key,
+                **section,
                 "label": _usage_label_tool(tool_key),
-                "calls": int(raw.get("calls") or 0),
-                "last_seen": raw.get("last_seen"),
-                "events": events,
-                "events_capped": int(raw.get("calls") or 0) > len(events),
             })
 
-        tools_by_person = {}
-        for t in tracker_db.firm_usage_tools_by_employee(firm_id, **window):
-            key = _firm_usage_person_key(t)
-            tools_by_person.setdefault(key, []).append({
-                "label": _usage_label_tool(t.get("tool")),
-                "calls": int(t.get("calls") or 0),
+        person_stats = {}
+        for item in uses:
+            code = item.get("employee_id_code") or ""
+            name = item.get("employee_name") or ""
+            tool_key = item.get("tool_key") or "unknown"
+            stats = person_stats.setdefault(code, {
+                "employee_id": None,
+                "employee_id_code": code,
+                "employee_name": name,
+                "calls": 0,
+                "last_seen": None,
+                "tool_counts": collections.Counter(),
             })
+            stats["calls"] += 1
+            if not stats["employee_name"] and name:
+                stats["employee_name"] = name
+            if stats["last_seen"] is None:
+                stats["last_seen"] = item.get("timestamp")
+            stats["tool_counts"][tool_key] += 1
 
-        seen = set()
-        for raw in tracker_db.firm_usage_by_employee(firm_id, **window):
-            item = dict(raw)
-            key = _firm_usage_person_key(item)
-            seen.add(item.get("employee_id_code") or "")
-            item["calls"] = int(item.get("calls") or 0)
-            item["tools"] = tools_by_person.get(key, [])
-            people.append(item)
+        people_by_code = {}
+        for code, stats in person_stats.items():
+            tool_counts = stats.pop("tool_counts")
+            person = {
+                **stats,
+                "tools": [
+                    {"label": _usage_label_tool(tool), "calls": count}
+                    for tool, count in tool_counts.most_common()
+                ],
+            }
+            people.append(person)
+            people_by_code[code] = person
 
         for emp in tracker_db.list_employees(firm_id):
             code = emp.get("employee_id_code") or ""
-            if code in seen:
+            person = people_by_code.get(code)
+            if person is not None:
+                if person.get("employee_id") is None:
+                    person["employee_id"] = emp.get("id")
+                if not person.get("employee_name"):
+                    person["employee_name"] = emp.get("name")
                 continue
             people.append({
                 "employee_id": emp.get("id"),
@@ -1088,7 +1100,7 @@ def _render_firm_usage_dashboard():
         people.sort(key=lambda p: (-int(p.get("calls") or 0), (p.get("employee_name") or "").lower()))
         overview["people"] = sum(1 for p in people if int(p.get("calls") or 0) > 0)
 
-    chart = _firm_usage_chart_series(firm_id, days, start, end)
+    chart = _firm_usage_chart_series(firm_id, days, start, end, items=uses)
     show_costs = bool(tracker_db.firm_usage_dashboard_show_costs(firm_id))
     cost_series = _usage_cost_series(days, firm_id, None, start, end) if show_costs else []
 
@@ -2677,6 +2689,18 @@ def design_questionnaire():
     return render_template("design_questionnaire.html", firm_name=session.get("firm_name", ""))
 
 
+@app.route("/api/design-questionnaire/use", methods=["POST"])
+@login_required
+@tool_enabled("design_questionnaire")
+def api_design_questionnaire_use():
+    log_tool_use(
+        tool="design_questionnaire",
+        status="success",
+        firm_id=session.get("firm_id"),
+    )
+    return ("", 204)
+
+
 # ---------------------------------------------------------------------------
 # Summarize Documents for Clients
 # ---------------------------------------------------------------------------
@@ -3495,15 +3519,34 @@ _FIRM_USAGE_CHART_COLORS = [
 ]
 
 
-def _firm_usage_chart_series(firm_id, days, start=None, end=None):
-    if not tracker_db.DATABASE_URL or not firm_id:
+def _firm_usage_chart_series(firm_id, days, start=None, end=None, items=None):
+    if not firm_id:
+        return None
+    if items is None and not tracker_db.DATABASE_URL:
         return None
 
     buckets = collections.defaultdict(lambda: collections.defaultdict(int))
     tool_totals = collections.defaultdict(int)
     custom_day = bool(start and end and start == end)
 
-    if custom_day or days == 1:
+    def _add(tool, when, n=1):
+        buckets[when][tool] += n
+        tool_totals[tool] += n
+
+    if items is not None:
+        for item in items:
+            tool = item.get("tool_key") or "unknown"
+            ts = item.get("timestamp")
+            if not ts:
+                continue
+            when = _as_et_hour(ts)
+            if when is None:
+                continue
+            if custom_day or days == 1:
+                _add(tool, when)
+            else:
+                _add(tool, when.date())
+    elif custom_day or days == 1:
         if custom_day:
             rows = tracker_db.firm_usage_by_hour_tool(firm_id, start=start, end=end)
         else:
@@ -3513,11 +3556,19 @@ def _firm_usage_chart_series(firm_id, days, start=None, end=None):
             if not hour:
                 continue
             tool = row.get("tool") or "unknown"
-            n = int(row.get("calls") or 0)
-            buckets[hour][tool] += n
-            tool_totals[tool] += n
-        if not tool_totals:
-            return None
+            _add(tool, hour, int(row.get("calls") or 0))
+    else:
+        for row in tracker_db.firm_usage_by_day_tool(firm_id, days=days, start=start, end=end):
+            day = _as_date(row.get("day"))
+            if not day:
+                continue
+            tool = row.get("tool") or "unknown"
+            _add(tool, day, int(row.get("calls") or 0))
+
+    if not tool_totals:
+        return None
+
+    if custom_day or days == 1:
         if custom_day:
             first, last = _calendar_day_hours(start)
         else:
@@ -3540,17 +3591,6 @@ def _firm_usage_chart_series(firm_id, days, start=None, end=None):
             })
             cursor += timedelta(hours=1)
     else:
-        for row in tracker_db.firm_usage_by_day_tool(firm_id, days=days, start=start, end=end):
-            day = _as_date(row.get("day"))
-            if not day:
-                continue
-            tool = row.get("tool") or "unknown"
-            n = int(row.get("calls") or 0)
-            buckets[day][tool] += n
-            tool_totals[tool] += n
-        if not tool_totals:
-            return None
-
         today = datetime.now(_EASTERN).date()
         if start and end:
             axis_start, axis_end = start, end
@@ -3568,9 +3608,9 @@ def _firm_usage_chart_series(firm_id, days, start=None, end=None):
 
         if use_week:
             weekly = collections.defaultdict(lambda: collections.defaultdict(int))
-            for day, tools in buckets.items():
+            for day, day_tools in buckets.items():
                 key = _monday(day)
-                for tool, n in tools.items():
+                for tool, n in day_tools.items():
                     weekly[key][tool] += n
             cursor = _monday(axis_start)
             end_week = _monday(axis_end)
