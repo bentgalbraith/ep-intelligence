@@ -457,6 +457,7 @@ _OPT_IN_TOOLS = {
     "actionstep_schedule",
     "validate_signatures",
     "client_doc_summary",
+    "design_questionnaire",
 }
 
 
@@ -2599,6 +2600,17 @@ def _pdf_disposition(name):
 
 
 # ---------------------------------------------------------------------------
+# Design Questionnaire
+# ---------------------------------------------------------------------------
+
+@app.route("/design-questionnaire")
+@login_required
+@tool_enabled("design_questionnaire")
+def design_questionnaire():
+    return render_template("design_questionnaire.html", firm_name=session.get("firm_name", ""))
+
+
+# ---------------------------------------------------------------------------
 # Summarize Documents for Clients
 # ---------------------------------------------------------------------------
 
@@ -4270,6 +4282,7 @@ def _parse_config_from_form(form):
         "actionstep_schedule": bool(form.get("tool_actionstep_schedule")),
         "validate_signatures": bool(form.get("tool_validate_signatures")),
         "client_doc_summary": bool(form.get("tool_client_doc_summary")),
+        "design_questionnaire": bool(form.get("tool_design_questionnaire")),
     }
 
     for key, tool in (

@@ -2547,6 +2547,10 @@ a.doc-list-item--link:hover {
     border-bottom: none;
 }
 
+.admin-tool-group .admin-section:last-of-type {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
 .admin-section-title {
     font-size: 0.95rem;
     font-weight: 600;
@@ -2598,7 +2602,8 @@ a.doc-list-item--link:hover {
 }
 
 .admin-section.is-open > .admin-collapse-btn .admin-collapse-chevron,
-.admin-section.is-open > .admin-collapse-row .admin-collapse-chevron {
+.admin-section.is-open > .admin-collapse-row .admin-collapse-chevron,
+.admin-tool-group.is-open > .admin-collapse-btn .admin-collapse-chevron {
     transform: rotate(180deg);
 }
 
@@ -2616,6 +2621,32 @@ a.doc-list-item--link:hover {
 
 .admin-tools-intro {
     margin: 0.65rem 0 0.15rem;
+}
+
+.admin-tool-group {
+    margin: 0.85rem 0 0;
+    padding: 0;
+    border-bottom: none;
+}
+
+.admin-tools-intro + .admin-tool-group {
+    margin-top: 0.5rem;
+}
+
+.admin-tool-group-title {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgba(0, 0, 0, 0.38);
+}
+
+.admin-tool-group > .admin-collapse-btn .admin-collapse-chevron {
+    color: rgba(0, 0, 0, 0.28);
+}
+
+.admin-tool-group > .admin-section-body {
+    padding-top: 0.15rem;
 }
 
 .admin-tool-toggle {

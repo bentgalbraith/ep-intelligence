@@ -141,7 +141,14 @@
         {% set tools = cfg.get('tools_enabled', {}) %}
         {% set tools_default = firm is not none %}
         {% set tracker_code_required = not firm or is_duplicate or not firm.id or not firm.tracker_access_code_plain %}
-        <p class="admin-hint admin-tools-intro">Enable tools from the list. Expand a tool to edit its settings. Turning a tool off does not delete its saved settings.</p>
+        <p class="admin-hint admin-tools-intro">Enable tools from the list, grouped by the firm each tool was first built for. Expand a tool to edit its settings. Turning a tool off does not delete its saved settings.</p>
+
+        <section class="admin-tool-group is-open" data-collapsible>
+            <button type="button" class="admin-collapse-btn" aria-expanded="true">
+                <span class="admin-tool-group-title">Galbraith Weatherbie Law</span>
+                {{ collapse_chevron() }}
+            </button>
+            <div class="admin-section-body">
 
         <section class="admin-section{% if start_open %} is-open{% endif %}" data-collapsible>
             <div class="admin-collapse-row">
@@ -260,6 +267,20 @@
             <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_compare_diagram_drafts" value="1" {{ 'checked' if tools.get('compare_diagram_drafts') }}> Compare EP Diagram vs. Drafts</label>
         </section>
 
+        <section class="admin-section">
+            <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_client_doc_summary" value="1" {{ 'checked' if tools.get('client_doc_summary') }}> Summarize Documents for Clients</label>
+        </section>
+
+            </div>
+        </section>
+
+        <section class="admin-tool-group is-open" data-collapsible>
+            <button type="button" class="admin-collapse-btn" aria-expanded="true">
+                <span class="admin-tool-group-title">Texas Trust Law</span>
+                {{ collapse_chevron() }}
+            </button>
+            <div class="admin-section-body">
+
         <section class="admin-section{% if start_open %} is-open{% endif %}" data-collapsible>
             <div class="admin-collapse-row">
                 <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_actionstep_schedule" value="1" data-tool-toggle="actionstep_schedule" {{ 'checked' if tools.get('actionstep_schedule') }}> Visualize Actionstep Schedule</label>
@@ -294,7 +315,10 @@
         </section>
 
         <section class="admin-section">
-            <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_client_doc_summary" value="1" {{ 'checked' if tools.get('client_doc_summary') }}> Summarize Documents for Clients</label>
+            <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_design_questionnaire" value="1" {{ 'checked' if tools.get('design_questionnaire') }}> Design Questionnaire</label>
+        </section>
+
+            </div>
         </section>
 
     </form>
@@ -346,17 +370,29 @@
 {% block scripts %}
 <script>
 (function() {
+    function sectionButtons(section) {
+        return section.querySelectorAll(':scope > .admin-collapse-btn, :scope > .admin-collapse-row .admin-collapse-btn');
+    }
+
     function setSectionOpen(section, open) {
         section.classList.toggle('is-open', open);
-        var body = section.querySelector('.admin-section-body');
+        var body = section.querySelector(':scope > .admin-section-body');
         if (body) body.hidden = !open;
-        section.querySelectorAll('.admin-collapse-btn').forEach(function(btn) {
+        sectionButtons(section).forEach(function(btn) {
             btn.setAttribute('aria-expanded', open ? 'true' : 'false');
         });
     }
 
+    function openCollapsibleAncestors(node) {
+        var section = node.closest('[data-collapsible]');
+        while (section) {
+            setSectionOpen(section, true);
+            section = section.parentElement && section.parentElement.closest('[data-collapsible]');
+        }
+    }
+
     document.querySelectorAll('[data-collapsible]').forEach(function(section) {
-        section.querySelectorAll('.admin-collapse-btn').forEach(function(btn) {
+        sectionButtons(section).forEach(function(btn) {
             btn.addEventListener('click', function() {
                 setSectionOpen(section, !section.classList.contains('is-open'));
             });
@@ -465,8 +501,7 @@
     });
 
     form.addEventListener('invalid', function(e) {
-        var section = e.target.closest('[data-collapsible]');
-        if (section) setSectionOpen(section, true);
+        openCollapsibleAncestors(e.target);
     }, true);
 
     form.addEventListener('submit', function(e) {
@@ -476,8 +511,7 @@
         );
         if (bad) {
             e.preventDefault();
-            var section = bad.closest('[data-collapsible]');
-            if (section) setSectionOpen(section, true);
+            openCollapsibleAncestors(bad);
             bad.focus();
             bad.scrollIntoView({ behavior: 'smooth', block: 'center' });
             return;
