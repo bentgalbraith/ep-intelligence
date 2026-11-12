@@ -337,7 +337,10 @@
                     <div class="dq-ben">
                         <span>{{ n }}</span>
                         <input name="ben_name_{{ n }}" type="text" maxlength="120" aria-label="Beneficiary {{ n }}">
-                        <input class="dq-pct" name="ben_pct_{{ n }}" type="text" inputmode="decimal" maxlength="6" placeholder="%" aria-label="Share {{ n }} percent">
+                        <label class="dq-pct-wrap">
+                            <input class="dq-pct" name="ben_pct_{{ n }}" type="text" inputmode="decimal" maxlength="6" aria-label="Share {{ n }} percent">
+                            <span>%</span>
+                        </label>
                         <div class="dq-pass">
                             <label class="dq-choice"><input type="radio" name="ben_pass_{{ n }}" value="stirpes"> Per stirpes</label>
                             <label class="dq-choice"><input type="radio" name="ben_pass_{{ n }}" value="rata"> Pro rata</label>

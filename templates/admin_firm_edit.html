@@ -141,11 +141,14 @@
         {% set tools = cfg.get('tools_enabled', {}) %}
         {% set tools_default = firm is not none %}
         {% set tracker_code_required = not firm or is_duplicate or not firm.id or not firm.tracker_access_code_plain %}
-        <p class="admin-hint admin-tools-intro">Enable tools from the list, grouped by the firm each tool was first built for. Expand a tool to edit its settings. Turning a tool off does not delete its saved settings.</p>
+        <h3 class="admin-section-title admin-tools-label">Enable Tools</h3>
 
         <section class="admin-tool-group is-open" data-collapsible>
             <button type="button" class="admin-collapse-btn" aria-expanded="true">
-                <span class="admin-tool-group-title">Galbraith Weatherbie Law</span>
+                <span class="admin-tool-group-heading">
+                    <span class="admin-tool-group-kicker">Tools originated for</span>
+                    <span class="admin-tool-group-title">Galbraith Weatherbie Law</span>
+                </span>
                 {{ collapse_chevron() }}
             </button>
             <div class="admin-section-body">
@@ -276,7 +279,10 @@
 
         <section class="admin-tool-group is-open" data-collapsible>
             <button type="button" class="admin-collapse-btn" aria-expanded="true">
-                <span class="admin-tool-group-title">Texas Trust Law</span>
+                <span class="admin-tool-group-heading">
+                    <span class="admin-tool-group-kicker">Tools originated for</span>
+                    <span class="admin-tool-group-title">Texas Trust Law</span>
+                </span>
                 {{ collapse_chevron() }}
             </button>
             <div class="admin-section-body">
