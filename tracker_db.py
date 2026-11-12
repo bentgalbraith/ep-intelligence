@@ -1,7 +1,5 @@
 import json
 import os
-import threading
-import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -18,17 +16,6 @@ psycopg2.extras.register_uuid()
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 _EASTERN = ZoneInfo("America/New_York")
-
-DEFAULT_STEPS = [
-    {"name": "Intro Meeting", "description": "Initial consultation to discuss goals and gather information.", "sort_order": 0},
-    {"name": "Preliminary Review", "description": "Review of existing documents and financial overview.", "sort_order": 1},
-    {"name": "Design Meeting", "description": "Collaborative session to outline the estate plan structure.", "sort_order": 2},
-    {"name": "Structural Planning", "description": "Detailed planning of trusts, entities, and asset protection.", "sort_order": 3},
-    {"name": "Drafting", "description": "Preparation of all legal documents.", "sort_order": 4},
-    {"name": "Final Review", "description": "Review of drafted documents with the client.", "sort_order": 5},
-    {"name": "Execution", "description": "Formal signing and notarization of all documents.", "sort_order": 6},
-    {"name": "Ongoing Service", "description": "Continued support, updates, and maintenance of the estate plan.", "sort_order": 7},
-]
 
 
 @contextmanager
@@ -242,6 +229,20 @@ MIGRATIONS = [
         "CREATE INDEX IF NOT EXISTS idx_doc_sep_redo_log_created ON doc_separator_redo_log (created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_doc_sep_redo_log_firm ON doc_separator_redo_log (firm_id, created_at DESC)",
     ],
+    # v14: Client Progress Tracker removed
+    [
+        "DROP TABLE IF EXISTS client_steps",
+        "DROP TABLE IF EXISTS clients",
+        "ALTER TABLE firms DROP COLUMN IF EXISTS tracker_access_code_hash",
+        "ALTER TABLE firms DROP COLUMN IF EXISTS tracker_access_code_plain",
+        """UPDATE firms
+           SET config = config - 'tracker_default_steps' - 'client_site_url'
+           WHERE config ? 'tracker_default_steps' OR config ? 'client_site_url'""",
+        """UPDATE firms
+           SET config = jsonb_set(config, '{tools_enabled}', (config->'tools_enabled') - 'tracker', true)
+           WHERE jsonb_typeof(config->'tools_enabled') = 'object'
+             AND config->'tools_enabled' ? 'tracker'""",
+    ],
 ]
 
 
@@ -310,24 +311,19 @@ def seed_firm_if_empty():
         "doc_separator_rules": "",
         "doc_filename_format": "{last}, {first} - {type} {date}",
         "signature_naming_rules": "",
-        "tracker_default_steps": DEFAULT_STEPS,
-        "client_site_url": "https://gwclient.com",
         "tools_enabled": {
             "drafting_notes": True,
             "doc_separator": True,
             "prospect_summarizer": True,
-            "tracker": True,
         },
     }
 
     access_code = os.environ.get("SEED_ACCESS_CODE", "changeme")
-    tracker_code = os.environ.get("SEED_TRACKER_CODE", "changeme")
 
     create_firm(
         name="Galbraith Weatherbie Law",
         slug="gw-law",
         access_code=access_code,
-        tracker_access_code=tracker_code,
         config=config,
     )
 
@@ -337,7 +333,7 @@ def seed_firm_if_empty():
 
 # ---------------------------------------------------------------------------
 
-def create_firm(name, slug, access_code, tracker_access_code, config=None,
+def create_firm(name, slug, access_code, config=None,
                 require_employee_login=False, usage_dashboard_enabled=False,
                 usage_dashboard_password="", usage_dashboard_show_costs=False,
                 employee_login_hint="", feedback_widget_enabled=False,
@@ -347,16 +343,15 @@ def create_firm(name, slug, access_code, tracker_access_code, config=None,
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO firms (id, name, slug, access_code_hash, access_code_plain,
-                   tracker_access_code_hash, tracker_access_code_plain, config,
+                   config,
                    require_employee_login, usage_dashboard_enabled,
                    usage_dashboard_password_hash, usage_dashboard_password_plain,
                    usage_dashboard_show_costs, employee_login_hint,
                    feedback_widget_enabled, doc_separator_redo_log_enabled)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (
                     firm_id, name, slug,
                     generate_password_hash(access_code), access_code,
-                    generate_password_hash(tracker_access_code), tracker_access_code,
                     json.dumps(config or {}),
                     bool(require_employee_login),
                     bool(usage_dashboard_enabled),
@@ -375,7 +370,7 @@ def get_firm(firm_id):
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                """SELECT id, name, slug, config, access_code_plain, tracker_access_code_plain,
+                """SELECT id, name, slug, config, access_code_plain,
                           require_employee_login, employee_login_hint,
                           usage_dashboard_enabled,
                           usage_dashboard_show_costs,
@@ -429,13 +424,11 @@ def delete_firm(firm_id):
             cur.execute("UPDATE feedback SET firm_id = NULL, employee_id = NULL WHERE firm_id = %s", (firm_id,))
             cur.execute("UPDATE doc_separator_redo_log SET firm_id = NULL, employee_id = NULL WHERE firm_id = %s", (firm_id,))
             cur.execute("DELETE FROM employees WHERE firm_id = %s", (firm_id,))
-            cur.execute("DELETE FROM client_steps WHERE client_id IN (SELECT id FROM clients WHERE firm_id = %s)", (firm_id,))
-            cur.execute("DELETE FROM clients WHERE firm_id = %s", (firm_id,))
             cur.execute("UPDATE ai_usage_log SET firm_id = NULL WHERE firm_id = %s", (firm_id,))
             cur.execute("DELETE FROM firms WHERE id = %s", (firm_id,))
 
 
-def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_access_code=None,
+def update_firm(firm_id, *, name=None, slug=None, access_code=None,
                 config=None, require_employee_login=None, employee_login_hint=None,
                 usage_dashboard_enabled=None,
                 usage_dashboard_show_costs=None, usage_dashboard_password=None,
@@ -452,11 +445,6 @@ def update_firm(firm_id, *, name=None, slug=None, access_code=None, tracker_acce
         params.append(generate_password_hash(access_code))
         sets.append("access_code_plain = %s")
         params.append(access_code)
-    if tracker_access_code is not None:
-        sets.append("tracker_access_code_hash = %s")
-        params.append(generate_password_hash(tracker_access_code))
-        sets.append("tracker_access_code_plain = %s")
-        params.append(tracker_access_code)
     if config is not None:
         sets.append("config = %s")
         params.append(json.dumps(config))
@@ -633,7 +621,7 @@ def get_employee_by_code(firm_id, employee_id_code):
 
 
 def firm_code_hashes(firm_id):
-    """(access_code_hash, tracker_access_code_hash), or None if the firm does not exist."""
+    """Stored firm access-code hash, or None if the firm does not exist."""
     try:
         firm_uuid = uuid.UUID(str(firm_id))
     except (ValueError, TypeError, AttributeError):
@@ -641,11 +629,11 @@ def firm_code_hashes(firm_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT access_code_hash, tracker_access_code_hash FROM firms WHERE id = %s",
+                "SELECT access_code_hash FROM firms WHERE id = %s",
                 (firm_uuid,),
             )
             row = cur.fetchone()
-            return (row[0] or "", row[1] or "") if row else None
+            return (row[0] or "") if row else None
 
 
 def employee_exists(employee_id, firm_id):
@@ -703,198 +691,47 @@ def delete_employee(employee_id, firm_id=None):
             return cur.rowcount > 0
 
 
-# ---------------------------------------------------------------------------
-# Clients (scoped to firm)
-# ---------------------------------------------------------------------------
+def forget_employee_tool_access(firm_id, employee_id):
+    """Drop a deleted employee from every tool allow-list.
 
-def list_clients(firm_id):
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                SELECT c.id, c.client_name, c.client_id_code, c.created_at, c.updated_at,
-                    (SELECT cs.name FROM client_steps cs
-                     WHERE cs.client_id = c.id AND cs.status = 'active'
-                     ORDER BY cs.sort_order LIMIT 1) AS current_step,
-                    (SELECT count(*) FROM client_steps cs
-                     WHERE cs.client_id = c.id AND cs.status = 'complete') AS completed_count,
-                    (SELECT count(*) FROM client_steps cs
-                     WHERE cs.client_id = c.id) AS total_steps
-                FROM clients c
-                WHERE c.firm_id = %s
-                ORDER BY c.updated_at DESC
-            """, (firm_id,))
-            return cur.fetchall()
-
-
-def get_client(client_id, firm_id=None):
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            sql = "SELECT id, firm_id, client_name, client_id_code, access_code_plain, created_at, updated_at FROM clients WHERE id = %s"
-            params = [client_id]
-            if firm_id:
-                sql += " AND firm_id = %s"
-                params.append(firm_id)
-            cur.execute(sql, params)
-            return cur.fetchone()
-
-
-def create_client(firm_id, client_name, client_id_code, access_code):
-    client_id = uuid.uuid4()
-    pw_hash = generate_password_hash(access_code)
-
-    firm_config = get_firm_config(firm_id)
-    steps = firm_config.get("tracker_default_steps") or DEFAULT_STEPS
-
+    Reads and writes the firm row in one transaction so a save that lands
+    during the delete is not replaced by an older copy of the config.
+    """
+    eid = str(employee_id)
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO clients (id, firm_id, client_name, client_id_code, access_code_hash, access_code_plain) VALUES (%s, %s, %s, %s, %s, %s)",
-                (client_id, firm_id, client_name, client_id_code, pw_hash, access_code),
-            )
-            for s in steps:
-                cur.execute(
-                    "INSERT INTO client_steps (client_id, name, description, sort_order) VALUES (%s, %s, %s, %s)",
-                    (client_id, s["name"], s["description"], s["sort_order"]),
-                )
-    return str(client_id)
-
-
-def update_client(client_id, firm_id, *, client_name=None, client_id_code=None, access_code=None):
-    """Returns False when the client does not exist in this firm."""
-    sets, params = [], []
-    if client_name is not None:
-        sets.append("client_name = %s")
-        params.append(client_name)
-    if client_id_code is not None:
-        sets.append("client_id_code = %s")
-        params.append(client_id_code)
-    if access_code is not None:
-        sets.append("access_code_hash = %s")
-        params.append(generate_password_hash(access_code))
-        sets.append("access_code_plain = %s")
-        params.append(access_code)
-    if not sets:
-        return _client_in_firm(client_id, firm_id)
-    sets.append("updated_at = now()")
-    params.extend([client_id, firm_id])
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"UPDATE clients SET {', '.join(sets)} WHERE id = %s AND firm_id = %s",
-                params,
-            )
-            return cur.rowcount > 0
-
-
-def delete_client(client_id, firm_id):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM clients WHERE id = %s AND firm_id = %s", (client_id, firm_id))
-            return cur.rowcount > 0
-
-
-def _client_in_firm(client_id, firm_id, cur=None):
-    if cur is None:
-        with get_conn() as conn:
-            with conn.cursor() as c:
-                return _client_in_firm(client_id, firm_id, c)
-    cur.execute("SELECT 1 FROM clients WHERE id = %s AND firm_id = %s", (client_id, firm_id))
-    return cur.fetchone() is not None
-
-
-# ---------------------------------------------------------------------------
-# Client steps
-# ---------------------------------------------------------------------------
-
-def get_client_steps(client_id):
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """SELECT id, name, description, notes, sort_order, status, completed_at
-                   FROM client_steps WHERE client_id = %s ORDER BY sort_order""",
-                (client_id,),
-            )
-            return cur.fetchall()
-
-
-def add_client_step(client_id, firm_id, name, description="", sort_order=None):
-    """Returns the new step id, or None when the client does not exist in this firm."""
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            if not _client_in_firm(client_id, firm_id, cur):
-                return None
-            if sort_order is None:
-                cur.execute("SELECT coalesce(max(sort_order), -1) + 1 FROM client_steps WHERE client_id = %s", (client_id,))
-                sort_order = cur.fetchone()[0]
-            step_id = uuid.uuid4()
-            cur.execute(
-                "INSERT INTO client_steps (id, client_id, name, description, sort_order) VALUES (%s, %s, %s, %s, %s)",
-                (step_id, client_id, name, description, sort_order),
-            )
-            return str(step_id)
-
-
-_STEP_IN_FIRM = "client_id IN (SELECT id FROM clients WHERE firm_id = %s)"
-
-
-def update_step(step_id, firm_id, fields):
-    """Returns False when the step does not exist in this firm."""
-    allowed = {"name", "description", "notes", "sort_order", "status"}
-    sets, params = [], []
-    for k, v in fields.items():
-        if k not in allowed:
-            continue
-        sets.append(f"{k} = %s")
-        params.append(v)
-    if "status" in fields and fields["status"] == "complete":
-        sets.append("completed_at = now()")
-    elif "status" in fields and fields["status"] != "complete":
-        sets.append("completed_at = NULL")
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            if not sets:
-                cur.execute(f"SELECT 1 FROM client_steps WHERE id = %s AND {_STEP_IN_FIRM}",
-                            (step_id, firm_id))
-                return cur.fetchone() is not None
-            params.extend([step_id, firm_id])
-            cur.execute(
-                f"UPDATE client_steps SET {', '.join(sets)} WHERE id = %s AND {_STEP_IN_FIRM}",
-                params,
-            )
-            if cur.rowcount == 0:
-                return False
-            cur.execute(
-                "UPDATE clients SET updated_at = now() WHERE id = (SELECT client_id FROM client_steps WHERE id = %s)",
-                (step_id,),
-            )
-            return True
-
-
-def delete_step(step_id, firm_id):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"DELETE FROM client_steps WHERE id = %s AND {_STEP_IN_FIRM} RETURNING client_id",
-                (step_id, firm_id),
+                "SELECT config FROM firms WHERE id = %s FOR UPDATE",
+                (firm_id,),
             )
             row = cur.fetchone()
             if not row:
                 return False
-            cur.execute("UPDATE clients SET updated_at = now() WHERE id = %s", (row[0],))
-            return True
-
-
-def reorder_steps(client_id, firm_id, step_ids):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            if not _client_in_firm(client_id, firm_id, cur):
+            config = row[0]
+            if isinstance(config, str):
+                config = json.loads(config)
+            if not isinstance(config, dict):
                 return False
-            for i, sid in enumerate(step_ids):
-                cur.execute(
-                    "UPDATE client_steps SET sort_order = %s WHERE id = %s AND client_id = %s",
-                    (i, sid, client_id),
-                )
-            cur.execute("UPDATE clients SET updated_at = now() WHERE id = %s", (client_id,))
+            access = config.get("tool_access")
+            if not isinstance(access, dict):
+                return False
+            changed = False
+            for entry in access.values():
+                if not isinstance(entry, dict):
+                    continue
+                ids = entry.get("employee_ids")
+                if not isinstance(ids, list):
+                    continue
+                kept = [str(i) for i in ids if str(i) != eid]
+                if len(kept) != len(ids):
+                    entry["employee_ids"] = kept
+                    changed = True
+            if not changed:
+                return False
+            cur.execute(
+                "UPDATE firms SET config = %s, updated_at = now() WHERE id = %s",
+                (json.dumps(config), firm_id),
+            )
             return True
 
 
@@ -1636,65 +1473,3 @@ def delete_specimen_document(doc_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM specimen_documents WHERE id = %s", (doc_id,))
-
-
-# ---------------------------------------------------------------------------
-# Public lookup (client-facing) with lockout
-# ---------------------------------------------------------------------------
-
-_LOCKOUT_WINDOW = 300
-_MAX_FAILED_ATTEMPTS = 20
-
-_failed_attempts: dict = {}
-_lockout_lock = threading.Lock()
-
-
-def _prune_attempts(code):
-    cutoff = time.time() - _LOCKOUT_WINDOW
-    _failed_attempts[code] = [t for t in _failed_attempts.get(code, []) if t > cutoff]
-
-
-def _is_locked_out(code):
-    with _lockout_lock:
-        _prune_attempts(code)
-        return len(_failed_attempts.get(code, [])) >= _MAX_FAILED_ATTEMPTS
-
-
-def _record_failure(code):
-    with _lockout_lock:
-        _failed_attempts.setdefault(code, []).append(time.time())
-
-
-def _clear_failures(code):
-    with _lockout_lock:
-        _failed_attempts.pop(code, None)
-
-
-def lookup_client(firm_slug, client_id_code, access_code):
-    """Public client lookup scoped to a firm slug."""
-    lock_key = f"{firm_slug}:{client_id_code}"
-    if _is_locked_out(lock_key):
-        return {"locked": True}
-
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """SELECT c.id, c.client_name, c.access_code_hash
-                   FROM clients c
-                   JOIN firms f ON f.id = c.firm_id
-                   WHERE f.slug = %s AND c.client_id_code = %s""",
-                (firm_slug, client_id_code),
-            )
-            row = cur.fetchone()
-            if not row or not check_password_hash(row["access_code_hash"], access_code):
-                _record_failure(lock_key)
-                return None
-
-            _clear_failures(lock_key)
-            cur.execute(
-                """SELECT name, description, notes, sort_order, status
-                   FROM client_steps WHERE client_id = %s ORDER BY sort_order""",
-                (row["id"],),
-            )
-            steps = cur.fetchall()
-            return {"client_name": row["client_name"], "steps": steps}

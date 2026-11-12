@@ -44,7 +44,7 @@ TOOL_LABELS = {
     "client_doc_summary_part": "Summarize Documents for Clients (part)",
     "client_doc_summary_redo": "Summarize Documents for Clients (redo)",
     "design_questionnaire": "Design Questionnaire",
-    "tracker": "Client Progress Tracker",
+    "manage_client_portals": "Manage Client Portals",
 }
 
 # log key -> parent product key

@@ -9,10 +9,13 @@
     <a href="{{ url_for('logout') }}" class="btn-pill btn-sm">Log Out</a>
 </nav>
 <main class="dashboard">
+    {% if notice == 'login' %}
+    <p class="admin-error-banner">This tool is not available for your login.</p>
+    {% endif %}
     <h2 class="dashboard-heading">What would you like to do?</h2>
-    {% set te = tools_enabled or {} %}
+    {% set te = open_tools or {} %}
     <div class="tool-grid">
-        {% if te.get('drafting_notes', true) %}
+        {% if te.get('drafting_notes') %}
         <a href="{{ url_for('drafting_notes') }}" class="tool-card">
             <div class="tool-icon">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -22,7 +25,7 @@
             <span class="tool-label">Generate Drafting Notes From Transcript</span>
         </a>
         {% endif %}
-        {% if te.get('doc_separator', true) %}
+        {% if te.get('doc_separator') %}
         <a href="{{ url_for('doc_separator') }}" class="tool-card">
             <div class="tool-icon">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -32,7 +35,7 @@
             <span class="tool-label">Separate & Auto-Name Scanned Documents</span>
         </a>
         {% endif %}
-        {% if te.get('prospect_summarizer', true) %}
+        {% if te.get('prospect_summarizer') %}
         <a href="{{ url_for('prospect_summarizer') }}" class="tool-card">
             <div class="tool-icon">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -127,76 +130,16 @@
             <span class="tool-label">Design Questionnaire</span>
         </a>
         {% endif %}
-    </div>
-    {% if te.get('tracker', true) %}
-    <div class="tracker-strip" id="tracker-strip">
-        <button class="tracker-btn" id="tracker-btn" type="button">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>
-            </svg>
-            Track Client Progress
-        </button>
-        <form class="tracker-auth" id="tracker-auth">
-            <div class="tracker-auth-row">
-                <div class="tracker-auth-input-wrap">
-                    <input type="password" name="tracker_code" placeholder="Tracker Access Code" autocomplete="off" required>
-                    <p class="tracker-auth-error" id="tracker-auth-error"></p>
-                </div>
-                <button type="submit" class="btn-submit" aria-label="Submit">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-                    </svg>
-                </button>
+        {% if te.get('manage_client_portals') %}
+        <a href="{{ url_for('manage_client_portals') }}" class="tool-card">
+            <div class="tool-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
             </div>
-        </form>
+            <span class="tool-label">Manage Client Portals</span>
+        </a>
+        {% endif %}
     </div>
-    {% endif %}
 </main>
-{% endblock %}
-
-{% block scripts %}
-{% if (tools_enabled or {}).get('tracker', true) %}
-<script>
-(function() {
-    const strip = document.getElementById('tracker-strip');
-    const btn = document.getElementById('tracker-btn');
-    const form = document.getElementById('tracker-auth');
-    const errEl = document.getElementById('tracker-auth-error');
-    const input = form.querySelector('input');
-
-    btn.addEventListener('click', function() {
-        strip.classList.add('is-open');
-        requestAnimationFrame(() => input.focus());
-    });
-
-    const submitBtn = form.querySelector('.btn-submit');
-
-    form.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        errEl.textContent = '';
-        submitBtn.classList.add('is-loading');
-        const code = input.value;
-        try {
-            const res = await fetch('{{ url_for("api_tracker_auth") }}', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({code}),
-            });
-            const data = await res.json();
-            if (res.ok && data.ok) {
-                window.location.href = '{{ url_for("client_progress") }}';
-            } else {
-                submitBtn.classList.remove('is-loading');
-                errEl.textContent = data.error || 'Invalid access code';
-                input.value = '';
-                input.focus();
-            }
-        } catch {
-            submitBtn.classList.remove('is-loading');
-            errEl.textContent = 'Something went wrong';
-        }
-    });
-})();
-</script>
-{% endif %}
 {% endblock %}

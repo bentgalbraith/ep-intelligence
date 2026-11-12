@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Client Portals — EP Intelligence{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block body %}
+<nav class="navbar">
+    <div class="navbar-left">
+        <a href="{{ url_for('dashboard') }}" class="navbar-brand">
+            <img src="{{ url_for('static', filename='EPILogo_Orange.png') }}" alt="" class="navbar-logo">
+            {{ firm_name or 'EP Intelligence' }}
+        </a>
+        <span class="navbar-sep">/</span>
+        <span class="navbar-page">Manage Client Portals</span>
+    </div>
+    <a href="{{ url_for('logout') }}" class="btn-pill btn-sm">Log Out</a>
+</nav>
+<main class="dashboard"></main>
+{% endblock %}

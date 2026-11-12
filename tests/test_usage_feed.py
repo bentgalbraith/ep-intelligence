@@ -162,11 +162,11 @@ class FeedItemTest(unittest.TestCase):
         self.assertEqual(len(items), 2)
 
     def test_newest_use_is_first(self):
-        rows = [at(0, "tracker"), at(30, "ep_extract", status="error")]
+        rows = [at(0, "design_questionnaire"), at(30, "ep_extract", status="error")]
         items = usage_tools.feed_items(rows)
         self.assertEqual(items[0]["tool"], "Drafting Notes")
         self.assertEqual(items[0]["status"], "error")
-        self.assertEqual(items[1]["tool"], "Client Progress Tracker")
+        self.assertEqual(items[1]["tool"], "Design Questionnaire")
 
     def test_duration_is_the_recorded_runtime_only(self):
         spanned = [at(0, "validate_signatures_verify", status="error"), at(12, "validate_signatures")]

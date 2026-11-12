@@ -13,6 +13,28 @@
 <svg class="admin-collapse-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
 {%- endmacro %}
 
+{% macro tool_employee_limit(tool_key, tool_access, staff, employee_login_on) %}
+{% set entry = tool_access.get(tool_key) if tool_access.get(tool_key) is mapping else {} %}
+{% set limited = entry.get('limited') %}
+{% set raw_ids = entry.get('employee_ids') if entry.get('employee_ids') is iterable and entry.get('employee_ids') is not string else [] %}
+{% set picked_ids = raw_ids | map('string') | list %}
+<p class="admin-hint" data-employee-limit-note {% if employee_login_on or limited %}hidden{% endif %}>Turn on employee ID login to limit this tool to certain employees.</p>
+<div class="admin-employee-limit" data-employee-limit="{{ tool_key }}" {% if not employee_login_on and not limited %}hidden{% endif %}>
+    <label class="admin-toggle"><input type="checkbox" name="tool_limit_{{ tool_key }}" value="1" data-limit-toggle {{ 'checked' if limited }}> Only enable tool for certain employees?</label>
+    <div class="admin-employee-picks" data-limit-picks {% if not limited %}hidden{% endif %}>
+        {% if staff %}
+        {% for emp in staff %}
+        <label class="admin-toggle"><input type="checkbox" name="tool_employee_{{ tool_key }}" value="{{ emp.id }}" {{ 'checked' if emp.id|string in picked_ids }}> {{ emp.name }} <span class="admin-optional">{{ emp.employee_id_code }}</span></label>
+        {% endfor %}
+        <p class="admin-hint" data-limit-empty {% if picked_ids %}hidden{% endif %}>No employees are selected, so nobody can open this tool.</p>
+        {% else %}
+        <p class="admin-hint">Add employees, then choose who can use this tool.</p>
+        {% endif %}
+        <p class="admin-hint">New employees will not have access until you check them here.</p>
+    </div>
+</div>
+{% endmacro %}
+
 {% block body %}
 <nav class="navbar">
     <div class="navbar-left">
@@ -77,6 +99,7 @@
             </button>
             <div class="admin-section-body" {% if not start_open %}hidden{% endif %}>
                 <p class="admin-hint">When enabled, staff must enter an employee ID after the firm access code. Sessions without an employee ID are signed out immediately.</p>
+                <p class="admin-hint">Limiting a tool to certain employees is available after this is on.</p>
                 <label class="admin-toggle"><input type="checkbox" name="require_employee_login" value="1" {{ 'checked' if firm and firm.require_employee_login }}> Require employee ID at login</label>
                 <div class="admin-field" style="margin-top:0.85rem">
                     <label class="admin-label">Login hint <span class="admin-optional">(optional)</span></label>
@@ -140,7 +163,9 @@
 
         {% set tools = cfg.get('tools_enabled', {}) %}
         {% set tools_default = firm is not none %}
-        {% set tracker_code_required = not firm or is_duplicate or not firm.id or not firm.tracker_access_code_plain %}
+        {% set tool_access = cfg.get('tool_access') if cfg.get('tool_access') is mapping else {} %}
+        {% set staff = employees|default([]) %}
+        {% set employee_login_on = firm.require_employee_login if firm else false %}
         <h3 class="admin-section-title admin-tools-label">Enable Tools</h3>
 
         <section class="admin-tool-group is-open" data-collapsible>
@@ -165,6 +190,7 @@
                     <textarea class="admin-textarea admin-textarea-json" name="ep_schema" rows="12" data-required-when-on>{{ cfg.get('ep_schema', '') | tojson(indent=2) if cfg.get('ep_schema') else '' }}</textarea>
                     <p class="admin-json-status" data-for="ep_schema"></p>
                 </div>
+                {{ tool_employee_limit('drafting_notes', tool_access, staff, employee_login_on) }}
             </div>
         </section>
 
@@ -180,6 +206,7 @@
                     <textarea class="admin-textarea admin-textarea-json" name="prospect_schema" rows="12" data-required-when-on>{{ cfg.get('prospect_schema', '') | tojson(indent=2) if cfg.get('prospect_schema') else '' }}</textarea>
                     <p class="admin-json-status" data-for="prospect_schema"></p>
                 </div>
+                {{ tool_employee_limit('prospect_summarizer', tool_access, staff, employee_login_on) }}
             </div>
         </section>
 
@@ -212,33 +239,7 @@
                         {% endif %}
                     </div>
                 </div>
-            </div>
-        </section>
-
-        <section class="admin-section{% if start_open %} is-open{% endif %}" data-collapsible>
-            <div class="admin-collapse-row">
-                <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_tracker" value="1" data-tool-toggle="tracker" {{ 'checked' if tools.get('tracker', tools_default) }}> Client Progress Tracker</label>
-                <button type="button" class="admin-collapse-btn admin-collapse-btn-icon" aria-expanded="{{ 'true' if start_open else 'false' }}" aria-label="Client Progress Tracker settings">{{ collapse_chevron() }}</button>
-            </div>
-            <div class="admin-section-body" {% if not start_open %}hidden{% endif %}>
-                <div class="admin-tool-fields" data-tool-fields="tracker">
-                    <div class="admin-field" style="margin-bottom:0.85rem">
-                        <label class="admin-label">Tracker Access Code{% if not tracker_code_required %} (leave blank to keep current){% else %} <span class="admin-req">*</span>{% endif %}</label>
-                        <input class="admin-input" name="tracker_access_code" type="text" autocomplete="off"
-                               {% if tracker_code_required %}data-required-when-on{% endif %}
-                               placeholder="{{ firm.tracker_access_code_plain if (firm and firm.tracker_access_code_plain and not is_duplicate) else '' }}">
-                    </div>
-                    <label class="admin-label">Default Steps <span class="admin-req">*</span></label>
-                    <p class="admin-hint">JSON array of default pipeline steps for new clients. Each entry needs "name", "description", and "sort_order".</p>
-                    <textarea class="admin-textarea admin-textarea-json" name="tracker_default_steps" rows="8" data-required-when-on>{{ cfg.get('tracker_default_steps', []) | tojson(indent=2) }}</textarea>
-                    <p class="admin-json-status" data-for="tracker_default_steps"></p>
-                    <div class="admin-field" style="margin-top:0.85rem">
-                        <label class="admin-label">Client Site URL <span class="admin-optional">(optional)</span></label>
-                        <input class="admin-input" name="client_site_url" type="url"
-                               value="{{ cfg.get('client_site_url', '') }}"
-                               placeholder="https://example.com">
-                    </div>
-                </div>
+                {{ tool_employee_limit('doc_separator', tool_access, staff, employee_login_on) }}
             </div>
         </section>
 
@@ -255,23 +256,58 @@
                     <p class="admin-hint">Save the firm first to manage specimen documents.</p>
                     {% endif %}
                 </div>
+                {{ tool_employee_limit('doc_differences', tool_access, staff, employee_login_on) }}
             </div>
         </section>
 
-        <section class="admin-section">
-            <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_estate_tax_calc" value="1" {{ 'checked' if tools.get('estate_tax_calc') }}> Estate Tax Calculator</label>
+        <section class="admin-section{% if start_open %} is-open{% endif %}" data-collapsible>
+            <div class="admin-collapse-row">
+                <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_estate_tax_calc" value="1" {{ 'checked' if tools.get('estate_tax_calc') }}> Estate Tax Calculator</label>
+                <button type="button" class="admin-collapse-btn admin-collapse-btn-icon" aria-expanded="{{ 'true' if start_open else 'false' }}" aria-label="Estate Tax Calculator settings">{{ collapse_chevron() }}</button>
+            </div>
+            <div class="admin-section-body" {% if not start_open %}hidden{% endif %}>
+                {{ tool_employee_limit('estate_tax_calc', tool_access, staff, employee_login_on) }}
+            </div>
         </section>
 
-        <section class="admin-section">
-            <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_community_property_trust_calc" value="1" {{ 'checked' if tools.get('community_property_trust_calc') }}> Community Property Trust Calculator</label>
+        <section class="admin-section{% if start_open %} is-open{% endif %}" data-collapsible>
+            <div class="admin-collapse-row">
+                <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_community_property_trust_calc" value="1" {{ 'checked' if tools.get('community_property_trust_calc') }}> Community Property Trust Calculator</label>
+                <button type="button" class="admin-collapse-btn admin-collapse-btn-icon" aria-expanded="{{ 'true' if start_open else 'false' }}" aria-label="Community Property Trust Calculator settings">{{ collapse_chevron() }}</button>
+            </div>
+            <div class="admin-section-body" {% if not start_open %}hidden{% endif %}>
+                {{ tool_employee_limit('community_property_trust_calc', tool_access, staff, employee_login_on) }}
+            </div>
         </section>
 
-        <section class="admin-section">
-            <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_compare_diagram_drafts" value="1" {{ 'checked' if tools.get('compare_diagram_drafts') }}> Compare EP Diagram vs. Drafts</label>
+        <section class="admin-section{% if start_open %} is-open{% endif %}" data-collapsible>
+            <div class="admin-collapse-row">
+                <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_compare_diagram_drafts" value="1" {{ 'checked' if tools.get('compare_diagram_drafts') }}> Compare EP Diagram vs. Drafts</label>
+                <button type="button" class="admin-collapse-btn admin-collapse-btn-icon" aria-expanded="{{ 'true' if start_open else 'false' }}" aria-label="Compare EP Diagram vs. Drafts settings">{{ collapse_chevron() }}</button>
+            </div>
+            <div class="admin-section-body" {% if not start_open %}hidden{% endif %}>
+                {{ tool_employee_limit('compare_diagram_drafts', tool_access, staff, employee_login_on) }}
+            </div>
         </section>
 
-        <section class="admin-section">
-            <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_client_doc_summary" value="1" {{ 'checked' if tools.get('client_doc_summary') }}> Summarize Documents for Clients</label>
+        <section class="admin-section{% if start_open %} is-open{% endif %}" data-collapsible>
+            <div class="admin-collapse-row">
+                <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_client_doc_summary" value="1" {{ 'checked' if tools.get('client_doc_summary') }}> Summarize Documents for Clients</label>
+                <button type="button" class="admin-collapse-btn admin-collapse-btn-icon" aria-expanded="{{ 'true' if start_open else 'false' }}" aria-label="Summarize Documents for Clients settings">{{ collapse_chevron() }}</button>
+            </div>
+            <div class="admin-section-body" {% if not start_open %}hidden{% endif %}>
+                {{ tool_employee_limit('client_doc_summary', tool_access, staff, employee_login_on) }}
+            </div>
+        </section>
+
+        <section class="admin-section{% if start_open %} is-open{% endif %}" data-collapsible>
+            <div class="admin-collapse-row">
+                <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_manage_client_portals" value="1" {{ 'checked' if tools.get('manage_client_portals') }}> Manage Client Portals</label>
+                <button type="button" class="admin-collapse-btn admin-collapse-btn-icon" aria-expanded="{{ 'true' if start_open else 'false' }}" aria-label="Manage Client Portals settings">{{ collapse_chevron() }}</button>
+            </div>
+            <div class="admin-section-body" {% if not start_open %}hidden{% endif %}>
+                {{ tool_employee_limit('manage_client_portals', tool_access, staff, employee_login_on) }}
+            </div>
         </section>
 
             </div>
@@ -303,6 +339,7 @@
                     <textarea class="admin-textarea admin-textarea-json" name="actionstep_schedule" rows="14" data-required-when-on placeholder='{{ schedule_example }}'>{{ cfg.get('actionstep_schedule', '') | tojson(indent=2) if cfg.get('actionstep_schedule') else '' }}</textarea>
                     <p class="admin-json-status" data-for="actionstep_schedule"></p>
                 </div>
+                {{ tool_employee_limit('actionstep_schedule', tool_access, staff, employee_login_on) }}
             </div>
         </section>
 
@@ -317,11 +354,18 @@
                     <p class="admin-hint">How this firm wants estate-planning PDFs named. Each file is named from the document itself. The uploaded file name is not used. Leave this blank and files are still named from the document as best we can.</p>
                     <textarea class="admin-textarea" name="signature_naming_rules" rows="12">{{ cfg.get('signature_naming_rules', '') }}</textarea>
                 </div>
+                {{ tool_employee_limit('validate_signatures', tool_access, staff, employee_login_on) }}
             </div>
         </section>
 
-        <section class="admin-section">
-            <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_design_questionnaire" value="1" {{ 'checked' if tools.get('design_questionnaire') }}> Design Questionnaire</label>
+        <section class="admin-section{% if start_open %} is-open{% endif %}" data-collapsible>
+            <div class="admin-collapse-row">
+                <label class="admin-toggle admin-tool-toggle"><input type="checkbox" name="tool_design_questionnaire" value="1" {{ 'checked' if tools.get('design_questionnaire') }}> Design Questionnaire</label>
+                <button type="button" class="admin-collapse-btn admin-collapse-btn-icon" aria-expanded="{{ 'true' if start_open else 'false' }}" aria-label="Design Questionnaire settings">{{ collapse_chevron() }}</button>
+            </div>
+            <div class="admin-section-body" {% if not start_open %}hidden{% endif %}>
+                {{ tool_employee_limit('design_questionnaire', tool_access, staff, employee_login_on) }}
+            </div>
         </section>
 
             </div>
@@ -452,6 +496,34 @@
         cb.addEventListener('change', syncToolFields);
     });
     syncToolFields();
+
+    function syncEmployeeLimits() {
+        var login = document.querySelector('[name="require_employee_login"]');
+        var loginOn = !!(login && login.checked);
+        document.querySelectorAll('[data-employee-limit]').forEach(function(block) {
+            var limit = block.querySelector('[data-limit-toggle]');
+            var limited = !!(limit && limit.checked);
+            var picks = block.querySelector('[data-limit-picks]');
+            var note = block.previousElementSibling;
+            if (note && note.hasAttribute('data-employee-limit-note')) {
+                note.hidden = loginOn || limited;
+            }
+            block.hidden = !loginOn && !limited;
+            if (picks) picks.hidden = !limited;
+            var empty = block.querySelector('[data-limit-empty]');
+            if (empty) {
+                var any = block.querySelector('input[type="checkbox"]:checked:not([data-limit-toggle])');
+                empty.hidden = !limited || !!any;
+            }
+        });
+    }
+
+    var employeeLogin = document.querySelector('[name="require_employee_login"]');
+    if (employeeLogin) employeeLogin.addEventListener('change', syncEmployeeLimits);
+    document.querySelectorAll('[data-limit-toggle], [data-employee-limit] input[type="checkbox"]').forEach(function(cb) {
+        cb.addEventListener('change', syncEmployeeLimits);
+    });
+    syncEmployeeLimits();
 
     var form = document.getElementById('admin-form');
     var saveBar = document.getElementById('admin-save-bar');

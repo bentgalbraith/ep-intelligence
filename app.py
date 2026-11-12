@@ -20,7 +20,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from flask import Flask, Response, has_request_context, jsonify, make_response, redirect, render_template, request, session, url_for
-from flask_cors import cross_origin
 from flask_limiter import Limiter
 from openai import OpenAI
 
@@ -220,7 +219,7 @@ def _code_stamp(code_hash):
 
 
 def _firm_code_stamps(firm_id, fresh=False):
-    """(firm code stamp, tracker code stamp), or None if the firm no longer exists."""
+    """Firm access-code stamp, or None if the firm no longer exists."""
     key = str(firm_id)
     now = time.time()
     if not fresh:
@@ -229,39 +228,32 @@ def _firm_code_stamps(firm_id, fresh=False):
             if cached and now - cached["ts"] < _AUTH_FLAG_TTL:
                 return cached["value"]
 
-    hashes = tracker_db.firm_code_hashes(key)
-    stamps = None if hashes is None else (_code_stamp(hashes[0]), _code_stamp(hashes[1]))
+    code_hash = tracker_db.firm_code_hashes(key)
+    stamp = None if code_hash is None else _code_stamp(code_hash)
     with _firm_config_lock:
-        _firm_code_stamp_cache[key] = {"value": stamps, "ts": now}
-    return stamps
+        _firm_code_stamp_cache[key] = {"value": stamp, "ts": now}
+    return stamp
 
 
 def _session_codes_current(firm_id):
-    """False once the firm code changes; drops tracker access once the tracker code changes.
+    """False once the firm access code changes.
     Sessions without a stamp get the current one rather than being signed out."""
-    stamps = _firm_code_stamps(firm_id)
-    if stamps is None:
+    stamp = _firm_code_stamps(firm_id)
+    if stamp is None:
         return False
-    firm_stamp, tracker_stamp = stamps
     if "firm_code_stamp" not in session:
-        session["firm_code_stamp"] = firm_stamp
-    elif session["firm_code_stamp"] != firm_stamp:
+        session["firm_code_stamp"] = stamp
+    elif session["firm_code_stamp"] != stamp:
         return False
-    if session.get("tracker_authenticated"):
-        if "tracker_code_stamp" not in session:
-            session["tracker_code_stamp"] = tracker_stamp
-        elif session["tracker_code_stamp"] != tracker_stamp:
-            session.pop("tracker_authenticated", None)
-            session.pop("tracker_code_stamp", None)
     return True
 
 
 def _stamp_firm_login(firm_id):
     if not tracker_db.DATABASE_URL:
         return
-    stamps = _firm_code_stamps(firm_id, fresh=True)
-    if stamps:
-        session["firm_code_stamp"] = stamps[0]
+    stamp = _firm_code_stamps(firm_id, fresh=True)
+    if stamp is not None:
+        session["firm_code_stamp"] = stamp
 
 
 def _firm_feedback_widget_enabled(firm_id):
@@ -379,8 +371,9 @@ def set_security_headers(response):
 def _clear_firm_session():
     for key in (
         "authenticated", "firm_id", "firm_name", "firm_slug",
-        "tracker_authenticated", "employee_id", "employee_code", "employee_name",
-        "pending_firm_id", "pending_firm_name", "firm_code_stamp", "tracker_code_stamp",
+        "employee_id", "employee_code", "employee_name",
+        "pending_firm_id", "pending_firm_name", "firm_code_stamp",
+        "tracker_authenticated", "tracker_code_stamp",
     ):
         session.pop(key, None)
 
@@ -435,20 +428,6 @@ def login_required(f):
     return decorated
 
 
-def tracker_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not session.get("authenticated"):
-            return jsonify({"error": "Not authenticated"}), 401
-        if not _employee_session_valid():
-            _clear_firm_session()
-            return jsonify({"error": "Not authenticated"}), 401
-        if not session.get("tracker_authenticated"):
-            return jsonify({"error": "Tracker access required"}), 403
-        return f(*args, **kwargs)
-    return decorated
-
-
 _OPT_IN_TOOLS = {
     "doc_differences",
     "estate_tax_calc",
@@ -458,6 +437,37 @@ _OPT_IN_TOOLS = {
     "validate_signatures",
     "client_doc_summary",
     "design_questionnaire",
+    "manage_client_portals",
+}
+
+_TOOL_KEYS = (
+    "drafting_notes",
+    "doc_separator",
+    "prospect_summarizer",
+    "doc_differences",
+    "estate_tax_calc",
+    "community_property_trust_calc",
+    "compare_diagram_drafts",
+    "actionstep_schedule",
+    "validate_signatures",
+    "client_doc_summary",
+    "design_questionnaire",
+    "manage_client_portals",
+)
+
+_TOOL_ADMIN_LABELS = {
+    "drafting_notes": "Drafting Notes",
+    "doc_separator": "Document Separator",
+    "prospect_summarizer": "Prospect Summarizer",
+    "doc_differences": "Document Differences",
+    "estate_tax_calc": "Estate Tax Calculator",
+    "community_property_trust_calc": "Community Property Trust Calculator",
+    "compare_diagram_drafts": "Compare EP Diagram vs. Drafts",
+    "actionstep_schedule": "Visualize Actionstep Schedule",
+    "validate_signatures": "Name Files & Validate Signatures",
+    "client_doc_summary": "Summarize Documents for Clients",
+    "design_questionnaire": "Design Questionnaire",
+    "manage_client_portals": "Manage Client Portals",
 }
 
 
@@ -471,8 +481,48 @@ def _is_tool_enabled(tool_key):
     return config.get("tools_enabled", {}).get(tool_key, default)
 
 
+def employee_may_use_tool(firm_enabled, limited, employee_login_required, employee_id, allowed_ids):
+    """Firm switch first. A limited tool is an allow-list, and only when employee IDs are on."""
+    if not firm_enabled:
+        return False
+    if not limited:
+        return True
+    if not employee_login_required:
+        return False
+    if not isinstance(allowed_ids, (list, tuple, set)):
+        allowed_ids = []
+    allowed = {str(i) for i in allowed_ids}
+    return bool(employee_id) and str(employee_id) in allowed
+
+
+def _tool_access_entry(config, tool_key):
+    access = (config or {}).get("tool_access")
+    if not isinstance(access, dict):
+        return {}
+    entry = access.get(tool_key)
+    return entry if isinstance(entry, dict) else {}
+
+
+def _session_may_open_tool(tool_key):
+    """Firm enablement, then the employee allow-list for a limited tool."""
+    if not _is_tool_enabled(tool_key):
+        return False
+    firm_id = session.get("firm_id")
+    if not firm_id:
+        return True
+    config = _get_firm_config(firm_id) or {}
+    entry = _tool_access_entry(config, tool_key)
+    return employee_may_use_tool(
+        True,
+        bool(entry.get("limited")),
+        bool(_firm_requires_employee_login(firm_id)),
+        session.get("employee_id"),
+        entry.get("employee_ids") or [],
+    )
+
+
 def tool_enabled(tool_key):
-    """Decorator that blocks access when a tool is disabled for the firm."""
+    """Decorator that blocks access when a tool is disabled for the firm or this employee."""
     def wrapper(f):
         @wraps(f)
         def decorated(*args, **kwargs):
@@ -480,6 +530,10 @@ def tool_enabled(tool_key):
                 if request.path.startswith("/api/"):
                     return jsonify({"error": "This tool is not enabled for your firm."}), 403
                 return redirect(url_for("dashboard"))
+            if not _session_may_open_tool(tool_key):
+                if request.path.startswith("/api/"):
+                    return jsonify({"error": "This tool is not available for your login."}), 403
+                return redirect(url_for("dashboard", notice="login"))
             return f(*args, **kwargs)
         return decorated
     return wrapper
@@ -1091,10 +1145,12 @@ def firm_usage_logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    firm_config = _get_firm_config(session.get("firm_id"))
-    tools_enabled = (firm_config or {}).get("tools_enabled", {})
-    return render_template("dashboard.html", firm_name=session.get("firm_name", ""),
-                           tools_enabled=tools_enabled)
+    return render_template(
+        "dashboard.html",
+        firm_name=session.get("firm_name", ""),
+        open_tools={key: _session_may_open_tool(key) for key in _TOOL_KEYS},
+        notice="login" if request.args.get("notice") == "login" else "",
+    )
 
 
 @app.route("/logout")
@@ -2600,6 +2656,17 @@ def _pdf_disposition(name):
 
 
 # ---------------------------------------------------------------------------
+# Manage Client Portals
+# ---------------------------------------------------------------------------
+
+@app.route("/manage-client-portals")
+@login_required
+@tool_enabled("manage_client_portals")
+def manage_client_portals():
+    return render_template("manage_client_portals.html", firm_name=session.get("firm_name", ""))
+
+
+# ---------------------------------------------------------------------------
 # Design Questionnaire
 # ---------------------------------------------------------------------------
 
@@ -2879,205 +2946,6 @@ def api_summarize_client_documents_redo():
 
 
 # ---------------------------------------------------------------------------
-# Tracker admin
-# ---------------------------------------------------------------------------
-
-@app.route("/api/tracker-auth", methods=["POST"])
-@login_required
-@tool_enabled("tracker")
-@limiter.limit("10/minute")
-@limiter.limit(_LOGIN_CEILING, key_func=_all_visitors, methods=["POST"])
-def api_tracker_auth():
-    from werkzeug.security import check_password_hash
-
-    data = request.get_json() or {}
-    code = (data.get("code") or "").strip()
-    firm_id = session.get("firm_id")
-    if not firm_id:
-        return jsonify({"error": "Not authenticated"}), 401
-
-    with tracker_db.get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT tracker_access_code_hash FROM firms WHERE id = %s", (firm_id,))
-            row = cur.fetchone()
-            if row and check_password_hash(row[0], code):
-                session["tracker_authenticated"] = True
-                session["tracker_code_stamp"] = _code_stamp(row[0])
-                with _firm_config_lock:
-                    _firm_code_stamp_cache.pop(str(firm_id), None)
-                return jsonify({"ok": True})
-
-    return jsonify({"error": "Invalid access code"}), 401
-
-
-@app.route("/client-progress")
-@login_required
-@tool_enabled("tracker")
-def client_progress():
-    if not session.get("tracker_authenticated"):
-        return redirect(url_for("dashboard"))
-    log_tool_use(tool="tracker", status="success", firm_id=session.get("firm_id"))
-    return render_template("client_progress.html", firm_name=session.get("firm_name", ""))
-
-
-@app.route("/client-progress/<client_id>")
-@login_required
-@tool_enabled("tracker")
-def client_detail(client_id):
-    if not session.get("tracker_authenticated"):
-        return redirect(url_for("dashboard"))
-    return render_template("client_detail.html", client_id=client_id, firm_name=session.get("firm_name", ""))
-
-
-@app.route("/api/tracker/clients", methods=["GET"])
-@tracker_required
-@tool_enabled("tracker")
-def api_tracker_list_clients():
-    firm_id = session.get("firm_id")
-    return jsonify(tracker_db.list_clients(firm_id))
-
-
-@app.route("/api/tracker/clients", methods=["POST"])
-@tracker_required
-@tool_enabled("tracker")
-def api_tracker_create_client():
-    data = request.get_json() or {}
-    name = (data.get("client_name") or "").strip()
-    code = (data.get("client_id_code") or "").strip()
-    pw = (data.get("access_code") or "").strip()
-    if not name or not code or not pw:
-        return jsonify({"error": "client_name, client_id_code, and access_code are required."}), 400
-    firm_id = session.get("firm_id")
-    try:
-        cid = tracker_db.create_client(firm_id, name, code, pw)
-    except Exception as e:
-        if "unique" in str(e).lower():
-            return jsonify({"error": "A client with that ID already exists."}), 409
-        raise
-    return jsonify({"id": cid}), 201
-
-
-@app.route("/api/tracker/clients/<client_id>", methods=["GET"])
-@tracker_required
-@tool_enabled("tracker")
-def api_tracker_get_client(client_id):
-    firm_id = session.get("firm_id")
-    client = tracker_db.get_client(client_id, firm_id=firm_id)
-    if not client:
-        return jsonify({"error": "Client not found."}), 404
-    client["steps"] = tracker_db.get_client_steps(client_id)
-    return jsonify(client)
-
-
-@app.route("/api/tracker/clients/<client_id>", methods=["PUT"])
-@tracker_required
-@tool_enabled("tracker")
-def api_tracker_update_client(client_id):
-    data = request.get_json() or {}
-    kwargs = {}
-    if "client_name" in data:
-        kwargs["client_name"] = data["client_name"].strip()
-    if "client_id_code" in data:
-        kwargs["client_id_code"] = data["client_id_code"].strip()
-    if "access_code" in data and data["access_code"].strip():
-        kwargs["access_code"] = data["access_code"].strip()
-    try:
-        found = tracker_db.update_client(client_id, session.get("firm_id"), **kwargs)
-    except Exception as e:
-        if "unique" in str(e).lower():
-            return jsonify({"error": "A client with that ID already exists."}), 409
-        raise
-    if not found:
-        return jsonify({"error": "Client not found."}), 404
-    return jsonify({"ok": True})
-
-
-@app.route("/api/tracker/clients/<client_id>", methods=["DELETE"])
-@tracker_required
-@tool_enabled("tracker")
-def api_tracker_delete_client(client_id):
-    if not tracker_db.delete_client(client_id, session.get("firm_id")):
-        return jsonify({"error": "Client not found."}), 404
-    return jsonify({"ok": True})
-
-
-@app.route("/api/tracker/clients/<client_id>/steps", methods=["POST"])
-@tracker_required
-@tool_enabled("tracker")
-def api_tracker_add_step(client_id):
-    data = request.get_json() or {}
-    name = (data.get("name") or "").strip()
-    if not name:
-        return jsonify({"error": "Step name is required."}), 400
-    desc = (data.get("description") or "").strip()
-    sort_order = data.get("sort_order")
-    sid = tracker_db.add_client_step(client_id, session.get("firm_id"), name, desc, sort_order)
-    if not sid:
-        return jsonify({"error": "Client not found."}), 404
-    return jsonify({"id": sid}), 201
-
-
-@app.route("/api/tracker/steps/<step_id>", methods=["PUT"])
-@tracker_required
-@tool_enabled("tracker")
-def api_tracker_update_step(step_id):
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        data = {}
-    if not tracker_db.update_step(step_id, session.get("firm_id"), data):
-        return jsonify({"error": "Step not found."}), 404
-    return jsonify({"ok": True})
-
-
-@app.route("/api/tracker/steps/<step_id>", methods=["DELETE"])
-@tracker_required
-@tool_enabled("tracker")
-def api_tracker_delete_step(step_id):
-    if not tracker_db.delete_step(step_id, session.get("firm_id")):
-        return jsonify({"error": "Step not found."}), 404
-    return jsonify({"ok": True})
-
-
-@app.route("/api/tracker/clients/<client_id>/reorder", methods=["PUT"])
-@tracker_required
-@tool_enabled("tracker")
-def api_tracker_reorder_steps(client_id):
-    data = request.get_json() or {}
-    step_ids = data.get("step_ids", [])
-    if not step_ids:
-        return jsonify({"error": "step_ids required."}), 400
-    if not tracker_db.reorder_steps(client_id, session.get("firm_id"), step_ids):
-        return jsonify({"error": "Client not found."}), 404
-    return jsonify({"ok": True})
-
-
-# ---------------------------------------------------------------------------
-# Public client lookup
-# ---------------------------------------------------------------------------
-
-@app.route("/api/tracker/lookup", methods=["POST"])
-@cross_origin(origins=[
-    "https://ep-intelligence.com", "https://www.ep-intelligence.com",
-    "http://localhost:*", "http://127.0.0.1:*",
-])
-@limiter.limit("10/minute")
-@limiter.limit(_LOGIN_CEILING, key_func=_all_visitors, methods=["POST"])
-def api_tracker_lookup():
-    data = request.get_json() or {}
-    firm_slug = (data.get("firm") or "").strip()
-    client_id_code = (data.get("client_id") or "").strip()
-    access_code = (data.get("access_code") or "").strip()
-    if not firm_slug or not client_id_code or not access_code:
-        return jsonify({"error": "Firm, Client ID, and Access Code are required."}), 400
-    result = tracker_db.lookup_client(firm_slug, client_id_code, access_code)
-    if result and result.get("locked"):
-        return jsonify({"error": "Too many failed attempts. Please try again in a few minutes."}), 429
-    if not result:
-        return jsonify({"error": "Invalid Client ID or Access Code."}), 401
-    return jsonify(result)
-
-
-# ---------------------------------------------------------------------------
 # Feedback widget
 # ---------------------------------------------------------------------------
 
@@ -3203,7 +3071,6 @@ def api_feedback():
 REQUIRED_CONFIG_KEYS = [
     "firm_context", "ep_schema",
     "prospect_schema", "doc_separator_rules", "doc_filename_format",
-    "tracker_default_steps",
 ]
 
 @app.route("/admin/login", methods=["GET", "POST"])
@@ -3919,6 +3786,41 @@ def admin_feed():
     )
 
 
+def _firm_employee_id_set(firm_id):
+    if not firm_id or not tracker_db.DATABASE_URL:
+        return set()
+    return {str(emp["id"]) for emp in tracker_db.list_employees(firm_id)}
+
+
+def _employee_limit_error(config, require_employee_login):
+    """None when the allow-lists are usable. A limited tool needs employee ID login."""
+    if require_employee_login:
+        return None
+    access = config.get("tool_access") if isinstance(config.get("tool_access"), dict) else {}
+    names = []
+    for key in _TOOL_KEYS:
+        entry = access.get(key)
+        if isinstance(entry, dict) and entry.get("limited"):
+            names.append(_TOOL_ADMIN_LABELS[key])
+    if not names:
+        return None
+    return (
+        "Employee ID login is required while a tool is limited to certain employees: "
+        + ", ".join(names) + "."
+    )
+
+
+def _render_firm_form(firm, **kwargs):
+    firm_id = firm.get("id") if firm else None
+    if kwargs.get("duplicate"):
+        firm_id = None
+    employees = []
+    if firm_id and tracker_db.DATABASE_URL:
+        employees = tracker_db.list_employees(firm_id)
+    return render_template(
+        "admin_firm_edit.html", firm=firm, employees=employees, **kwargs)
+
+
 @app.route("/admin/firms/new", methods=["GET", "POST"])
 @admin_required
 def admin_firm_new():
@@ -3926,7 +3828,6 @@ def admin_firm_new():
         name = request.form.get("name", "").strip()
         slug = request.form.get("slug", "").strip()
         access_code = request.form.get("access_code", "").strip()
-        tracker_code = request.form.get("tracker_access_code", "").strip()
         require_employee_login = bool(request.form.get("require_employee_login"))
         employee_login_hint = (request.form.get("employee_login_hint") or "").strip()
         usage_dash_on = bool(request.form.get("usage_dashboard_enabled"))
@@ -3936,15 +3837,18 @@ def admin_firm_new():
         redo_log_on = bool(request.form.get("doc_separator_redo_log_enabled"))
 
         if not all([name, slug, access_code]):
-            return render_template("admin_firm_edit.html", firm=None,
+            return _render_firm_form(firm=None,
                                    error="Firm name, slug, and tool access code are required.")
 
         try:
             config = _parse_config_from_form(request.form)
         except ConfigParseError as e:
-            return render_template("admin_firm_edit.html", firm=None, error=str(e))
+            return _render_firm_form(firm=None, error=str(e))
 
         errors = _validate_config(config)
+        limit_error = _employee_limit_error(config, require_employee_login)
+        if limit_error:
+            errors.append(limit_error)
         stub = {"name": name, "slug": slug, "config": config,
                 "require_employee_login": require_employee_login,
                 "employee_login_hint": employee_login_hint,
@@ -3952,19 +3856,16 @@ def admin_firm_new():
                 "usage_dashboard_show_costs": usage_dash_show_costs,
                 "usage_dashboard_password_plain": usage_dash_pw,
                 "feedback_widget_enabled": feedback_widget_on,
-                "doc_separator_redo_log_enabled": redo_log_on,
-                "tracker_access_code_plain": tracker_code}
-        if config.get("tools_enabled", {}).get("tracker") and not tracker_code:
-            errors.append("A tracker access code is required when Client Progress Tracker is enabled.")
+                "doc_separator_redo_log_enabled": redo_log_on}
         if errors:
-            return render_template("admin_firm_edit.html", firm=stub,
+            return _render_firm_form(firm=stub,
                                    error=" | ".join(errors))
         if usage_dash_on and not usage_dash_pw:
-            return render_template("admin_firm_edit.html", firm=stub,
+            return _render_firm_form(firm=stub,
                                    error="A dashboard password is required when the usage dashboard is enabled.")
 
         try:
-            tracker_db.create_firm(name, slug, access_code, tracker_code or "", config,
+            tracker_db.create_firm(name, slug, access_code, config,
                                    require_employee_login=require_employee_login,
                                    employee_login_hint=employee_login_hint,
                                    usage_dashboard_enabled=usage_dash_on,
@@ -3974,13 +3875,13 @@ def admin_firm_new():
                                    doc_separator_redo_log_enabled=redo_log_on)
         except Exception as e:
             if "unique" in str(e).lower():
-                return render_template("admin_firm_edit.html", firm=stub,
+                return _render_firm_form(firm=stub,
                                        error="A firm with that slug already exists.")
             raise
 
         return redirect(url_for("admin_firms"))
 
-    return render_template("admin_firm_edit.html", firm=None)
+    return _render_firm_form(firm=None)
 
 
 @app.route("/admin/firms/<firm_id>/duplicate")
@@ -3989,12 +3890,14 @@ def admin_firm_duplicate(firm_id):
     source = tracker_db.get_firm(firm_id)
     if not source:
         return redirect(url_for("admin_firms"))
+    config = dict(source.get("config") or {})
+    config.pop("tool_access", None)
     stub = {
         "name": "",
         "slug": "",
-        "config": source.get("config") or {},
+        "config": config,
     }
-    return render_template("admin_firm_edit.html", firm=stub, duplicate=True)
+    return _render_firm_form(firm=stub, duplicate=True)
 
 
 @app.route("/admin/firms/<firm_id>", methods=["GET", "POST"])
@@ -4008,7 +3911,6 @@ def admin_firm_edit(firm_id):
         name = request.form.get("name", "").strip()
         slug = request.form.get("slug", "").strip()
         access_code = request.form.get("access_code", "").strip() or None
-        tracker_code = request.form.get("tracker_access_code", "").strip() or None
         require_employee_login = bool(request.form.get("require_employee_login"))
         employee_login_hint = (request.form.get("employee_login_hint") or "").strip()
         usage_dash_on = bool(request.form.get("usage_dashboard_enabled"))
@@ -4018,15 +3920,18 @@ def admin_firm_edit(firm_id):
         redo_log_on = bool(request.form.get("doc_separator_redo_log_enabled"))
 
         if not name or not slug:
-            return render_template("admin_firm_edit.html", firm=firm,
+            return _render_firm_form(firm=firm,
                                    error="Firm name and slug are required.")
 
         try:
-            config = _parse_config_from_form(request.form)
+            config = _parse_config_from_form(request.form, _firm_employee_id_set(firm_id))
         except ConfigParseError as e:
-            return render_template("admin_firm_edit.html", firm=firm, error=str(e))
+            return _render_firm_form(firm=firm, error=str(e))
 
         errors = _validate_config(config)
+        limit_error = _employee_limit_error(config, require_employee_login)
+        if limit_error:
+            errors.append(limit_error)
         firm["config"] = config
         firm["require_employee_login"] = require_employee_login
         firm["employee_login_hint"] = employee_login_hint
@@ -4034,19 +3939,16 @@ def admin_firm_edit(firm_id):
         firm["usage_dashboard_show_costs"] = usage_dash_show_costs
         firm["feedback_widget_enabled"] = feedback_widget_on
         firm["doc_separator_redo_log_enabled"] = redo_log_on
-        if config.get("tools_enabled", {}).get("tracker") and not tracker_code and not firm.get("tracker_access_code_plain"):
-            errors.append("A tracker access code is required when Client Progress Tracker is enabled.")
         if errors:
-            return render_template("admin_firm_edit.html", firm=firm,
+            return _render_firm_form(firm=firm,
                                    error=" | ".join(errors))
         if usage_dash_on and not usage_dash_pw and not firm.get("usage_dashboard_password_plain"):
-            return render_template("admin_firm_edit.html", firm=firm,
+            return _render_firm_form(firm=firm,
                                    error="A dashboard password is required when the usage dashboard is enabled.")
 
         try:
             tracker_db.update_firm(firm_id, name=name, slug=slug,
                                    access_code=access_code,
-                                   tracker_access_code=tracker_code,
                                    config=config,
                                    require_employee_login=require_employee_login,
                                    employee_login_hint=employee_login_hint,
@@ -4057,7 +3959,7 @@ def admin_firm_edit(firm_id):
                                    doc_separator_redo_log_enabled=redo_log_on)
         except Exception as e:
             if "unique" in str(e).lower():
-                return render_template("admin_firm_edit.html", firm=firm,
+                return _render_firm_form(firm=firm,
                                        error="A firm with that slug already exists.")
             raise
 
@@ -4065,7 +3967,7 @@ def admin_firm_edit(firm_id):
 
         return redirect(url_for("admin_firms"))
 
-    return render_template("admin_firm_edit.html", firm=firm)
+    return _render_firm_form(firm=firm)
 
 
 @app.route("/admin/firms/<firm_id>/delete", methods=["POST"])
@@ -4077,7 +3979,7 @@ def admin_firm_delete(firm_id):
     expected = f"delete firm {firm['slug']}"
     confirmation = request.form.get("confirmation", "").strip()
     if confirmation != expected:
-        return render_template("admin_firm_edit.html", firm=firm,
+        return _render_firm_form(firm=firm,
                                error="Deletion confirmation did not match. Firm was not deleted.")
     tracker_db.delete_firm(firm_id)
     _invalidate_firm_cache(firm_id)
@@ -4253,7 +4155,11 @@ def admin_employee_delete(firm_id, employee_id):
     firm = tracker_db.get_firm(firm_id)
     if not firm:
         return redirect(url_for("admin_firms"))
-    tracker_db.delete_employee(employee_id, firm_id=firm_id)
+    deleted = tracker_db.delete_employee(employee_id, firm_id=firm_id)
+    # Prune even when the row is already gone, so a failed cleanup can be retried.
+    pruned = tracker_db.forget_employee_tool_access(firm_id, employee_id)
+    if deleted or pruned:
+        _invalidate_firm_cache(firm_id)
     with _firm_config_lock:
         _employee_exists_cache.pop((str(firm_id), str(employee_id)), None)
     return redirect(url_for("admin_employees", firm_id=firm_id))
@@ -4263,19 +4169,17 @@ class ConfigParseError(Exception):
     pass
 
 
-def _parse_config_from_form(form):
+def _parse_config_from_form(form, employee_ids=()):
     config = {}
     config["firm_context"] = form.get("firm_context", "").strip()
     config["doc_separator_rules"] = form.get("doc_separator_rules", "").strip()
     config["doc_filename_format"] = form.get("doc_filename_format", "").strip()
     config["signature_naming_rules"] = form.get("signature_naming_rules", "").strip()
-    config["client_site_url"] = form.get("client_site_url", "").strip()
     config["tools_enabled"] = {
         "drafting_notes": bool(form.get("tool_drafting_notes")),
         "doc_separator": bool(form.get("tool_doc_separator")),
         "prospect_summarizer": bool(form.get("tool_prospect_summarizer")),
         "doc_differences": bool(form.get("tool_doc_differences")),
-        "tracker": bool(form.get("tool_tracker")),
         "estate_tax_calc": bool(form.get("tool_estate_tax_calc")),
         "community_property_trust_calc": bool(form.get("tool_community_property_trust_calc")),
         "compare_diagram_drafts": bool(form.get("tool_compare_diagram_drafts")),
@@ -4283,25 +4187,39 @@ def _parse_config_from_form(form):
         "validate_signatures": bool(form.get("tool_validate_signatures")),
         "client_doc_summary": bool(form.get("tool_client_doc_summary")),
         "design_questionnaire": bool(form.get("tool_design_questionnaire")),
+        "manage_client_portals": bool(form.get("tool_manage_client_portals")),
     }
+    allowed = {str(i) for i in (employee_ids or ())}
+    tool_access = {}
+    for key in _TOOL_KEYS:
+        kept = []
+        seen = set()
+        for raw in form.getlist(f"tool_employee_{key}"):
+            eid = str(raw).strip()
+            if eid and eid in allowed and eid not in seen:
+                seen.add(eid)
+                kept.append(eid)
+        tool_access[key] = {
+            "limited": bool(form.get(f"tool_limit_{key}")),
+            "employee_ids": kept,
+        }
+    config["tool_access"] = tool_access
 
     for key, tool in (
         ("ep_schema", "drafting_notes"),
         ("prospect_schema", "prospect_summarizer"),
-        ("tracker_default_steps", "tracker"),
         ("actionstep_schedule", "actionstep_schedule"),
     ):
         raw = form.get(key, "").strip()
-        empty = [] if key == "tracker_default_steps" else {}
         if not raw:
-            config[key] = empty
+            config[key] = {}
             continue
         try:
             config[key] = json.loads(raw)
         except json.JSONDecodeError as e:
             if config["tools_enabled"].get(tool):
                 raise ConfigParseError(f"Invalid JSON in {key}: {e}")
-            config[key] = empty
+            config[key] = {}
 
     # Colors are assigned here, at save time, so every run of the tool uses the
     # same color for a given calendar. Existing assignments are never changed.
@@ -4330,10 +4248,6 @@ def _validate_config(config):
         ps = config.get("prospect_schema")
         if not ps or not isinstance(ps, dict) or not ps.get("sections"):
             errors.append("Prospect schema must be valid JSON with a 'sections' array")
-    if tools.get("tracker"):
-        ts = config.get("tracker_default_steps")
-        if not ts or not isinstance(ts, list):
-            errors.append("Tracker default steps must be a JSON array")
     if tools.get("doc_separator") and not config.get("doc_filename_format"):
         errors.append("Document filename format is required when Document Separator is enabled")
     naming_rules = config.get("signature_naming_rules") or ""
