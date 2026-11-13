@@ -5,6 +5,7 @@
     var visual = document.getElementById("dq-visual");
     var trustEl = document.getElementById("dq-trust");
     var whoEl = document.getElementById("dq-who");
+    var mast = stage.querySelector(".dq-mast");
     var progress = document.getElementById("dq-progress");
     var backBtn = document.getElementById("dq-back");
     var nextBtn = document.getElementById("dq-next");
@@ -39,10 +40,21 @@
         { id: "review", label: "Finished" }
     ];
 
-    var BAR = ["#ea580c", "#c2410c", "#fb923c", "#9a3412", "#fdba74"];
+    var BAR = ["#ea580c", "#0f766e", "#c2410c", "#a16207", "#78716c"];
     var stepId = "people";
     var shownStep = "";
     var frame = 0;
+    var mastSwapTimer = 0;
+    var mastWipeTimers = [];
+    var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    var downloaded = false;
+    var reviewStatus = document.getElementById("dq-review-status");
+    var WIPE = { out: 560, hold: 90, morph: 700, pause: 110, inn: 620, line: 2 };
+
+    function setReviewStatus() {
+        if (!reviewStatus) return;
+        reviewStatus.textContent = downloaded ? "Downloaded." : "Not saved.";
+    }
 
     function val(name) {
         var el = form.elements[name];
@@ -59,9 +71,16 @@
         return String(el.value || "").trim();
     }
 
-    function lines(prefix, count) {
+    function slotCount(prefix) {
+        var n = 0;
+        while (form.elements[prefix + (n + 1)]) n += 1;
+        return n;
+    }
+
+    function lines(prefix) {
         var out = [];
-        for (var i = 1; i <= count; i++) {
+        var total = slotCount(prefix);
+        for (var i = 1; i <= total; i++) {
             var text = val(prefix + i);
             if (text) out.push(text);
         }
@@ -70,6 +89,14 @@
 
     function couple() {
         return val("household") !== "single";
+    }
+
+    function clientOneName() {
+        return couple() ? "Client 1" : "Client";
+    }
+
+    function clientTwoName() {
+        return "Client 2";
     }
 
     function steps() {
@@ -128,7 +155,8 @@
         if (val("client_name")) people.push(val("client_name"));
         if (couple() && val("spouse_name")) people.push(val("spouse_name"));
         var beneficiaries = [];
-        for (var i = 1; i <= 5; i++) {
+        var benTotal = slotCount("ben_name_");
+        for (var i = 1; i <= benTotal; i++) {
             beneficiaries.push({
                 name: val("ben_name_" + i),
                 pct: val("ben_pct_" + i),
@@ -176,9 +204,9 @@
         return card;
     }
 
-    function wishCard(name, prefix) {
+    function wishCard(name, prefix, fallback) {
         var card = el("article", "dq-card");
-        card.appendChild(el("p", "dq-role", name || "Client"));
+        card.appendChild(el("p", "dq-role", name || fallback || "Client 1"));
         var rail = el("div", "dq-rail");
         [["slow", "Slow"], ["middle", "Middle"], ["express", "Express"]].forEach(function (pair) {
             var on = val(prefix + "_speed") === pair[0];
@@ -195,18 +223,31 @@
     }
 
     function renderHealth() {
+        var clientAgents = lines("client_agent_");
+        var spouseAgents = couple() ? lines("spouse_agent_") : [];
+        if (!val("client_name") && !clientAgents.length && !(couple() && val("spouse_name")) && !spouseAgents.length) {
+            return null;
+        }
         var row = el("div", "dq-people-row");
-        row.appendChild(personCard("Health care agents", val("client_name"), lines("client_agent_", 4)));
+        row.appendChild(personCard("Health care agents", val("client_name"), clientAgents));
         if (couple()) {
-            row.appendChild(personCard("Health care agents", val("spouse_name"), lines("spouse_agent_", 4)));
+            row.appendChild(personCard("Health care agents", val("spouse_name"), spouseAgents));
         }
         return row;
     }
 
+    function wishFilled(prefix) {
+        return !!(val(prefix + "_speed") || val(prefix + "_doctors") || val(prefix + "_organ") ||
+            val(prefix + "_disposition") || val(prefix + "_wishes"));
+    }
+
     function renderWishes() {
+        var clientFilled = wishFilled("client");
+        var spouseFilled = couple() && wishFilled("spouse");
+        if (!clientFilled && !spouseFilled) return null;
         var row = el("div", "dq-people-row");
-        row.appendChild(wishCard(val("client_name"), "client"));
-        if (couple()) row.appendChild(wishCard(val("spouse_name"), "spouse"));
+        if (clientFilled) row.appendChild(wishCard(val("client_name"), "client", clientOneName()));
+        if (spouseFilled) row.appendChild(wishCard(val("spouse_name"), "spouse", clientTwoName()));
         return row;
     }
 
@@ -228,19 +269,19 @@
         }
         if (couple() && val("spouse_alone") === "yes") note += " Spouse may serve alone.";
         next.appendChild(el("p", "", note));
-        var trustees = lines("trustee_", 4);
+        var trustees = lines("trustee_");
         if (trustees.length) {
             next.appendChild(el("p", "dq-role", "Trustees"));
             next.appendChild(numbered(trustees));
         }
-        var poa = lines("poa_", 4);
+        var poa = lines("poa_");
         if (poa.length) {
             next.appendChild(el("p", "dq-role", "Financial POA"));
             next.appendChild(numbered(poa));
         }
         stack.appendChild(next);
 
-        var guardians = lines("guardian_", 3);
+        var guardians = lines("guardian_");
         if (guardians.length) {
             var guard = el("article", "dq-card");
             guard.appendChild(el("p", "dq-role", "Guardians"));
@@ -273,7 +314,7 @@
             stack.appendChild(kids);
         }
 
-        var priority = lines("priority_", 3);
+        var priority = lines("priority_");
         if (priority.length) {
             var order = el("article", "dq-card");
             order.appendChild(el("p", "dq-role", "Priority"));
@@ -319,10 +360,10 @@
     function renderAssets() {
         var stack = el("div", "dq-stack");
         [
-            ["Retirement accounts", lines("retirement_", 4)],
-            ["Life insurance", lines("insurance_", 4)],
-            ["Gifts", lines("gift_", 6)],
-            ["Disinherit", lines("disinherit_", 4)]
+            ["Retirement accounts", lines("retirement_")],
+            ["Life insurance", lines("insurance_")],
+            ["Gifts", lines("gift_")],
+            ["Disinherit", lines("disinherit_")]
         ].forEach(function (pair) {
             var card = groupCard(pair[0], pair[1]);
             if (card) stack.appendChild(card);
@@ -340,62 +381,71 @@
         if (val("disinherit_mode")) facts.push(disinheritLabel(val("disinherit_mode")));
         var extra = groupCard("Also in the plan", facts);
         if (extra) stack.appendChild(extra);
-        return stack;
+        return stack.childNodes.length ? stack : null;
     }
 
     function renderDistribution() {
-        var wrap = el("div", "");
-        wrap.appendChild(el("p", "dq-paid", "Debts, taxes, and gifts first"));
-        var bar = el("div", "dq-bar");
         var listed = read().beneficiaries.filter(function (row) {
             return row.name || row.pct;
         });
-        var assigned = 0;
-        listed.forEach(function (row) {
-            var n = parseFloat(row.pct);
-            if (!isNaN(n) && n > 0) assigned += n;
-        });
-        var scale = assigned > 100 ? 100 / assigned : 1;
-        if (!listed.length) {
-            var empty = el("i");
-            empty.style.width = "100%";
-            empty.style.background = "rgba(0,0,0,0.06)";
-            bar.appendChild(empty);
-        } else {
+        var notes = [];
+        if (val("minor_age")) notes.push("Outright at " + val("minor_age") + ".");
+        if (val("remote") === "heirs") notes.push("Otherwise, heirs at law (Texas).");
+        if (val("remote") === "charity") notes.push("Otherwise, " + (val("remote_charity") || "a charity") + ".");
+        if (val("remote") === "named") {
+            var names = lines("remote_named_").join(" and ");
+            if (names) notes.push("Otherwise, " + names + ".");
+        }
+        if (!listed.length && !notes.length) return null;
+
+        var wrap = el("div", "dq-shares");
+        if (listed.length) {
+            wrap.appendChild(el("p", "dq-paid", "Debts, taxes, and gifts first"));
+            var bar = el("div", "dq-bar");
+            var assigned = 0;
+            listed.forEach(function (row) {
+                var n = parseFloat(row.pct);
+                if (!isNaN(n) && n > 0) assigned += n;
+            });
+            var scale = assigned > 100 ? 100 / assigned : 1;
             listed.forEach(function (row, index) {
                 var n = parseFloat(row.pct);
                 var width = !isNaN(n) && n > 0 ? n * scale : (assigned > 0 ? 0 : 100 / listed.length);
                 if (width <= 0) return;
                 var seg = el("i");
-                seg.style.width = width + "%";
+                seg.title = (row.name || "Beneficiary") + (row.pct ? " · " + row.pct + "%" : "");
+                seg.style.flex = width + " 0 0";
                 seg.style.background = BAR[index % BAR.length];
                 bar.appendChild(seg);
             });
             if (assigned > 0 && assigned < 100) {
                 var rest = el("i");
-                rest.style.width = (100 - assigned) + "%";
+                rest.title = "Unassigned · " + (Math.round((100 - assigned) * 10) / 10) + "%";
+                rest.style.flex = (100 - assigned) + " 0 0";
                 rest.style.background = "rgba(0,0,0,0.08)";
                 bar.appendChild(rest);
             }
+            wrap.appendChild(bar);
+            var list = el("ul", "dq-share-list");
+            listed.forEach(function (row, index) {
+                var color = BAR[index % BAR.length];
+                var li = el("li", "dq-share-item");
+                var swatch = el("span", "dq-share-swatch");
+                swatch.style.background = color;
+                var main = el("div", "dq-share-main");
+                main.appendChild(el("span", "dq-share-name", row.name || "—"));
+                if (row.pass) main.appendChild(el("small", "dq-share-pass", passLabel(row.pass)));
+                var pct = el("span", "dq-share-pct", row.pct ? row.pct + "%" : "—");
+                li.appendChild(swatch);
+                li.appendChild(main);
+                li.appendChild(pct);
+                list.appendChild(li);
+            });
+            wrap.appendChild(list);
         }
-        wrap.appendChild(bar);
-        var list = el("ul", "dq-share-list");
-        listed.forEach(function (row) {
-            var li = el("li");
-            var name = el("span", "", row.name || "—");
-            var meta = el("small", "", [row.pct ? row.pct + "%" : "", passLabel(row.pass)].filter(Boolean).join(" · "));
-            li.appendChild(name);
-            li.appendChild(meta);
-            list.appendChild(li);
+        notes.forEach(function (line) {
+            wrap.appendChild(el("p", "dq-note", line));
         });
-        wrap.appendChild(list);
-        if (val("minor_age")) wrap.appendChild(el("p", "dq-note", "Outright at " + val("minor_age") + "."));
-        if (val("remote") === "heirs") wrap.appendChild(el("p", "dq-note", "Otherwise, heirs at law (Texas)."));
-        if (val("remote") === "charity") wrap.appendChild(el("p", "dq-note", "Otherwise, " + (val("remote_charity") || "a charity") + "."));
-        if (val("remote") === "named") {
-            var names = [val("remote_named_1"), val("remote_named_2")].filter(Boolean).join(" and ");
-            if (names) wrap.appendChild(el("p", "dq-note", "Otherwise, " + names + "."));
-        }
         return wrap;
     }
 
@@ -410,6 +460,162 @@
         review: renderDistribution
     };
 
+    function paintWho(data) {
+        whoEl.replaceChildren();
+        if (!data.people.length) return;
+        if (data.people.length === 1) {
+            whoEl.textContent = data.people[0];
+            return;
+        }
+        // Keep each name intact so wrapping happens between people, not mid-name.
+        whoEl.appendChild(el("span", "dq-who-name", data.people[0]));
+        whoEl.appendChild(document.createTextNode(" "));
+        whoEl.appendChild(el("span", "dq-who-and", "and"));
+        whoEl.appendChild(document.createTextNode(" "));
+        whoEl.appendChild(el("span", "dq-who-name", data.people[1]));
+    }
+
+    function setMast(data) {
+        stage.classList.toggle("is-hero", stepId === "people");
+        stage.classList.toggle("is-settled", stepId !== "people");
+        trustEl.textContent = data.trust;
+        paintWho(data);
+    }
+
+    function clearMastWipeTimers() {
+        mastWipeTimers.forEach(function (id) { window.clearTimeout(id); });
+        mastWipeTimers = [];
+    }
+
+    function afterMs(ms, fn) {
+        var id = window.setTimeout(fn, ms);
+        mastWipeTimers.push(id);
+        return id;
+    }
+
+    function wipeBeam() {
+        var beam = mast.querySelector(".dq-wipe-beam");
+        if (!beam) {
+            beam = el("div", "dq-wipe-beam");
+            mast.appendChild(beam);
+        }
+        return beam;
+    }
+
+    function resetMastWipeStyles() {
+        var beam = mast.querySelector(".dq-wipe-beam");
+        mast.classList.remove("is-wiping", "is-wipe-fade", "is-wipe-beam");
+        stage.classList.remove("is-wiping-mast");
+        mast.style.transition = "";
+        mast.style.clipPath = "";
+        mast.style.transform = "";
+        mast.style.transformOrigin = "";
+        if (beam) {
+            beam.style.transition = "";
+            beam.style.opacity = "";
+            beam.style.left = "";
+        }
+    }
+
+    function beamLeft(px) {
+        return Math.max(0, Math.round(px)) + "px";
+    }
+
+    // Collapse to a left edge line → morph that line to the new header → wipe open.
+    function wipeMast() {
+        clearMastWipeTimers();
+        var fromHero = stage.classList.contains("is-hero");
+        resetMastWipeStyles();
+        stage.classList.toggle("is-hero", fromHero);
+        stage.classList.toggle("is-settled", !fromHero);
+        void mast.offsetWidth;
+
+        var before = mast.getBoundingClientRect();
+        mastSwapTimer = 1;
+        if (before.height < 1) {
+            setMast(read());
+            mastSwapTimer = 0;
+            return;
+        }
+
+        var beam = wipeBeam();
+        var easeOut = "cubic-bezier(0.7, 0, 0.25, 1)";
+        var easeIn = "cubic-bezier(0.2, 0.8, 0.2, 1)";
+        var lineClip = "inset(0 calc(100% - " + WIPE.line + "px) 0 0)";
+        var startLeft = Math.max(0, before.width - WIPE.line);
+
+        stage.classList.add("is-wiping-mast");
+        mast.classList.add("is-wiping");
+        mast.style.clipPath = "inset(0 0 0 0)";
+        beam.style.transition = "none";
+        beam.style.left = beamLeft(startLeft);
+        beam.style.opacity = "1";
+        void mast.offsetWidth;
+
+        // 1) Sweep the beam left; clip follows so text collapses into it.
+        mast.style.transition = "clip-path " + WIPE.out + "ms " + easeOut;
+        beam.style.transition = "left " + WIPE.out + "ms " + easeOut;
+        mast.style.clipPath = lineClip;
+        beam.style.left = "0px";
+
+        afterMs(Math.round(WIPE.out * 0.62), function () {
+            mast.classList.add("is-wipe-fade");
+        });
+
+        afterMs(WIPE.out + WIPE.hold, function () {
+            // 2) Destination layout + FLIP morph; beam stays parked on the left.
+            mast.classList.add("is-wipe-beam");
+            mast.classList.remove("is-wipe-fade");
+            setMast(read());
+            void mast.offsetWidth;
+            var after = mast.getBoundingClientRect();
+            var dy = before.top - after.top;
+            var scaleY = before.height / Math.max(after.height, 1);
+            if (!isFinite(scaleY) || scaleY <= 0) scaleY = 1;
+            var endLeft = Math.max(0, after.width - WIPE.line);
+
+            mast.style.transition = "none";
+            mast.style.transformOrigin = "left top";
+            mast.style.transform = "translateY(" + dy + "px) scaleY(" + scaleY + ")";
+            mast.style.clipPath = lineClip;
+            beam.style.transition = "none";
+            beam.style.left = "0px";
+            beam.style.opacity = "1";
+            void mast.offsetWidth;
+
+            mast.style.transition = "transform " + WIPE.morph + "ms cubic-bezier(0.45, 0.05, 0.2, 1)";
+            mast.style.transform = "translateY(0) scaleY(1)";
+
+            afterMs(WIPE.morph + WIPE.pause, function () {
+                // 3) Sweep the beam right; clip opens with it.
+                mast.style.transition = "none";
+                mast.style.transform = "";
+                mast.style.transformOrigin = "";
+                mast.classList.remove("is-wipe-beam");
+                mast.style.clipPath = lineClip;
+                beam.style.transition = "none";
+                beam.style.left = "0px";
+                beam.style.opacity = "1";
+                stage.classList.remove("is-wiping-mast");
+                void mast.offsetWidth;
+
+                mast.style.transition = "clip-path " + WIPE.inn + "ms " + easeIn;
+                beam.style.transition =
+                    "left " + WIPE.inn + "ms " + easeIn + ", " +
+                    "opacity " + Math.round(WIPE.inn * 0.35) + "ms linear " + Math.round(WIPE.inn * 0.65) + "ms";
+                mast.style.clipPath = "inset(0 0 0 0)";
+                beam.style.left = beamLeft(endLeft);
+                beam.style.opacity = "0";
+
+                afterMs(WIPE.inn + 24, function () {
+                    resetMastWipeStyles();
+                    mastSwapTimer = 0;
+                    setMast(read());
+                });
+            });
+        });
+    }
+
     function paint(entered) {
         var data = read();
         root.classList.toggle("is-couple", data.couple);
@@ -417,19 +623,25 @@
         root.classList.toggle("is-cotrustee", val("cotrustee") === "yes");
         root.classList.toggle("is-remote-charity", val("remote") === "charity");
         root.classList.toggle("is-remote-named", val("remote") === "named");
-        stage.classList.toggle("is-hero", stepId === "people");
-        stage.classList.toggle("is-settled", stepId !== "people");
-        trustEl.textContent = data.trust;
-        whoEl.textContent = data.people.join(" and ");
+
+        var crossing = entered && !!shownStep && ((shownStep === "people") !== (stepId === "people"));
+        if (crossing && !reduceMotion.matches) {
+            wipeMast();
+        } else if (!mastSwapTimer) {
+            resetMastWipeStyles();
+            setMast(data);
+        }
 
         var clientHeading = document.getElementById("dq-client-agent-heading");
         var spouseHeading = document.getElementById("dq-spouse-agent-heading");
         var clientWish = document.getElementById("dq-client-wish-heading");
         var spouseWish = document.getElementById("dq-spouse-wish-heading");
-        if (clientHeading) clientHeading.textContent = (data.client || "Client") + "'s agents";
-        if (spouseHeading) spouseHeading.textContent = (data.spouse || "Spouse") + "'s agents";
-        if (clientWish) clientWish.textContent = data.client || "Client";
-        if (spouseWish) spouseWish.textContent = data.spouse || "Spouse";
+        var clientFieldLabel = document.getElementById("dq-client-field-label");
+        if (clientFieldLabel) clientFieldLabel.textContent = clientOneName();
+        if (clientHeading) clientHeading.textContent = (data.client || clientOneName()) + "'s agents";
+        if (spouseHeading) spouseHeading.textContent = (data.spouse || clientTwoName()) + "'s agents";
+        if (clientWish) clientWish.textContent = data.client || clientOneName();
+        if (spouseWish) spouseWish.textContent = data.spouse || clientTwoName();
 
         var assigned = 0;
         var anyPct = false;
@@ -440,7 +652,13 @@
                 assigned += n;
             }
         });
-        pctTotal.textContent = anyPct ? "Assigned " + Math.round(assigned * 10) / 10 + "%" : "";
+        if (anyPct) {
+            pctTotal.hidden = false;
+            pctTotal.textContent = "Assigned " + Math.round(assigned * 10) / 10 + "%";
+        } else {
+            pctTotal.hidden = true;
+            pctTotal.textContent = "";
+        }
 
         document.querySelectorAll("[data-step]").forEach(function (section) {
             section.hidden = section.getAttribute("data-step") !== stepId;
@@ -468,24 +686,31 @@
         nextBtn.tabIndex = atEnd ? -1 : 0;
 
         var draw = VISUALS[stepId];
-        if (draw) {
-            visual.replaceChildren(draw());
-            if (entered) {
-                visual.classList.remove("is-in");
+        var panel = draw ? draw() : null;
+        if (panel) {
+            visual.replaceChildren(panel);
+            visual.classList.remove("is-in");
+            if (entered && shownStep && shownStep !== "people") {
                 void visual.offsetWidth;
                 visual.classList.add("is-in");
             }
         } else {
             visual.replaceChildren();
+            visual.classList.remove("is-in");
         }
 
         if (entered) {
             document.querySelector(".dq-scroll").scrollTop = 0;
             stage.scrollTop = 0;
             var section = document.querySelector('[data-step="' + stepId + '"]');
-            var fields = section ? section.querySelectorAll("input, textarea, button") : [];
+            if (section) {
+                section.querySelectorAll('textarea[name^="notes_"]').forEach(autosizeNotes);
+            }
+            var fields = section ? section.querySelectorAll("input, textarea") : [];
             var field = Array.prototype.find.call(fields, function (node) {
-                return node.id !== "dq-download" && node.offsetParent !== null;
+                if (node.offsetParent === null) return false;
+                var type = (node.type || "").toLowerCase();
+                return type !== "radio" && type !== "checkbox" && type !== "hidden";
             });
             if (field) field.focus({ preventScroll: true });
             shownStep = stepId;
@@ -507,14 +732,150 @@
         if (next) go(next.id);
     }
 
+    var SLOT_MAX = 24;
+
+    function addLineSlot(list) {
+        var prefix = list.getAttribute("data-prefix") || "";
+        var maxlen = list.getAttribute("data-maxlength") || "120";
+        var n = list.querySelectorAll(".dq-line").length + 1;
+        if (n > SLOT_MAX) return;
+        var row = el("label", "dq-line is-new");
+        row.appendChild(el("span", "", String(n)));
+        var input = document.createElement("input");
+        input.name = prefix + n;
+        input.type = "text";
+        input.maxLength = parseInt(maxlen, 10) || 120;
+        row.appendChild(input);
+        list.appendChild(row);
+        input.focus({ preventScroll: true });
+        window.setTimeout(function () { row.classList.remove("is-new"); }, 420);
+    }
+
+    function addBenSlot(list) {
+        var n = list.querySelectorAll(".dq-ben").length + 1;
+        if (n > SLOT_MAX) return;
+        var row = el("div", "dq-ben is-new");
+        row.appendChild(el("span", "", String(n)));
+        var name = document.createElement("input");
+        name.name = "ben_name_" + n;
+        name.type = "text";
+        name.maxLength = 120;
+        name.setAttribute("aria-label", "Beneficiary " + n);
+        row.appendChild(name);
+        var pctWrap = el("label", "dq-pct-wrap");
+        var pct = document.createElement("input");
+        pct.className = "dq-pct";
+        pct.name = "ben_pct_" + n;
+        pct.type = "text";
+        pct.inputMode = "decimal";
+        pct.maxLength = 6;
+        pct.setAttribute("aria-label", "Share " + n + " percent");
+        pctWrap.appendChild(pct);
+        pctWrap.appendChild(el("span", "", "%"));
+        row.appendChild(pctWrap);
+        var pass = el("div", "dq-pass");
+        [["stirpes", "Per stirpes"], ["rata", "Pro rata"]].forEach(function (pair) {
+            var choice = el("label", "dq-choice");
+            var radio = document.createElement("input");
+            radio.type = "radio";
+            radio.name = "ben_pass_" + n;
+            radio.value = pair[0];
+            choice.appendChild(radio);
+            choice.appendChild(document.createTextNode(" " + pair[1]));
+            pass.appendChild(choice);
+        });
+        row.appendChild(pass);
+        list.appendChild(row);
+        name.focus({ preventScroll: true });
+        window.setTimeout(function () { row.classList.remove("is-new"); }, 420);
+    }
+
+    function syncSlotButtons() {
+        form.querySelectorAll("[data-dq-slots]").forEach(function (list) {
+            var btn = list._dqAdd;
+            if (!btn) return;
+            var kind = list.getAttribute("data-dq-slots");
+            var count = kind === "ben"
+                ? list.querySelectorAll(".dq-ben").length
+                : list.querySelectorAll(".dq-line").length;
+            btn.hidden = count >= SLOT_MAX;
+        });
+    }
+
+    form.querySelectorAll("[data-dq-slots]").forEach(function (list) {
+        var btn = el("button", "dq-add", "Add another");
+        btn.type = "button";
+        list._dqAdd = btn;
+        btn.addEventListener("click", function () {
+            if (list.getAttribute("data-dq-slots") === "ben") addBenSlot(list);
+            else addLineSlot(list);
+            syncSlotButtons();
+            if (downloaded) {
+                downloaded = false;
+                setReviewStatus();
+            }
+            paint(false);
+        });
+        // Keep the assigned-% hint between beneficiaries and the add control.
+        if (list.getAttribute("data-dq-slots") === "ben" && pctTotal) {
+            pctTotal.insertAdjacentElement("afterend", btn);
+        } else {
+            list.insertAdjacentElement("afterend", btn);
+        }
+    });
+    syncSlotButtons();
+
+    function autosizeNotes(node) {
+        if (!node || !/^notes_/.test(node.name || "")) return;
+        node.style.height = "auto";
+        node.style.height = node.scrollHeight + "px";
+    }
+
+    function setNotesOpen(wrap, open, focusField) {
+        var btn = wrap.querySelector(".dq-notes-toggle");
+        var body = wrap.querySelector(".dq-notes-body");
+        var mark = wrap.querySelector(".dq-notes-mark");
+        var ta = body && body.querySelector("textarea");
+        if (!btn || !body) return;
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+        body.hidden = !open;
+        wrap.classList.toggle("is-open", open);
+        if (mark) mark.textContent = open ? "−" : "+";
+        if (open && ta) {
+            autosizeNotes(ta);
+            if (focusField) ta.focus({ preventScroll: true });
+        }
+    }
+
+    form.querySelectorAll("[data-dq-notes]").forEach(function (wrap) {
+        var btn = wrap.querySelector(".dq-notes-toggle");
+        var ta = wrap.querySelector("textarea");
+        if (!btn) return;
+        btn.addEventListener("click", function () {
+            setNotesOpen(wrap, btn.getAttribute("aria-expanded") !== "true", true);
+        });
+        if (ta && ta.value.trim()) setNotesOpen(wrap, true, false);
+    });
+
+    form.querySelectorAll('textarea[name^="notes_"]').forEach(autosizeNotes);
+
     form.addEventListener("submit", function (event) { event.preventDefault(); });
-    form.addEventListener("input", function () {
+    form.addEventListener("input", function (event) {
+        autosizeNotes(event.target);
         logDesignQuestionnaireUse();
+        if (downloaded) {
+            downloaded = false;
+            setReviewStatus();
+        }
         cancelAnimationFrame(frame);
         frame = requestAnimationFrame(function () { paint(false); });
     });
     form.addEventListener("change", function (event) {
         logDesignQuestionnaireUse();
+        if (downloaded) {
+            downloaded = false;
+            setReviewStatus();
+        }
         if (event.target.name === "household" && !steps().some(function (step) { return step.id === stepId; })) {
             go("assets");
             return;
@@ -582,6 +943,10 @@
             { text: firm, size: 11, width: 80, leading: 16 },
             { text: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }), size: 11, width: 80, leading: 18 }
         ];
+        function noteRow(step) {
+            var text = val("notes_" + step);
+            return text ? row("Notes", text) : "";
+        }
         function section(title, rows) {
             blocks.push({ text: title, size: 13, bold: true, width: 64, spaceBefore: 14, leading: 18 });
             rows.forEach(function (line) {
@@ -590,13 +955,15 @@
         }
         section("The trust", [
             row("Household", data.couple ? "Couple" : "Single"),
-            row("Client", data.client),
-            data.couple ? row("Spouse", data.spouse) : "",
-            row("Trust name", data.trust)
+            row(data.couple ? "Client 1" : "Client", data.client),
+            data.couple ? row("Client 2", data.spouse) : "",
+            row("Trust name", data.trust),
+            noteRow("people")
         ].filter(Boolean));
-        var healthRows = [listRow((data.client || "Client") + "'s agents", lines("client_agent_", 4))];
-        if (data.couple) healthRows.push(listRow((data.spouse || "Spouse") + "'s agents", lines("spouse_agent_", 4)));
-        section("Health care", healthRows);
+        var healthRows = [listRow((data.client || clientOneName()) + "'s agents", lines("client_agent_"))];
+        if (data.couple) healthRows.push(listRow((data.spouse || clientTwoName()) + "'s agents", lines("spouse_agent_")));
+        healthRows.push(noteRow("health"));
+        section("Health care", healthRows.filter(Boolean));
         function wishes(prefix, name) {
             return [
                 name,
@@ -607,18 +974,20 @@
                 row("Specific requests", val(prefix + "_wishes"))
             ];
         }
-        section("Wishes", wishes("client", data.client || "Client").concat(
-            data.couple ? wishes("spouse", data.spouse || "Spouse") : []
-        ));
+        section("Wishes", wishes("client", data.client || clientOneName()).concat(
+            data.couple ? wishes("spouse", data.spouse || clientTwoName()) : [],
+            [noteRow("wishes")]
+        ).filter(Boolean));
         section("Who is in charge", [
             row("Name a co-trustee", yn(val("cotrustee"))),
             data.couple && val("cotrustee") === "yes" ? row("Co-trustee serves upon", val("cotrustee_when") === "first" ? "1st disability or death" : val("cotrustee_when") === "second" ? "2nd disability or death" : "—") : "",
             !data.couple && val("cotrustee") === "yes" ? "At disability or death." : "",
             data.couple && val("cotrustee") === "yes" ? row("Spouse may serve alone", yn(val("spouse_alone"))) : "",
-            listRow("Trustees", lines("trustee_", 4)),
-            listRow("Financial POA", lines("poa_", 4)),
+            listRow("Trustees", lines("trustee_")),
+            listRow("Financial POA", lines("poa_")),
             row("Same as trustees", yn(val("executor_same"))),
-            listRow("Guardians", lines("guardian_", 3))
+            listRow("Guardians", lines("guardian_")),
+            noteRow("charge")
         ].filter(Boolean));
         section("While living", [
             row("Homecare", yn(val("homecare"))),
@@ -626,21 +995,23 @@
             "Health, education, and maintenance.",
             row("Pets", yn(val("pets"))),
             row("Trust protector", yn(val("protector"))),
-            listRow("Priority", lines("priority_", 3)),
+            listRow("Priority", lines("priority_")),
             row("Specific requests", val("admin_notes")),
             row("Financial advisor", val("advisor")),
-            row("CPA", val("cpa"))
-        ]);
+            row("CPA", val("cpa")),
+            noteRow("living")
+        ].filter(Boolean));
         if (data.couple) {
             section("At the first death", [
                 row("Remarriage protection", yn(val("remarriage"))),
                 row("Spouse stays trustee", yn(val("spouse_trustee"))),
-                row("Prenuptial agreement", yn(val("prenuptial")))
-            ]);
+                row("Prenuptial agreement", yn(val("prenuptial"))),
+                noteRow("survivor")
+            ].filter(Boolean));
         }
         section("Gifts and property", [
-            listRow("Retirement accounts", lines("retirement_", 4)),
-            listRow("Life insurance", lines("insurance_", 4)),
+            listRow("Retirement accounts", lines("retirement_")),
+            listRow("Life insurance", lines("insurance_")),
             row("Limited partnership", yn(val("lp")) + (val("lp") === "yes" && val("lp_count") ? " (" + val("lp_count") + ")" : "")),
             row("LLC", yn(val("llc")) + (val("llc") === "yes" && val("llc_count") ? " (" + val("llc_count") + ")" : "")),
             row("Subtrust", yn(val("subtrust"))),
@@ -649,26 +1020,30 @@
             row("Deeds, transfer on death", val("deeds_tod") === "yes" ? "Yes" : "No"),
             row("Deeds, in trust", val("deeds_trust") === "yes" ? "Yes" : "No"),
             row("Entities", val("entities")),
-            listRow("Gifts", lines("gift_", 6)),
+            listRow("Gifts", lines("gift_")),
             row("Limited power of appointment, terms", yn(val("lpoa_terms"))),
             row("Limited power of appointment, percentage limit", yn(val("lpoa_percent"))),
             row("Limited power of appointment, charities", yn(val("lpoa_charity"))),
             row("Disinherit", disinheritLabel(val("disinherit_mode"))),
-            listRow("Disinherit names", lines("disinherit_", 4)),
-            row("Tangible property", val("tangible"))
+            listRow("Disinherit names", lines("disinherit_")),
+            row("Tangible property", val("tangible")),
+            noteRow("assets")
         ].filter(Boolean));
-        var shareRows = data.beneficiaries.map(function (share, index) {
+        var shareRows = data.beneficiaries.filter(function (share) {
+            return share.name || share.pct || share.pass;
+        }).map(function (share, index) {
             return row("Beneficiary " + (index + 1), [share.name, share.pct ? share.pct + "%" : "", passLabel(share.pass)].filter(Boolean).join(", "));
         });
         var remote = "—";
         if (val("remote") === "heirs") remote = "Heirs at law (Texas)";
         if (val("remote") === "charity") remote = "Charity: " + (val("remote_charity") || "—");
-        if (val("remote") === "named") remote = "Named: " + ([val("remote_named_1"), val("remote_named_2")].filter(Boolean).join("; ") || "—");
+        if (val("remote") === "named") remote = "Named: " + (lines("remote_named_").join("; ") || "—");
         section(data.couple ? "Final distribution, at the second death" : "Final distribution", shareRows.concat([
             row("Provisions", val("provisions")),
             row("Minor age", val("minor_age")),
-            row("If none survive", remote)
-        ]));
+            row("If none survive", remote),
+            noteRow("distribution")
+        ]).filter(Boolean));
         return blocks;
     }
 
@@ -768,6 +1143,8 @@
             URL.revokeObjectURL(link.href);
             link.remove();
         }, 60000);
+        downloaded = true;
+        setReviewStatus();
     });
 
     paint(true);

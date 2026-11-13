@@ -7,6 +7,24 @@
 {% endblock %}
 
 {% block body %}
+{% macro dq_lines(prefix, count=2, maxlen=120) -%}
+                <div class="dq-lines" data-dq-slots="line" data-prefix="{{ prefix }}" data-maxlength="{{ maxlen }}">
+                    {% for n in range(1, count + 1) %}
+                    <label class="dq-line"><span>{{ n }}</span><input name="{{ prefix }}{{ n }}" type="text" maxlength="{{ maxlen }}"></label>
+                    {% endfor %}
+                </div>
+{%- endmacro %}
+{% macro dq_notes(name) -%}
+                <div class="dq-notes" data-dq-notes>
+                    <button type="button" class="dq-notes-toggle" aria-expanded="false">
+                        <span class="dq-notes-mark" aria-hidden="true">+</span>
+                        Optional Notes
+                    </button>
+                    <div class="dq-notes-body" hidden>
+                        <textarea name="{{ name }}" rows="1" maxlength="2000" aria-label="Optional Notes"></textarea>
+                    </div>
+                </div>
+{%- endmacro %}
 <nav class="navbar">
     <div class="navbar-left">
         <a href="{{ url_for('dashboard') }}" class="navbar-brand">
@@ -19,7 +37,7 @@
     <a href="{{ url_for('logout') }}" class="btn-pill btn-sm">Log Out</a>
 </nav>
 
-<main class="dq is-couple" id="dq" data-firm="{{ firm_name or 'EP Intelligence' }}" data-use-url="{{ url_for('api_design_questionnaire_use') }}">
+<main class="dq is-single" id="dq" data-firm="{{ firm_name or 'EP Intelligence' }}" data-use-url="{{ url_for('api_design_questionnaire_use') }}">
     <form class="dq-form" id="dq-form" autocomplete="off" spellcheck="false">
         <div class="dq-progress" id="dq-progress" role="tablist" aria-label="Sections"></div>
         <div class="dq-scroll">
@@ -27,41 +45,33 @@
             <section data-step="people">
                 <h2 class="dq-h">The trust</h2>
                 <fieldset class="dq-set">
-                    <legend>Clients</legend>
+                    <legend>Household</legend>
                     <div class="dq-choices">
-                        <label class="dq-choice"><input type="radio" name="household" value="couple" checked> Couple</label>
-                        <label class="dq-choice"><input type="radio" name="household" value="single"> Single</label>
+                        <label class="dq-choice"><input type="radio" name="household" value="single" checked> Single</label>
+                        <label class="dq-choice"><input type="radio" name="household" value="couple"> Couple</label>
                     </div>
                 </fieldset>
-                <label class="dq-field">Client
+                <label class="dq-field"><span id="dq-client-field-label">Client</span>
                     <input name="client_name" type="text" maxlength="120">
                 </label>
-                <label class="dq-field" data-couple>Spouse
+                <label class="dq-field" data-couple><span id="dq-spouse-field-label">Client 2</span>
                     <input name="spouse_name" type="text" maxlength="120">
                 </label>
                 <label class="dq-field">Trust name
                     <input name="trust_name" type="text" maxlength="160">
                 </label>
+                {{ dq_notes('notes_people') }}
             </section>
 
             <section data-step="health" hidden>
                 <h2 class="dq-h">Health care</h2>
                 <h3 class="dq-sub" id="dq-client-agent-heading">Client's agents</h3>
-                <div class="dq-lines">
-                    <label class="dq-line"><span>1</span><input name="client_agent_1" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>2</span><input name="client_agent_2" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>3</span><input name="client_agent_3" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>4</span><input name="client_agent_4" type="text" maxlength="120"></label>
-                </div>
+                {{ dq_lines('client_agent_') }}
                 <div data-couple>
-                    <h3 class="dq-sub" id="dq-spouse-agent-heading">Spouse's agents</h3>
-                    <div class="dq-lines">
-                        <label class="dq-line"><span>1</span><input name="spouse_agent_1" type="text" maxlength="120"></label>
-                        <label class="dq-line"><span>2</span><input name="spouse_agent_2" type="text" maxlength="120"></label>
-                        <label class="dq-line"><span>3</span><input name="spouse_agent_3" type="text" maxlength="120"></label>
-                        <label class="dq-line"><span>4</span><input name="spouse_agent_4" type="text" maxlength="120"></label>
-                    </div>
+                    <h3 class="dq-sub" id="dq-spouse-agent-heading">Client 2's agents</h3>
+                    {{ dq_lines('spouse_agent_') }}
                 </div>
+                {{ dq_notes('notes_health') }}
             </section>
 
             <section data-step="wishes" hidden>
@@ -95,7 +105,7 @@
                     </label>
                 </fieldset>
                 <fieldset class="dq-set" data-couple>
-                    <legend id="dq-spouse-wish-heading">Spouse</legend>
+                    <legend id="dq-spouse-wish-heading">Client 2</legend>
                     <p class="dq-label">Pace</p>
                     <div class="dq-choices">
                         <label class="dq-choice"><input type="radio" name="spouse_speed" value="slow"> Slow</label>
@@ -122,6 +132,7 @@
                         <input name="spouse_wishes" type="text" maxlength="240">
                     </label>
                 </fieldset>
+                {{ dq_notes('notes_wishes') }}
             </section>
 
             <section data-step="charge" hidden>
@@ -147,19 +158,9 @@
                     <p class="dq-label" data-single data-cotrustee>At disability or death.</p>
                 </fieldset>
                 <h3 class="dq-sub">Trustees</h3>
-                <div class="dq-lines">
-                    <label class="dq-line"><span>1</span><input name="trustee_1" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>2</span><input name="trustee_2" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>3</span><input name="trustee_3" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>4</span><input name="trustee_4" type="text" maxlength="120"></label>
-                </div>
+                {{ dq_lines('trustee_') }}
                 <h3 class="dq-sub">Financial POA</h3>
-                <div class="dq-lines">
-                    <label class="dq-line"><span>1</span><input name="poa_1" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>2</span><input name="poa_2" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>3</span><input name="poa_3" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>4</span><input name="poa_4" type="text" maxlength="120"></label>
-                </div>
+                {{ dq_lines('poa_') }}
                 <fieldset class="dq-set">
                     <legend>Pour-over will</legend>
                     <p class="dq-label">Same as trustees</p>
@@ -169,11 +170,8 @@
                     </div>
                 </fieldset>
                 <h3 class="dq-sub">Guardians</h3>
-                <div class="dq-lines">
-                    <label class="dq-line"><span>1</span><input name="guardian_1" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>2</span><input name="guardian_2" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>3</span><input name="guardian_3" type="text" maxlength="120"></label>
-                </div>
+                {{ dq_lines('guardian_') }}
+                {{ dq_notes('notes_charge') }}
             </section>
 
             <section data-step="living" hidden>
@@ -198,11 +196,7 @@
                     <label class="dq-choice"><input type="radio" name="protector" value="no"> No</label>
                 </div>
                 <h3 class="dq-sub">Priority</h3>
-                <div class="dq-lines">
-                    <label class="dq-line"><span>1</span><input name="priority_1" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>2</span><input name="priority_2" type="text" maxlength="120"></label>
-                    <label class="dq-line"><span>3</span><input name="priority_3" type="text" maxlength="120"></label>
-                </div>
+                {{ dq_lines('priority_') }}
                 <label class="dq-field">Requests
                     <textarea name="admin_notes" rows="3" maxlength="2000"></textarea>
                 </label>
@@ -213,6 +207,7 @@
                 <label class="dq-field">CPA
                     <input name="cpa" type="text" maxlength="120">
                 </label>
+                {{ dq_notes('notes_living') }}
             </section>
 
             <section data-step="survivor" data-couple hidden>
@@ -232,24 +227,15 @@
                     <label class="dq-choice"><input type="radio" name="prenuptial" value="yes"> Yes</label>
                     <label class="dq-choice"><input type="radio" name="prenuptial" value="no"> No</label>
                 </div>
+                {{ dq_notes('notes_survivor') }}
             </section>
 
             <section data-step="assets" hidden>
                 <h2 class="dq-h">Gifts and property</h2>
                 <h3 class="dq-sub">Retirement accounts</h3>
-                <div class="dq-lines">
-                    <label class="dq-line"><span>1</span><input name="retirement_1" type="text" maxlength="160"></label>
-                    <label class="dq-line"><span>2</span><input name="retirement_2" type="text" maxlength="160"></label>
-                    <label class="dq-line"><span>3</span><input name="retirement_3" type="text" maxlength="160"></label>
-                    <label class="dq-line"><span>4</span><input name="retirement_4" type="text" maxlength="160"></label>
-                </div>
+                {{ dq_lines('retirement_', 2, 160) }}
                 <h3 class="dq-sub">Life insurance</h3>
-                <div class="dq-lines">
-                    <label class="dq-line"><span>1</span><input name="insurance_1" type="text" maxlength="160"></label>
-                    <label class="dq-line"><span>2</span><input name="insurance_2" type="text" maxlength="160"></label>
-                    <label class="dq-line"><span>3</span><input name="insurance_3" type="text" maxlength="160"></label>
-                    <label class="dq-line"><span>4</span><input name="insurance_4" type="text" maxlength="160"></label>
-                </div>
+                {{ dq_lines('insurance_', 2, 160) }}
                 <div class="dq-yn">
                     <span>Limited partnership</span>
                     <label class="dq-choice"><input type="radio" name="lp" value="yes"> Yes</label>
@@ -288,14 +274,7 @@
                     <input name="entities" type="text" maxlength="240">
                 </label>
                 <h3 class="dq-sub">Gifts</h3>
-                <div class="dq-lines">
-                    <label class="dq-line"><span>1</span><input name="gift_1" type="text" maxlength="200"></label>
-                    <label class="dq-line"><span>2</span><input name="gift_2" type="text" maxlength="200"></label>
-                    <label class="dq-line"><span>3</span><input name="gift_3" type="text" maxlength="200"></label>
-                    <label class="dq-line"><span>4</span><input name="gift_4" type="text" maxlength="200"></label>
-                    <label class="dq-line"><span>5</span><input name="gift_5" type="text" maxlength="200"></label>
-                    <label class="dq-line"><span>6</span><input name="gift_6" type="text" maxlength="200"></label>
-                </div>
+                {{ dq_lines('gift_', 2, 200) }}
                 <fieldset class="dq-set">
                     <legend>Limited power of appointment</legend>
                     <div class="dq-yn"><span>Terms</span>
@@ -318,22 +297,18 @@
                         <label class="dq-choice"><input type="radio" name="disinherit_mode" value="money"> Money only</label>
                         <label class="dq-choice"><input type="radio" name="disinherit_mode" value="both"> Money and decisions</label>
                     </div>
-                    <div class="dq-lines">
-                        <label class="dq-line"><span>1</span><input name="disinherit_1" type="text" maxlength="120"></label>
-                        <label class="dq-line"><span>2</span><input name="disinherit_2" type="text" maxlength="120"></label>
-                        <label class="dq-line"><span>3</span><input name="disinherit_3" type="text" maxlength="120"></label>
-                        <label class="dq-line"><span>4</span><input name="disinherit_4" type="text" maxlength="120"></label>
-                    </div>
+                    {{ dq_lines('disinherit_') }}
                 </fieldset>
                 <label class="dq-field">Tangible property
                     <input name="tangible" type="text" maxlength="240">
                 </label>
+                {{ dq_notes('notes_assets') }}
             </section>
 
             <section data-step="distribution" hidden>
                 <h2 class="dq-h">Who inherits</h2>
-                <div class="dq-bens" id="dq-bens">
-                    {% for n in [1, 2, 3, 4, 5] %}
+                <div class="dq-bens" id="dq-bens" data-dq-slots="ben">
+                    {% for n in range(1, 4) %}
                     <div class="dq-ben">
                         <span>{{ n }}</span>
                         <input name="ben_name_{{ n }}" type="text" maxlength="120" aria-label="Beneficiary {{ n }}">
@@ -366,19 +341,15 @@
                         <input name="remote_charity" type="text" maxlength="160">
                     </label>
                     <div class="dq-remote-named">
-                        <label class="dq-field">Name
-                            <input name="remote_named_1" type="text" maxlength="160">
-                        </label>
-                        <label class="dq-field">Also
-                            <input name="remote_named_2" type="text" maxlength="160">
-                        </label>
+                        {{ dq_lines('remote_named_', 2, 160) }}
                     </div>
                 </fieldset>
+                {{ dq_notes('notes_distribution') }}
             </section>
 
             <section data-step="review" hidden>
                 <h2 class="dq-h">Finished</h2>
-                <p class="dq-lead">Not saved.</p>
+                <p class="dq-lead" id="dq-review-status">Not saved.</p>
                 <button type="button" class="dq-download" id="dq-download">Download Completed Questionnaire</button>
             </section>
         </div>
@@ -390,7 +361,6 @@
 
     <aside class="dq-stage is-hero" id="dq-stage">
         <header class="dq-mast">
-            <p class="dq-kicker">Revocable living trust</p>
             <h2 class="dq-trust" id="dq-trust"></h2>
             <p class="dq-who" id="dq-who"></p>
         </header>
